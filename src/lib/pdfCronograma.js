@@ -31,7 +31,10 @@ import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
 const CABECALHOS = {
-  descricao:   ['PACOTE + LOTE', 'PACOTE+LOTE', 'PACOTE E LOTE', 'DESCRIÇÃO', 'ATIVIDADE'],
+  // "ATIVIDADE" não entra aqui: no arquivo semanal esse texto também
+  // aparece solto na legenda ("TOTAL: 37 ATIVIDADES") e batia com
+  // essa coluna por engano, roubando espaço da coluna responsável.
+  descricao:   ['PACOTE + LOTE', 'PACOTE+LOTE', 'PACOTE E LOTE', 'DESCRIÇÃO'],
   responsavel: ['RESPONSAVEL', 'RESPONSÁVEL'],
   inicio:      ['INICIO', 'INÍCIO'],           // a coluna "início" pura, sem "META" nem "REAL" na frente
   termino:     ['TÉRMINO', 'TERMINO'],
@@ -113,56 +116,132 @@ function agruparEmLinhas(fragmentos, tolerancia = 3) {
 /* ── Acha o cabeçalho e define os limites de cada coluna ─────── */
 
 function acharColunas(linhas) {
+  let melhor = null
+
   for (const linha of linhas) {
     const achado = {}
     for (const item of linha.itens) {
       const norm = normalizar(item.texto)
+      if (!norm) continue
       for (const [coluna, alvos] of Object.entries(CABECALHOS)) {
         if (achado[coluna]) continue
-        if (alvos.some((a) => norm === a || norm.startsWith(a))) achado[coluna] = item
+        // As duas direções importam: um relatório real veio com o
+        // título "RESPONSAVEL" cortado ao meio ("RESPONS"), por causa
+        // de uma quebra de linha estranha no PDF de origem. O guard de
+        // 4 letras evita que um fragmento curto qualquer combine à toa.
+        const bate = alvos.some((a) => norm === a || norm.startsWith(a)
+          || (norm.length >= 4 && a.startsWith(norm)))
+        if (bate) achado[coluna] = item
       }
     }
-    // Cabeçalho de verdade tem pelo menos estas quatro colunas juntas na mesma linha.
-    if (achado.descricao && achado.responsavel && achado.inicio && achado.termino) {
-      // A fronteira de cada coluna é o MEIO DO CAMINHO até o próximo título,
-      // não a posição do título em si — um título curto ("Peso") numa coluna
-      // larga fica centralizado, e usar a posição dele como início cortaria
-      // texto do corpo que começa mais à esquerda, como aconteceu aqui.
-      const ordemNaLinha = [...linha.itens].sort((a, b) => a.x - b.x)
-      const limites = {}
-      for (const [coluna, item] of Object.entries(achado)) {
-        const i = ordemNaLinha.indexOf(item)
-        const anterior = ordemNaLinha[i - 1]
-        const proximo = ordemNaLinha[i + 1]
-        limites[coluna] = {
-          x0: anterior ? (anterior.x + item.x) / 2 : 0,
-          x1: proximo ? (item.x + proximo.x) / 2 : item.x + 400,
-        }
+    // O mínimo para confiar que é a linha do cabeçalho: estas três
+    // nunca vieram quebradas de um jeito irreconhecível nos arquivos
+    // reais. "Pacote + Lote" (a descrição) às vezes vem — quando não
+    // vem, cai no plano B logo abaixo.
+    if (achado.responsavel && achado.inicio && achado.termino) {
+      if (!melhor || Object.keys(achado).length > Object.keys(melhor.achado).length) {
+        melhor = { linha, achado }
       }
-      return { y: linha.y, limites }
     }
   }
-  return null
+
+  if (!melhor) return null
+  const { linha, achado } = melhor
+
+  // Se a descrição não tiver título reconhecível nesta linha, ela
+  // ainda existe: é sempre a coluna mais à esquerda da tabela. Um
+  // marcador virtual em x=0 garante que a fronteira entre ela e a
+  // próxima coluna real seja calculada do mesmo jeito — o meio do
+  // caminho — em vez de a coluna vizinha "comer" o espaço todo.
+  if (!achado.descricao) achado.descricao = { x: 0, virtual: true }
+
+  // A fronteira de cada coluna é o MEIO DO CAMINHO até o próximo
+  // título de verdade — não até o próximo fragmento de texto
+  // qualquer da linha, que pode ser um rótulo solto ("MÊS: 08/2026",
+  // "TOTAL: 37 ATIVIDADES") sem relação nenhuma com a tabela.
+  //
+  // "Próximo título de verdade" inclui colunas que eu não extraio
+  // ("META INÍCIO", "REAL TÉRMINO", "JUSTIFICATIVA", ou uma coluna
+  // de código de 1 letra tipo "P") mas que EXISTEM de verdade na
+  // tabela e ocupam espaço real entre as colunas que eu uso.
+  // Ignorá-las faria a coluna vizinha esticar e engolir a data
+  // errada — foi exatamente o que aconteceu num arquivo real: sem
+  // contar "META INÍCIO", a coluna do responsável esticava até
+  // dentro da primeira data. E sem contar a coluna de 1 letra, ela
+  // esticava para o OUTRO lado e engolia o código da coluna vizinha.
+  const marcadoresDeFronteira = ['META', 'REAL', 'JUSTIFICATIVA']
+  const ehColunaDeCodigo = (item) => normalizar(item.texto).length === 1
+  const pontos = [...Object.values(achado)]
+  for (const item of linha.itens) {
+    if (pontos.includes(item)) continue
+    const norm = normalizar(item.texto)
+    if (marcadoresDeFronteira.some((m) => norm === m || norm.startsWith(m)) || ehColunaDeCodigo(item)) {
+      pontos.push(item)
+    }
+  }
+  pontos.sort((a, b) => a.x - b.x)
+
+  // O meio do caminho é a régua padrão — mas uma coluna de código
+  // de 1 letra (valores curtos como "C", "A") não precisa de largura
+  // nenhuma: dar a ela metade do espaço até a vizinha rouba o começo
+  // do texto da coluna seguinte. Por isso a fronteira ao lado de uma
+  // coluna de código fica colada nela, não no meio do caminho.
+  const MARGEM_COLUNA_DE_CODIGO = 8
+  function fronteira(a, b) {
+    if (ehColunaDeCodigo(a) && !a.virtual) return a.x + MARGEM_COLUNA_DE_CODIGO
+    if (ehColunaDeCodigo(b) && !b.virtual) return b.x - MARGEM_COLUNA_DE_CODIGO
+    return (a.x + b.x) / 2
+  }
+
+  const limites = {}
+  for (const [coluna, item] of Object.entries(achado)) {
+    const i = pontos.indexOf(item)
+    const anterior = pontos[i - 1]
+    const proximo = pontos[i + 1]
+    limites[coluna] = {
+      x0: anterior ? fronteira(anterior, item) : 0,
+      x1: proximo ? fronteira(item, proximo) : item.x + 400,
+    }
+  }
+
+  // O cabeçalho pode ocupar duas linhas visuais (o mesmo motivo de
+  // "RESPONSAVEL" virar "RESPONS" + "AVEL": o título quebrou). A
+  // segunda linha não tem data nem texto longo — só pontas soltas de
+  // título ("AVEL", "TÉRMINO"). Se eu não incluir essa segunda linha
+  // no cabeçalho, ela sobra como se fosse a primeira linha de dados
+  // e contamina a atividade mais próxima. Absorve enquanto a linha
+  // de baixo parecer continuação de título (sem data, só fragmentos
+  // curtos) — para no primeiro sinal de dado de verdade.
+  let yFinal = linha.y
+  const abaixo = [...linhas].filter((l) => l.y < linha.y - 0.5).sort((a, b) => b.y - a.y)
+  for (const l of abaixo) {
+    const temData = l.itens.some((it) => dataDoTexto(it.texto))
+    const soTituloCurto = l.itens.every((it) => it.texto.length <= 10)
+    if (temData || !soTituloCurto) break
+    yFinal = l.y
+  }
+
+  return { y: yFinal, limites }
 }
 
 /* ── Remonta as atividades a partir das linhas de dados ────────
 
    O ponto delicado: quando a descrição de um pacote quebra em
-   duas linhas ("MARCAÇÃO + ESTRUTURA DE DRYWALL -" / "BLOCO
-   VENDAS - GERAL."), a célula é centralizada verticalmente — a
-   linha com data e responsável fica NO MEIO das duas, não acima
-   nem abaixo das duas. Tentar "colar no vizinho de cima" ou "colar
-   no vizinho de baixo" (as duas primeiras tentativas) sempre erra
-   uma das duas metades.
+   duas linhas, a linha com a DATA e o RESPONSÁVEL — a ÂNCORA da
+   atividade — nem sempre fica no mesmo lugar em relação às duas.
+   Num relatório real ela ficava centralizada, entre as duas linhas
+   da descrição. Noutro (o semanal, mais compacto) ela fica no
+   topo, e a quebra vem DEPOIS. Tentar adivinhar uma direção fixa
+   ("cola no vizinho de cima", "cola no vizinho de baixo", "separa
+   pelo tamanho do espaço") quebra sempre que o próximo arquivo é
+   formatado diferente.
 
-   O que não falha é o TAMANHO do espaço: dentro de um mesmo
-   pacote, a distância entre linhas é de uns 7pt; entre um pacote e
-   o próximo, é de uns 16pt — mais que o dobro. Em vez de adivinhar
-   uma direção, agrupo as linhas pelo SALTO: um espaço grande é
-   fronteira entre atividades; um espaço pequeno é a mesma
-   atividade continuando. */
-
-const LIMIAR_ENTRE_ATIVIDADES = 11   // pt — maior que o espaço interno (~7), menor que o espaço entre pacotes (~16)
+   O que nunca falha: um pedaço de texto solto pertence à âncora
+   MAIS PERTO DELE, na distância vertical — não importa se ela está
+   acima ou abaixo. Isso vale para célula centralizada, alinhada
+   pelo topo, ou qualquer variação — e sobrevive até a espaçamentos
+   tão apertados que uma quebra de linha fica mais perto da
+   atividade seguinte do que da largura normal da própria linha. */
 
 function remontarAtividades(linhas, cabecalho) {
   const abaixoDoCabecalho = [...linhas]
@@ -170,44 +249,65 @@ function remontarAtividades(linhas, cabecalho) {
     .sort((a, b) => b.y - a.y)
   const fimRegiaoDatas = (cabecalho.limites.duracao?.x1 || cabecalho.limites.termino.x1 + 200)
 
-  // 1) Agrupa as linhas em blocos: um salto de Y grande abre um
-  //    bloco novo (uma atividade nova); um salto pequeno continua
-  //    o bloco atual.
-  const blocos = []
-  let yAnterior = null
+  // 1) Âncoras: linhas com pelo menos duas datas reconhecidas —
+  //    cada uma marca o "centro de gravidade" de uma atividade.
+  //
+  //    A tabela é alinhada à esquerda: um texto longo (uma descrição
+  //    comprida) pode vir num único fragmento cuja largura ultrapassa
+  //    a coluna dele e invade a próxima — o MEIO desse fragmento cai
+  //    fora da coluna onde ele começou. Por isso a classificação usa
+  //    a borda esquerda (item.x), não o meio: é ela que diz onde o
+  //    texto foi de fato escrito, não até onde ele se estende.
+  const ancoras = []
   for (const linha of abaixoDoCabecalho) {
-    if (yAnterior === null || (yAnterior - linha.y) > LIMIAR_ENTRE_ATIVIDADES) {
-      blocos.push([])
-    }
-    blocos[blocos.length - 1].push(linha)
-    yAnterior = linha.y
-  }
-
-  // 2) Dentro de cada bloco, separa o texto por coluna (posição X).
-  return blocos.map((bloco) => {
-    const descFrags = []
-    const respFrags = []
     const datas = []
-    for (const linha of bloco) {
-      for (const item of linha.itens) {
-        const meio = item.x + item.largura / 2
-        if (meio >= cabecalho.limites.descricao.x0 && meio < cabecalho.limites.descricao.x1) {
-          descFrags.push({ y: linha.y, x: item.x, texto: item.texto })
-        } else if (meio >= cabecalho.limites.responsavel.x0 && meio < cabecalho.limites.responsavel.x1) {
-          respFrags.push(item.texto)
-        } else if (meio >= cabecalho.limites.inicio.x0 && meio < fimRegiaoDatas) {
-          const d = dataDoTexto(item.texto)
-          if (d) datas.push(d)
-        }
+    for (const item of linha.itens) {
+      if (item.x >= cabecalho.limites.inicio.x0 && item.x < fimRegiaoDatas) {
+        const d = dataDoTexto(item.texto)
+        if (d) datas.push(d)
       }
     }
-    descFrags.sort((a, b) => b.y - a.y || a.x - b.x)
-    return {
-      descricao: descFrags.map((f) => f.texto).join(' ').replace(/\s+/g, ' ').trim(),
-      responsavel: respFrags.join(' ').replace(/\s+/g, ' ').trim(),
-      datas,
+    if (datas.length >= 2) {
+      ancoras.push({ y: linha.y, datas, respFrags: [], descFrags: [] })
     }
-  })
+  }
+  if (ancoras.length === 0) return []
+
+  // 2) Cada fragmento das colunas descrição e responsável, em
+  //    QUALQUER linha (âncora ou não), vai para a âncora numericamente
+  //    mais perto. O nome do responsável quebra em duas linhas do
+  //    mesmo jeito que a descrição às vezes quebra ("JOSE" numa linha,
+  //    "AMÉRICO" na de baixo) — por isso usa a mesma régua para as
+  //    duas colunas, em vez de só ler o texto da própria linha-âncora.
+  const rotear = (chave) => (linha, item) => {
+    let maisPerto = ancoras[0]
+    let menorDistancia = Math.abs(ancoras[0].y - linha.y)
+    for (const ancora of ancoras) {
+      const distancia = Math.abs(ancora.y - linha.y)
+      if (distancia < menorDistancia) { menorDistancia = distancia; maisPerto = ancora }
+    }
+    maisPerto[chave].push({ y: linha.y, x: item.x, texto: item.texto })
+  }
+  const paraDescricao = rotear('descFrags')
+  const paraResponsavel = rotear('respFrags')
+  for (const linha of abaixoDoCabecalho) {
+    for (const item of linha.itens) {
+      if (item.x >= cabecalho.limites.descricao.x0 && item.x < cabecalho.limites.descricao.x1) {
+        paraDescricao(linha, item)
+      } else if (item.x >= cabecalho.limites.responsavel.x0 && item.x < cabecalho.limites.responsavel.x1) {
+        paraResponsavel(linha, item)
+      }
+    }
+  }
+
+  const juntar = (frags) => [...frags].sort((a, b) => b.y - a.y || a.x - b.x)
+    .map((f) => f.texto).join(' ').replace(/\s+/g, ' ').trim()
+
+  return ancoras.map((ancora) => ({
+    descricao: juntar(ancora.descFrags),
+    responsavel: juntar(ancora.respFrags),
+    datas: ancora.datas,
+  }))
     .filter((a) => a.descricao && a.datas.length >= 2)
     .map((a, i) => {
       // As datas na região aparecem na ordem: meta início, meta término,

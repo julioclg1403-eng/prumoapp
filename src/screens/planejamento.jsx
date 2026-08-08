@@ -39,6 +39,7 @@ export default function Planejamento({ goto, perfil }) {
   const [localId, setLocalId] = useState('')
   const [editando, setEditando] = useState(null)
   const [emLote, setEmLote] = useState(null)
+  const [importandoPDF, setImportandoPDF] = useState(null)
   const [removendo, setRemovendo] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [verFechamento, setVerFechamento] = useState(false)
@@ -181,6 +182,9 @@ export default function Planejamento({ goto, perfil }) {
           acao={
             podeEditar && (
               <div className="row-flex">
+                <button className="btn btn-secondary" onClick={() => setImportandoPDF({})}>
+                  Importar PDF semanal
+                </button>
                 <button className="btn btn-secondary" onClick={() => setEmLote({ diasMarcados: [] })}>
                   Planejar em lote
                 </button>
@@ -412,7 +416,200 @@ export default function Planejamento({ goto, perfil }) {
         onOk={async () => { await dados.removerPlanejado(removendo.id); setRemovendo(null) }}
         onCancelar={() => setRemovendo(null)}
       />
+
+      <ImportarPDFSemanal
+        aberto={Boolean(importandoPDF)}
+        onFechar={() => setImportandoPDF(null)}
+        dados={dados}
+        dias={dias}
+        inicio={inicio}
+      />
     </>
+  )
+}
+
+/* ── Importação do PDF semanal ────────────────────────────
+   O relatório semanal é o mesmo relatório operacional mensal,
+   filtrado para os dias daquela janela. Reaproveita o leitor do
+   Cronograma (mesma tabela, já testada) e cruza cada atividade
+   com os 7 dias da semana que a TELA está mostrando no momento —
+   por isso não precisa ler a grade de dias do PDF, que às vezes
+   marca por cor de célula, não por texto. */
+
+function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
+  const [lendo, setLendo] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [nomeArquivo, setNomeArquivo] = useState('')
+  const [importando, setImportando] = useState(false)
+  const [feito, setFeito] = useState(null)
+
+  const fechar = () => {
+    setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
+  }
+
+  const onArquivo = async (e) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    e.target.value = ''
+    setNomeArquivo(arquivo.name)
+    setLendo(true)
+    setResultado(null)
+    setFeito(null)
+    try {
+      const { lerPlanejamentoDoPDF } = await import('../lib/pdfPlanejamento')
+      const lido = await lerPlanejamentoDoPDF(arquivo, {
+        servicos: dados.servicos, locais: dados.locais, diasDaSemana: dias,
+      })
+      setResultado(lido)
+    } catch (err) {
+      setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  const validos = (resultado?.itens || []).filter((i) => i.valido)
+
+  /* Quantos dias-de-planejamento novos isso realmente cria — um
+     pacote pode estar ativo em vários dias da semana, e alguns
+     desses dias já podem estar planejados (reimportação). */
+  const diasNovosPorItem = useMemo(() => {
+    return validos.map((it) => ({
+      item: it,
+      // Serviço novo (it.servico === null) nunca pode já estar
+      // planejado — ele ainda nem existe no cadastro. Só compara
+      // por id quando o serviço já existia de antes.
+      novos: it.diasAtivos.filter((dia) => !(it.servico && dados.planejamento.some(
+        (p) => p.data === dia && p.location_id === it.local.id && p.service_id === it.servico.id,
+      ))),
+    }))
+  }, [validos, dados]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totalDiasNovos = diasNovosPorItem.reduce((s, x) => s + x.novos.length, 0)
+  const servicosNovos = [...new Set(validos.filter((i) => !i.servico).map((i) => i.servicoTexto))]
+
+  const confirmar = async () => {
+    setImportando(true)
+    try {
+      // 1) Cria os serviços que ainda não existem — um por nome distinto.
+      const idPorNomeServico = {}
+      for (const nome of servicosNovos) {
+        const criado = await dados.salvarCadastro('servicos', { nome })
+        if (criado) idPorNomeServico[nome.toLowerCase()] = criado.id
+      }
+
+      // 2) Monta a lista final (pacote × dia novo) já com os ids reais.
+      const itensParaCriar = []
+      for (const { item, novos } of diasNovosPorItem) {
+        const serviceId = item.servico?.id || idPorNomeServico[item.servicoTexto.toLowerCase()]
+        if (!serviceId) continue
+        for (const dia of novos) {
+          itensParaCriar.push({
+            data: dia, service_id: serviceId, location_id: item.local.id,
+            company_id: null, observacao: null,
+          })
+        }
+      }
+
+      const salvos = itensParaCriar.length ? await dados.salvarPlanejadosEmLote(itensParaCriar) : []
+      setFeito({
+        criados: salvos?.length || 0,
+        jaExistiam: totalDiasNovos - (salvos?.length || 0),
+        servicosNovos: servicosNovos.length,
+      })
+    } finally {
+      setImportando(false)
+    }
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo="Importar PDF semanal" onFechar={fechar}>
+      <div className="stack-2">
+        {feito ? (
+          <>
+            <div className="alert success">
+              {plural(feito.criados, 'dia de planejamento criado', 'dias de planejamento criados')}.
+              {feito.servicosNovos > 0 && ` ${plural(feito.servicosNovos, 'serviço novo cadastrado', 'serviços novos cadastrados')}.`}
+              {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'dia já estava planejado', 'dias já estavam planejados')} e não foram repetidos.`}
+            </div>
+            <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
+          </>
+        ) : (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              O relatório semanal, do mesmo jeito que o setor de planejamento manda. Cada atividade
+              entra nos dias da semana de <strong>{rotuloDaSemana(inicio)}</strong> em que ela está
+              ativa — troque a semana na tela antes de importar, se for outro período.
+            </div>
+
+            <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
+              {lendo ? 'Lendo o PDF…' : nomeArquivo || 'Escolher arquivo .pdf'}
+              <input
+                type="file" accept=".pdf,application/pdf" onChange={onArquivo}
+                style={{ display: 'none' }} disabled={lendo}
+              />
+            </label>
+
+            {resultado?.erroGeral && <div className="alert danger">{resultado.erroGeral}</div>}
+
+            {resultado && !resultado.erroGeral && (
+              <>
+                <div className="alert info">
+                  {plural(totalDiasNovos, 'dia de planejamento novo', 'dias de planejamento novos')}
+                  {servicosNovos.length > 0 && ` · ${plural(servicosNovos.length, 'serviço novo', 'serviços novos')}`}
+                  {resultado.itens.length > validos.length
+                    ? ` · ${plural(resultado.itens.length - validos.length, 'pacote com problema', 'pacotes com problema')} (não entram)`
+                    : ''}.
+                </div>
+
+                <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
+                  {resultado.itens.map((it) => (
+                    <div
+                      key={it.linha}
+                      style={{
+                        fontSize: 12, padding: 8, borderRadius: 8,
+                        border: `1px solid ${it.valido ? 'var(--border)' : 'var(--danger)'}`,
+                        background: it.valido ? 'var(--surface)' : 'var(--danger-tint)',
+                      }}
+                    >
+                      <strong>{it.descricao}</strong>
+                      {it.valido ? (
+                        <div style={{ marginTop: 4 }}>
+                          <div>
+                            Serviço:{' '}
+                            {it.servico
+                              ? it.servico.nome
+                              : <span style={{ color: 'var(--info)', fontWeight: 600 }}>{it.servicoTexto} (novo)</span>}
+                          </div>
+                          <div>Local: {it.local.nome}</div>
+                          <div style={{ marginTop: 2 }}>
+                            Dias desta semana:{' '}
+                            {DIAS.filter((d) => it.diasAtivos.includes(somarDias(inicio, d.indice)))
+                              .map((d) => d.curto).join(', ') || '—'}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 4 }}>— {it.problemas.join(', ')}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="row-flex">
+                  <button className="btn btn-secondary grow" onClick={() => setResultado(null)}>Corrigir</button>
+                  <button
+                    className="btn btn-primary grow" onClick={confirmar}
+                    disabled={!totalDiasNovos || importando}
+                  >
+                    {importando ? 'Importando…' : `Importar ${plural(totalDiasNovos, 'dia', 'dias')}`}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </Sheet>
   )
 }
 
