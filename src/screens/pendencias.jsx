@@ -14,6 +14,12 @@ import {
 } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio } from '../components'
 
+function normalizarComparar(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
 export default function Pendencias({ perfil, params = {} }) {
   const dados = useDados()
   const hoje = hojeISO()
@@ -22,6 +28,7 @@ export default function Pendencias({ perfil, params = {} }) {
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [destaque, setDestaque] = useState(params.destacar || null)
+  const [importandoPDF, setImportandoPDF] = useState(false)
 
   const cont = contarPendencias(dados.pendencias, hoje)
 
@@ -87,7 +94,14 @@ export default function Pendencias({ perfil, params = {} }) {
         <PageHeader
           titulo="Pendências"
           sub={`${plural(lista.length, 'item', 'itens')} neste filtro`}
-          acao={<button className="btn btn-primary" onClick={abrirNova}><Icon name="mais_sinal" size={18} /> Nova</button>}
+          acao={
+            <div className="row-flex">
+              <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
+                Importar PDF tático
+              </button>
+              <button className="btn btn-primary" onClick={abrirNova}><Icon name="mais_sinal" size={18} /> Nova</button>
+            </div>
+          }
         />
 
         <div className="stack-2">
@@ -246,6 +260,166 @@ export default function Pendencias({ perfil, params = {} }) {
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
+
+      <ImportarPDFTatico
+        aberto={importandoPDF}
+        onFechar={() => setImportandoPDF(false)}
+        dados={dados}
+      />
     </>
+  )
+}
+
+/* ── Importação do PDF tático ─────────────────────────────
+   O relatório tático marca, com a cor de fundo da linha, quais
+   restrições precisam ser resolvidas nesta semana (vermelho) —
+   pdfTatico.js lê isso direto da página (não é texto, é a cor).
+   Cada linha vermelha vira uma pendência: o prazo é a própria data
+   de início do serviço (faz sentido — a restrição precisa sair do
+   caminho antes disso), e o responsável do relatório não é ligado
+   a um usuário do Prumo (são nomes de fora, tipo "LEONARDO"), então
+   fica só como texto na descrição. */
+
+function ImportarPDFTatico({ aberto, onFechar, dados }) {
+  const [lendo, setLendo] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [nomeArquivo, setNomeArquivo] = useState('')
+  const [importando, setImportando] = useState(false)
+  const [feito, setFeito] = useState(null)
+
+  const fechar = () => {
+    setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
+  }
+
+  const onArquivo = async (e) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    e.target.value = ''
+    setNomeArquivo(arquivo.name)
+    setLendo(true)
+    setResultado(null)
+    setFeito(null)
+    try {
+      const { lerTaticoDoPDF } = await import('../lib/pdfTatico')
+      setResultado(await lerTaticoDoPDF(arquivo))
+    } catch (err) {
+      setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  /* Uma pendência já importada antes (mesmo título) não entra de
+     novo — é assim que reimportar o relatório da semana seguinte
+     não duplica o que já foi trazido, resolvido ou não. */
+  const itensParaCriar = useMemo(() => {
+    const itens = resultado?.itens || []
+    return itens.map((it) => {
+      const titulo = `${it.acao_remocao} — ${it.servico}`
+      const jaExiste = dados.pendencias.some((p) => normalizarComparar(p.titulo) === normalizarComparar(titulo))
+      const linhasDescricao = [
+        it.lote && `Lote: ${it.lote}`,
+        it.responsavel && `Responsável (relatório): ${it.responsavel}`,
+        it.motivo && `Motivo: ${it.motivo}`,
+      ].filter(Boolean)
+      return {
+        item: it,
+        jaExiste,
+        novo: {
+          titulo,
+          descricao: linhasDescricao.join('\n') || null,
+          prazo: it.data_inicio_servico,
+          prioridade: 'alta',
+          origem: 'tatico_pdf',
+        },
+      }
+    })
+  }, [resultado, dados.pendencias])
+
+  const novos = itensParaCriar.filter((x) => !x.jaExiste)
+
+  const confirmar = async () => {
+    setImportando(true)
+    try {
+      const salvas = await dados.salvarPendenciasEmLote(novos.map((x) => x.novo))
+      setFeito({ criadas: salvas?.length || 0, jaExistiam: itensParaCriar.length - novos.length })
+    } finally {
+      setImportando(false)
+    }
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo="Importar PDF tático" onFechar={fechar}>
+      <div className="stack-2">
+        {feito ? (
+          <>
+            <div className="alert success">
+              {plural(feito.criadas, 'pendência criada', 'pendências criadas')}.
+              {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'item já tinha sido importado antes', 'itens já tinham sido importados antes')} e não foram repetidos.`}
+            </div>
+            <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
+          </>
+        ) : (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              O planejamento tático, do jeito que o setor de planejamento manda. Puxo só as linhas marcadas
+              em vermelho no relatório — "A Resolver na Semana" — e viram pendências, com prazo na data de
+              início do serviço.
+            </div>
+
+            <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
+              {lendo ? 'Lendo o PDF…' : nomeArquivo || 'Escolher arquivo .pdf'}
+              <input
+                type="file" accept=".pdf,application/pdf" onChange={onArquivo}
+                style={{ display: 'none' }} disabled={lendo}
+              />
+            </label>
+
+            {resultado?.erroGeral && <div className="alert danger">{resultado.erroGeral}</div>}
+
+            {resultado && !resultado.erroGeral && (
+              <>
+                <div className="alert info">
+                  {plural(novos.length, 'pendência nova', 'pendências novas')}
+                  {itensParaCriar.length > novos.length
+                    ? ` · ${plural(itensParaCriar.length - novos.length, 'item já importado', 'itens já importados')}`
+                    : ''}.
+                </div>
+
+                <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
+                  {itensParaCriar.map(({ item, jaExiste, novo }) => (
+                    <div
+                      key={item.linha}
+                      style={{
+                        fontSize: 12, padding: 8, borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface)', opacity: jaExiste ? 0.6 : 1,
+                      }}
+                    >
+                      <strong>{novo.titulo}</strong>
+                      <div style={{ marginTop: 4, whiteSpace: 'pre-line' }}>{novo.descricao}</div>
+                      <div style={{ marginTop: 4 }}>
+                        Prazo: {formatarData(novo.prazo)}
+                        {jaExiste && ' · já importado antes'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="row-flex">
+                  <button className="btn btn-secondary grow" onClick={() => setResultado(null)}>Corrigir</button>
+                  <button
+                    className="btn btn-primary grow" onClick={confirmar}
+                    disabled={!novos.length || importando}
+                  >
+                    {importando ? 'Importando…' : `Importar ${plural(novos.length, 'pendência', 'pendências')}`}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </Sheet>
   )
 }

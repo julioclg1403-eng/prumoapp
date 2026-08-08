@@ -542,6 +542,33 @@ export function DadosProvider({ perfil, children }) {
     [perfil.id, escopo, checar],
   )
 
+  const salvarPendenciasEmLote = useCallback(
+    async (itens) => {
+      if (!itens.length) return []
+      const { organization_id, worksite_id } = escopo()
+      const salvas = checar(
+        await supabase.from('issues')
+          .insert(itens.map((i) => ({
+            organization_id, worksite_id,
+            titulo: i.titulo,
+            descricao: i.descricao || null,
+            responsavel_id: i.responsavel_id || null,
+            prioridade: i.prioridade || 'media',
+            prazo: i.prazo || null,
+            status: 'aberta',
+            origem: i.origem || 'manual',
+            autor_id: perfil.id,
+          })))
+          .select('*'),
+        'importar as pendências',
+      )
+      if (!salvas) return null
+      setTudo((t) => t && ({ ...t, pendencias: [...t.pendencias, ...salvas] }))
+      return salvas
+    },
+    [perfil.id, escopo, checar],
+  )
+
   const alternarPendencia = useCallback(
     async (id) => {
       const atual = tudo?.pendencias.find((p) => p.id === id)
@@ -995,7 +1022,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
-      salvarPendencia, alternarPendencia,
+      salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel,
@@ -1007,7 +1034,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
-      mesclarColaborador, salvarPendencia, alternarPendencia,
+      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
