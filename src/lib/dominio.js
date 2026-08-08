@@ -527,6 +527,41 @@ export function curvaFisica(itens, hoje = hojeISO()) {
   }
 }
 
+/* A curva S: a linha do PREVISTO dá pra calcular pra qualquer data,
+   passada ou futura — vem só de data_início/data_fim/peso de cada
+   etapa, sem depender de histórico nenhum. Já o REALIZADO não tem
+   história: o banco guarda a medição atual de cada etapa, não uma
+   cada vez que ela mudou. Por isso esta função devolve a linha
+   prevista inteira (do início ao fim de todas as etapas) e só UM
+   ponto de realizado — hoje —, em vez de fingir uma curva de
+   realizado que os dados não sustentam. */
+export function pontosDaCurvaS(itens, hoje = hojeISO(), maxPontos = 24) {
+  const comData = itens.filter((i) => i.data_inicio && i.data_fim)
+  if (comData.length === 0) return { pontos: [], hoje: null }
+
+  const inicio = comData.reduce((m, i) => (i.data_inicio < m ? i.data_inicio : m), comData[0].data_inicio)
+  const fimPrevisto = comData.reduce((m, i) => (i.data_fim > m ? i.data_fim : m), comData[0].data_fim)
+  // A janela vai até o fim previsto OU até hoje, o que for mais tarde —
+  // senão uma obra atrasada corta a linha antes do ponto de hoje.
+  const fim = fimPrevisto > hoje ? fimPrevisto : hoje
+
+  const totalDias = Math.max(1, diffDias(fim, inicio))
+  const passo = Math.max(1, Math.ceil(totalDias / maxPontos))
+
+  const pontos = []
+  for (let d = 0; d <= totalDias; d += passo) {
+    const data = somarDias(inicio, d)
+    pontos.push({ data, previsto: curvaFisica(comData, data).percentualPrevisto })
+  }
+  // Garante que a última data da janela sempre entra, mesmo que o
+  // passo não bata exato nela — senão a linha para antes do fim.
+  if (pontos[pontos.length - 1].data !== fim) {
+    pontos.push({ data: fim, previsto: curvaFisica(comData, fim).percentualPrevisto })
+  }
+
+  return { pontos, hoje: curvaFisica(comData, hoje).percentualReal, inicio, fim }
+}
+
 /* Aceita tanto "31/12/2026" (o formato que sai do Excel em
    português) quanto "2026-12-31". Devolve null se não entender —
    quem chama decide o que fazer com uma linha ruim, não esta função. */

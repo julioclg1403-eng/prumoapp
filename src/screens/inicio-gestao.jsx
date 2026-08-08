@@ -7,10 +7,11 @@
 
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, somarDias, formatarData, formatarDataCurta, nomeDiaSemana,
+  hojeISO, somarDias, diffDias, formatarData, formatarDataCurta, nomeDiaSemana,
   diarioDaData, situacaoDiario, totalPresentes, progressoDiario,
-  filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais,
+  filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
+  curvaFisica, pontosDaCurvaS, contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
 
@@ -44,6 +45,29 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const pico = Math.max(1, ...barras.map((b) => b.total))
 
   const ultimosDiarios = [...dados.diarios].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 4)
+
+  /* ── Painel geral ── */
+  const curvaFisicaHoje = curvaFisica(dados.cronograma, hoje)
+  const curvaS = pontosDaCurvaS(dados.cronograma, hoje)
+
+  const de30 = somarDias(hoje, -29)
+  const efetivoMes = consolidarEfetivo(dados.diarios, { de: de30, ate: hoje })
+  const barrasMes = Array.from({ length: 30 }, (_, i) => {
+    const data = somarDias(de30, i)
+    const dia = efetivoMes.dias.find((d) => d.data === data)
+    return { data, total: dia ? dia.total : 0 }
+  })
+  const picoMes = Math.max(1, ...barrasMes.map((b) => b.total))
+
+  const taticasDaObra = pendenciasTaticas(dados.pendencias)
+  const contTatico = contarPendencias(taticasDaObra, hoje)
+
+  const contPedidos = contarRequisicoes(dados.requisicoes, perfil.id, hoje)
+  const porEtapaPedido = ETAPAS_REQUISICAO.map((etapa) => ({
+    etapa, rotulo: ROTULO_REQUISICAO[etapa],
+    total: dados.requisicoes.filter((r) => r.status === etapa).length,
+  }))
+  const maxEtapaPedido = Math.max(1, ...porEtapaPedido.map((e) => e.total))
 
   return (
     <>
@@ -207,6 +231,119 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               })}
             </div>
           </div>
+
+          {/* ── Painel geral ── */}
+          <div>
+            <div className="t-micro" style={{ marginBottom: 10 }}>Painel geral</div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+              {/* Curva S do cronograma */}
+              <div className="card">
+                <div className="row-between" style={{ marginBottom: 4 }}>
+                  <div className="t-micro">Curva S — cronograma físico</div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('cronograma')}>
+                    Abrir <Icon name="avancar" size={14} />
+                  </button>
+                </div>
+                {curvaS.pontos.length === 0 ? (
+                  <div className="t-caption" style={{ padding: '20px 0' }}>
+                    Sem etapas cadastradas ainda. Importe o cronograma para ver a curva.
+                  </div>
+                ) : (
+                  <>
+                    <CurvaS
+                      pontos={curvaS.pontos} inicio={curvaS.inicio} fim={curvaS.fim}
+                      hoje={hoje} real={curvaFisicaHoje.percentualReal} previstoHoje={curvaFisicaHoje.percentualPrevisto}
+                    />
+                    <div className="row-wrap" style={{ gap: 12, marginTop: 6 }}>
+                      <span className="t-caption">
+                        <b style={{ color: 'var(--graphite)' }}>●</b> Previsto hoje: {curvaFisicaHoje.percentualPrevisto}%
+                      </span>
+                      <span className="t-caption">
+                        <b style={{ color: curvaFisicaHoje.percentualReal >= curvaFisicaHoje.percentualPrevisto ? 'var(--success)' : 'var(--danger)' }}>●</b>{' '}
+                        Realizado: {curvaFisicaHoje.percentualReal}%
+                      </span>
+                    </div>
+                    <div className="t-caption" style={{ marginTop: 4, color: 'var(--text-3)' }}>
+                      A linha é o previsto (dá pra calcular para qualquer data). O realizado só tem o
+                      ponto de hoje — o app guarda a medição atual de cada etapa, não um histórico.
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Efetivo — 30 dias */}
+              <div className="card">
+                <div className="row-between" style={{ marginBottom: 14 }}>
+                  <div className="t-micro">Efetivo — últimos 30 dias</div>
+                  <span className="t-caption">média {efetivoMes.media} · pico {efetivoMes.pico}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 92 }}>
+                  {barrasMes.map((b) => (
+                    <div
+                      key={b.data} className="grow" title={`${formatarData(b.data)}: ${b.total}`}
+                      style={{
+                        height: Math.max(2, (b.total / picoMes) * 84),
+                        background: b.data === hoje ? 'var(--primary)' : 'var(--graphite)',
+                        opacity: b.total ? 1 : 0.15,
+                        borderRadius: 2,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="row-between" style={{ marginTop: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatarDataCurta(de30)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatarDataCurta(hoje)}</span>
+                </div>
+              </div>
+
+              {/* Pendências — dia a dia x tático */}
+              <div className="card">
+                <div className="row-between" style={{ marginBottom: 14 }}>
+                  <div className="t-micro">Pendências</div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
+                    Abrir <Icon name="avancar" size={14} />
+                  </button>
+                </div>
+                <div className="stack-2">
+                  <BarraPendencias titulo="Dia a dia" cont={cont} />
+                  <BarraPendencias titulo="Tático" cont={contTatico} />
+                </div>
+              </div>
+
+              {/* Compras — etapas */}
+              <div className="card">
+                <div className="row-between" style={{ marginBottom: 14 }}>
+                  <div className="t-micro">Compras — por etapa</div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('requisicoes')}>
+                    Abrir <Icon name="avancar" size={14} />
+                  </button>
+                </div>
+                {dados.requisicoes.length === 0 ? (
+                  <div className="t-caption" style={{ padding: '20px 0' }}>Nenhuma requisição ainda.</div>
+                ) : (
+                  <div className="stack-1">
+                    {porEtapaPedido.map((e) => (
+                      <div key={e.etapa} className="row-between" style={{ gap: 8, alignItems: 'center' }}>
+                        <span className="t-caption" style={{ width: 84, flex: 'none' }}>{e.rotulo}</span>
+                        <div className="grow" style={{ height: 8, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ width: `${(e.total / maxEtapaPedido) * 100}%`, height: '100%', background: 'var(--graphite)' }} />
+                        </div>
+                        <span className="t-num" style={{ width: 20, textAlign: 'right', fontSize: 12, fontWeight: 600 }}>
+                          {e.total}
+                        </span>
+                      </div>
+                    ))}
+                    {contPedidos.atrasadas > 0 && (
+                      <div className="t-caption" style={{ color: 'var(--danger)', marginTop: 4 }}>
+                        {plural(contPedidos.atrasadas, 'requisição atrasada', 'requisições atrasadas')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </>
@@ -217,6 +354,57 @@ function Barra({ percentual }) {
   return (
     <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
       <div style={{ width: `${percentual}%`, height: '100%', background: 'var(--success)' }} />
+    </div>
+  )
+}
+
+/* A linha do previsto + um ponto para o realizado de hoje — ver a
+   explicação em pontosDaCurvaS() sobre por que não existe uma linha
+   de realizado inteira. */
+function CurvaS({ pontos, inicio, fim, hoje, real, previstoHoje }) {
+  const W = 600
+  const H = 130
+  const PAD_TOP = 8
+  const PAD_BOT = 18
+  const totalDias = Math.max(1, diffDias(fim, inicio))
+  const xDe = (data) => (diffDias(data, inicio) / totalDias) * W
+  const yDe = (pct) => PAD_TOP + (1 - pct / 100) * (H - PAD_TOP - PAD_BOT)
+  const linha = pontos.map((p) => `${xDe(p.data)},${yDe(p.previsto)}`).join(' ')
+  const xHoje = Math.min(W, Math.max(0, xDe(hoje)))
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 130, display: 'block' }}>
+      {[0, 50, 100].map((p) => (
+        <line key={p} x1={0} x2={W} y1={yDe(p)} y2={yDe(p)} stroke="var(--border)" strokeWidth={1} />
+      ))}
+      <polyline points={linha} fill="none" stroke="var(--graphite)" strokeWidth={2} />
+      <line x1={xHoje} x2={xHoje} y1={PAD_TOP} y2={H - PAD_BOT} stroke="var(--text-3)" strokeDasharray="3,3" />
+      <circle cx={xHoje} cy={yDe(previstoHoje)} r={4} fill="var(--graphite)" />
+      <circle cx={xHoje} cy={yDe(real)} r={5} fill={real >= previstoHoje ? 'var(--success)' : 'var(--danger)'} />
+    </svg>
+  )
+}
+
+function BarraPendencias({ titulo, cont }) {
+  const abertasNoPrazo = Math.max(0, cont.abertas - cont.atrasadas)
+  return (
+    <div>
+      <div className="row-between" style={{ marginBottom: 6 }}>
+        <span className="t-caption">{titulo}</span>
+        <span className="t-caption">
+          {cont.total} no total
+          {cont.atrasadas > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600 }}> · {cont.atrasadas} atrasada(s)</span>}
+        </span>
+      </div>
+      <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: 'var(--surface-2)' }}>
+        {cont.total === 0 ? null : (
+          <>
+            <div style={{ width: `${(cont.resolvidas / cont.total) * 100}%`, background: 'var(--success)' }} />
+            <div style={{ width: `${(abertasNoPrazo / cont.total) * 100}%`, background: 'var(--graphite)' }} />
+            <div style={{ width: `${(cont.atrasadas / cont.total) * 100}%`, background: 'var(--danger)' }} />
+          </>
+        )}
+      </div>
     </div>
   )
 }
