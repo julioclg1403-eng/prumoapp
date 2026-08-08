@@ -8,7 +8,7 @@
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarDataLonga, diarioDaData, situacaoDiario, totalPresentes,
-  progressoDiario, filtrarPendencias, situacaoPendencia, contarPendencias,
+  progressoDiario, filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais,
   pendentesDeRevisao, plural,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, Vazio, SeletorObra, useDesktop } from '../components'
@@ -23,8 +23,9 @@ export default function InicioCampo({ goto, irParaAba, perfil }) {
   const previstasHoje = dados.planejamento.filter((p) => p.data === hoje)
   const progresso = progressoDiario(diarioHoje)
 
-  const cont = contarPendencias(dados.pendencias, hoje)
-  const prioritarias = filtrarPendencias(dados.pendencias, 'abertas', hoje)
+  const pendenciasGeraisDaObra = pendenciasGerais(dados.pendencias)
+  const cont = contarPendencias(pendenciasGeraisDaObra, hoje)
+  const prioritarias = filtrarPendencias(pendenciasGeraisDaObra, 'abertas', hoje)
     .map((p) => ({ p, s: situacaoPendencia(p, hoje) }))
     .filter((x) => x.s.chave === 'atrasada' || x.s.chave === 'vence_hoje')
     .sort((a, b) => (b.s.dias || 0) - (a.s.dias || 0))

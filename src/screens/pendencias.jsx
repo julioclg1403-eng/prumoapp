@@ -10,6 +10,7 @@ import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, filtrarPendencias, situacaoPendencia, contarPendencias,
+  pendenciasGerais, pendenciasTaticas,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio } from '../components'
@@ -23,6 +24,7 @@ function normalizarComparar(s) {
 export default function Pendencias({ perfil, params = {} }) {
   const dados = useDados()
   const hoje = hojeISO()
+  const [categoria, setCategoria] = useState('geral')
   const [filtro, setFiltro] = useState('abertas')
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
@@ -30,10 +32,17 @@ export default function Pendencias({ perfil, params = {} }) {
   const [destaque, setDestaque] = useState(params.destacar || null)
   const [importandoPDF, setImportandoPDF] = useState(false)
 
-  const cont = contarPendencias(dados.pendencias, hoje)
+  /* Tático (vem do PDF de restrições, revisado semana a semana) é
+     uma categoria à parte do dia a dia (manual ou vindo do diário)
+     — cada uma com seu próprio filtro de aberta/atrasada/resolvida. */
+  const geraisTodas = pendenciasGerais(dados.pendencias)
+  const taticasTodas = pendenciasTaticas(dados.pendencias)
+  const pendenciasDaCategoria = categoria === 'tatico' ? taticasTodas : geraisTodas
+
+  const cont = contarPendencias(pendenciasDaCategoria, hoje)
 
   const lista = useMemo(() => {
-    return filtrarPendencias(dados.pendencias, filtro, hoje)
+    return filtrarPendencias(pendenciasDaCategoria, filtro, hoje)
       .map((p) => ({ p, s: situacaoPendencia(p, hoje) }))
       .sort((a, b) => {
         /* Atrasada primeiro, depois o prazo mais próximo, depois sem prazo. */
@@ -44,7 +53,7 @@ export default function Pendencias({ perfil, params = {} }) {
         if (!b.p.prazo) return -1
         return a.p.prazo < b.p.prazo ? -1 : 1
       })
-  }, [dados.pendencias, filtro, hoje])
+  }, [pendenciasDaCategoria, filtro, hoje])
 
   const abrirNova = () =>
     setEditando({
@@ -87,7 +96,9 @@ export default function Pendencias({ perfil, params = {} }) {
             {cont.abertas} em aberto{cont.atrasadas > 0 && ` · ${cont.atrasadas} atrasada(s)`}
           </div>
         </div>
-        <button onClick={abrirNova} aria-label="Nova pendência"><Icon name="mais_sinal" size={22} /></button>
+        {categoria === 'geral' && (
+          <button onClick={abrirNova} aria-label="Nova pendência"><Icon name="mais_sinal" size={22} /></button>
+        )}
       </div>
 
       <div className="page">
@@ -95,16 +106,24 @@ export default function Pendencias({ perfil, params = {} }) {
           titulo="Pendências"
           sub={`${plural(lista.length, 'item', 'itens')} neste filtro`}
           acao={
-            <div className="row-flex">
+            categoria === 'tatico' ? (
               <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
                 Importar PDF tático
               </button>
+            ) : (
               <button className="btn btn-primary" onClick={abrirNova}><Icon name="mais_sinal" size={18} /> Nova</button>
-            </div>
+            )
           }
         />
 
         <div className="stack-2">
+          <Segmentos
+            valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('abertas') }}
+            opcoes={[
+              { valor: 'geral', rotulo: 'Dia a dia', contador: geraisTodas.length },
+              { valor: 'tatico', rotulo: 'Tático', contador: taticasTodas.length },
+            ]}
+          />
           <Segmentos
             valor={filtro} onChange={setFiltro}
             opcoes={[
@@ -122,9 +141,15 @@ export default function Pendencias({ perfil, params = {} }) {
                 texto={
                   filtro === 'atrasadas'
                     ? 'Nenhuma pendência passou do prazo.'
-                    : 'Nenhuma pendência neste filtro. Registre o que precisa de alguém para resolver.'
+                    : categoria === 'tatico'
+                      ? 'Nenhuma pendência tática neste filtro. Importe o PDF do planejamento tático para trazer as da semana.'
+                      : 'Nenhuma pendência neste filtro. Registre o que precisa de alguém para resolver.'
                 }
-                acao={<button className="btn btn-primary" onClick={abrirNova}>Nova pendência</button>}
+                acao={
+                  categoria === 'tatico'
+                    ? <button className="btn btn-primary" onClick={() => setImportandoPDF(true)}>Importar PDF tático</button>
+                    : <button className="btn btn-primary" onClick={abrirNova}>Nova pendência</button>
+                }
               />
             </div>
           ) : (
@@ -314,9 +339,10 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
      não duplica o que já foi trazido, resolvido ou não. */
   const itensParaCriar = useMemo(() => {
     const itens = resultado?.itens || []
+    const taticasExistentes = pendenciasTaticas(dados.pendencias)
     return itens.map((it) => {
       const titulo = `${it.acao_remocao} — ${it.servico}`
-      const jaExiste = dados.pendencias.some((p) => normalizarComparar(p.titulo) === normalizarComparar(titulo))
+      const jaExiste = taticasExistentes.some((p) => normalizarComparar(p.titulo) === normalizarComparar(titulo))
       const linhasDescricao = [
         it.lote && `Lote: ${it.lote}`,
         it.responsavel && `Responsável (relatório): ${it.responsavel}`,

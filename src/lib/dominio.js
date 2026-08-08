@@ -142,6 +142,21 @@ export function contarPendencias(lista, hoje = hojeISO()) {
   }
 }
 
+/* As pendências do PDF tático (restrições da obra, revisadas semana
+   a semana) são uma categoria à parte das pendências do dia a dia
+   (manuais ou vindas do diário) — ritmo e urgência diferentes. O
+   contador do menu e o Início só devem alertar sobre o dia a dia;
+   o tático tem sua própria aba, dentro da tela de Pendências. */
+export const ORIGEM_TATICO = 'tatico_pdf'
+
+export function pendenciasGerais(lista) {
+  return lista.filter((p) => p.origem !== ORIGEM_TATICO)
+}
+
+export function pendenciasTaticas(lista) {
+  return lista.filter((p) => p.origem === ORIGEM_TATICO)
+}
+
 /* ── Diário ───────────────────────────────────────────────── */
 
 export function diarioDaData(diarios, data, obraId) {

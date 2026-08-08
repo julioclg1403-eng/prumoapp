@@ -11,7 +11,7 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro, SeletorObra } from '../components'
 import { useDados } from '../lib/DadosContext'
-import { contarPendencias } from '../lib/dominio'
+import { contarPendencias, pendenciasGerais } from '../lib/dominio'
 
 import InicioCampo from '../screens/inicio-campo'
 import Diarios from '../screens/diarios'
@@ -51,7 +51,7 @@ export default function AppCampo({ perfil, onSair }) {
      esperam de uma barra inferior. */
   const irParaAba = (chave) => setPilha([{ screen: chave, params: {} }])
 
-  const cont = contarPendencias(dados.pendencias)
+  const cont = contarPendencias(pendenciasGerais(dados.pendencias))
 
   let corpo
   switch (rota.screen) {

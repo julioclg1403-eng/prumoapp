@@ -8,7 +8,7 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro } from '../components'
 import { useDados } from '../lib/DadosContext'
-import { contarPendencias, pendentesDeRevisao, contarRequisicoes } from '../lib/dominio'
+import { contarPendencias, pendenciasGerais, pendentesDeRevisao, contarRequisicoes } from '../lib/dominio'
 import { MarcaLateral, RodapeLateral } from './AppCampo'
 
 import InicioGestao from '../screens/inicio-gestao'
@@ -40,7 +40,7 @@ export default function AppGestao({ perfil, onSair }) {
 
   const irParaAba = (chave) => setPilha([{ screen: chave, params: {} }])
 
-  const cont = contarPendencias(dados.pendencias)
+  const cont = contarPendencias(pendenciasGerais(dados.pendencias))
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
   const contPedidos = contarRequisicoes(dados.requisicoes, perfil.id)
 
