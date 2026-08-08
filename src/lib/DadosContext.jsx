@@ -20,6 +20,7 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import { hojeISO } from './dominio'
+import { enviarFoto, apagarFoto } from './fotos'
 
 const Ctx = createContext(null)
 
@@ -32,6 +33,14 @@ const TABELA = {
   tiposOcorrencia: 'occurrence_types',
 }
 
+/* ATENÇÃO: isto é a lista de campos que o Supabase entende, não
+   código JavaScript. NÃO escreva comentário aqui dentro — ele vai
+   junto para o banco e invalida a consulta inteira, em silêncio.
+
+   Sobre `report_id` nas fotos: parece redundante, já que a foto vem
+   DENTRO do diário. Mas quem recebe a foto solta (a galeria, o visor)
+   precisa saber a qual diário devolvê-la. Sem esse campo, apagar
+   funcionava no banco e não acontecia na tela. */
 const SELECT_DIARIO = `
   id, worksite_id, data, status, clima, observacao, autor_id, atualizado_em,
   presencas:daily_attendance ( worker_id, company_id, presente ),
@@ -39,7 +48,9 @@ const SELECT_DIARIO = `
     id, planned_id, status, observacao, atualizado_via, atualizado_por, atualizado_em,
     equipe:daily_activity_workers ( worker_id )
   ),
-  ocorrencias:daily_occurrences ( id, tipo_id, descricao, activity_id )
+  ocorrencias:daily_occurrences ( id, tipo_id, descricao, activity_id ),
+  fotos:daily_photos ( id, report_id, activity_id, caminho, legenda, largura, altura,
+                       tamanho_bytes, principal, autor_id, created_at )
 `
 
 /* O banco devolve a equipe como lista de objetos; as telas esperam
@@ -49,6 +60,7 @@ function normalizarDiario(d) {
     ...d,
     presencas: d.presencas || [],
     ocorrencias: d.ocorrencias || [],
+    fotos: d.fotos || [],
     atividades: (d.atividades || []).map((a) => ({
       ...a,
       worker_ids: (a.equipe || []).map((e) => e.worker_id),
@@ -362,6 +374,60 @@ export function DadosProvider({ perfil, children }) {
     [perfil.id, checar],
   )
 
+  // ── Fotos ─────────────────────────────────────────────────
+  /* O arquivo sobe para o Storage e só o endereço dele volta para
+     cá. Repare que salvarDiario NÃO mexe em fotos: ele apaga e
+     regrava presenças e ocorrências, mas foto sobrevive a qualquer
+     regravação do diário — perder foto por ter salvado de novo
+     seria imperdoável. */
+  const adicionarFoto = useCallback(
+    async (parametros) => {
+      const { foto, erro } = await enviarFoto({
+        ...parametros,
+        organizationId: perfil.organization_id,
+        obraId: obraId,
+        autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+
+      setTudo((t) => t && ({
+        ...t,
+        diarios: t.diarios.map((d) =>
+          d.id === foto.report_id ? { ...d, fotos: [...(d.fotos || []), foto] } : d),
+      }))
+      return foto
+    },
+    [perfil, obraId, avisarErro],
+  )
+
+  const removerFoto = useCallback(
+    async (foto) => {
+      const { erro } = await apagarFoto(foto)
+      if (erro) { avisarErro(erro); return false }
+      setTudo((t) => t && ({
+        ...t,
+        diarios: t.diarios.map((d) =>
+          d.id === foto.report_id
+            ? { ...d, fotos: (d.fotos || []).filter((f) => f.id !== foto.id) }
+            : d),
+      }))
+      return true
+    },
+    [avisarErro],
+  )
+
+  /* Todas as fotos da obra, achatadas, para a galeria. Cada uma já
+     vem com a data do diário e a frente de serviço a que pertence —
+     é o que a galeria filtra. */
+  const fotosDaObra = useMemo(() => {
+    if (!daObra) return []
+    return daObra.diarios.flatMap((d) =>
+      (d.fotos || []).map((f) => ({ ...f, data: d.data, report: d })),
+    ).sort((a, b) => (a.data === b.data
+      ? (a.created_at < b.created_at ? 1 : -1)
+      : (a.data < b.data ? 1 : -1)))
+  }, [daObra]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Colaboradores ─────────────────────────────────────────
   const criarColaboradorRapido = useCallback(
     async ({ nome, funcao, company_id }) => {
@@ -586,6 +652,7 @@ export function DadosProvider({ perfil, children }) {
       perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario,
+      adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
       salvarPendencia, alternarPendencia,
       salvarCadastro, arquivarCadastro,
@@ -595,7 +662,8 @@ export function DadosProvider({ perfil, children }) {
     [
       tudo, daObra, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
-      salvarDiario, reabrirDiario, criarColaboradorRapido, revisarColaborador,
+      salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
+      criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, alternarPendencia,
       salvarCadastro, arquivarCadastro, salvarPlanejado, removerPlanejado, definirPapel,
     ],

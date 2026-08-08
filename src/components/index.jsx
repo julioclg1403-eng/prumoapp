@@ -3,7 +3,8 @@
    Se um mesmo elemento aparece em duas telas, ele mora aqui.
    ============================================================ */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { linksTemporarios, baixarFoto } from '../lib/fotos'
 
 /* ── Ícones (SVG na mão, sem biblioteca) ─────────────────── */
 
@@ -29,6 +30,10 @@ const CAMINHOS = {
   alerta: 'M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6M12 7.8v5M12 15.8v.2',
   menu: 'M4 7h16M4 12h16M4 17h16',
   obra: 'M3 20.5h18M5 20.5V9l7-4.5L19 9v11.5M10 20.5v-5h4v5',
+  camera: 'M3 8.5h3.5L8 6h8l1.5 2.5H21v11H3zM12 17a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7',
+  galeria: 'M3 5.5h18v13H3zM3 15l5-4.5 4 3.5 3.5-3L21 15M15.5 9.5h.01',
+  baixar: 'M12 4v11M8 11.5l4 4 4-4M4.5 19.5h15',
+  filtro: 'M4 6h16l-6.2 7v5.5l-3.6 1.8V13z',
 }
 
 export function Icon({ name, size = 20, style }) {
@@ -283,6 +288,247 @@ export function Indicador({ rotulo, valor, tom, onClick }) {
       <div className="t-micro" style={{ marginBottom: 6 }}>{rotulo}</div>
       <div className="t-num" style={{ fontSize: 26, fontWeight: 700, color: cor, lineHeight: 1 }}>{valor}</div>
     </Tag>
+  )
+}
+
+/* ============================================================
+   FOTOS
+   ============================================================ */
+
+/* O balde é privado: não existe endereço fixo da imagem. Este gancho
+   pede os links temporários em lote e os renova antes de expirarem,
+   para a galeria não "apagar" na mão de quem está olhando. */
+export function useLinksDeFotos(fotos) {
+  const [links, setLinks] = useState({})
+  const pedidos = useRef(new Set())
+
+  const caminhos = (fotos || []).map((f) => f.caminho).join('|')
+
+  /* CUIDADO ao mexer aqui. Este efeito NÃO cancela o pedido na
+     limpeza, e isso é deliberado.
+
+     O React monta, desmonta e remonta cada componente em
+     desenvolvimento. Como o `pedidos` marca o caminho ANTES da
+     resposta chegar, cancelar na limpeza produzia o pior dos
+     mundos: a primeira rodada era descartada, a segunda achava que
+     já havia pedido, e o link nunca chegava — a galeria contava as
+     fotos certas e não mostrava nenhuma. Sem o cancelamento, a
+     resposta da primeira rodada chega e vale. */
+  useEffect(() => {
+    const lista = [...new Set((fotos || []).map((f) => f.caminho).filter(Boolean))]
+    const faltando = lista.filter((c) => !pedidos.current.has(c))
+    if (faltando.length === 0) return
+
+    faltando.forEach((c) => pedidos.current.add(c))
+    linksTemporarios(faltando).then((novos) => {
+      /* O que falhou sai da marcação, senão a foto ficaria presa em
+         "carregando…" para sempre, sem nova tentativa. */
+      faltando.forEach((c) => { if (!novos[c]) pedidos.current.delete(c) })
+      setLinks((atual) => ({ ...atual, ...novos }))
+    })
+  }, [caminhos]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Os links valem 1 hora. Renovar a cada 50 minutos evita que a
+     imagem some da tela de quem deixou o app aberto. */
+  useEffect(() => {
+    const lista = (fotos || []).map((f) => f.caminho).filter(Boolean)
+    if (lista.length === 0) return
+    const id = setInterval(() => {
+      linksTemporarios(lista).then((novos) => setLinks((a) => ({ ...a, ...novos })))
+    }, 50 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [caminhos]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return links
+}
+
+/* Miniatura quadrada. `contain` sobre fundo escuro em vez de `cover`
+   porque foto de obra costuma ter o assunto na borda — cortar o
+   centro esconderia justamente o que a pessoa quis registrar. */
+export function Miniatura({ src, legenda, onClick, onRemover, enviando, erro }) {
+  return (
+    <div style={{ position: 'relative', aspectRatio: '1', borderRadius: 10, overflow: 'hidden', background: 'var(--graphite)' }}>
+      {src ? (
+        <img
+          src={src} alt={legenda || 'Foto da obra'}
+          onClick={onClick}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', cursor: onClick ? 'zoom-in' : 'default' }}
+        />
+      ) : (
+        <div
+          className="row-flex"
+          style={{ width: '100%', height: '100%', justifyContent: 'center', color: 'var(--on-graphite-2)', fontSize: 11 }}
+        >
+          {erro ? 'falhou' : enviando ? 'enviando…' : 'carregando…'}
+        </div>
+      )}
+
+      {enviando && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 600 }}>
+          enviando…
+        </div>
+      )}
+
+      {onRemover && !enviando && (
+        <button
+          onClick={onRemover} aria-label="Remover foto"
+          style={{ position: 'absolute', top: 4, right: 4, width: 26, height: 26, border: 0,
+                   borderRadius: 999, background: 'rgba(0,0,0,0.6)', color: '#fff', cursor: 'pointer',
+                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+        >
+          <Icon name="x" size={14} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* Grade de fotos + botão de adicionar. `capture="environment"` faz o
+   celular abrir direto a câmera traseira, em vez da galeria — um
+   toque a menos para quem está de capacete e luva. */
+export function CampoFotos({ fotos, links, onAdicionar, onRemover, onAbrir, bloqueado, enviando, rotulo = 'Adicionar foto' }) {
+  const entrada = useRef(null)
+
+  const escolher = (e) => {
+    const arquivos = [...(e.target.files || [])]
+    e.target.value = ''
+    if (arquivos.length) onAdicionar(arquivos)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8 }}>
+        {(fotos || []).map((f) => (
+          <Miniatura
+            key={f.id}
+            src={links[f.caminho]}
+            legenda={f.legenda}
+            onClick={onAbrir ? () => onAbrir(f) : undefined}
+            onRemover={bloqueado ? undefined : () => onRemover(f)}
+          />
+        ))}
+
+        {enviando > 0 && Array.from({ length: enviando }).map((_, i) => (
+          <Miniatura key={`enviando-${i}`} enviando />
+        ))}
+
+        {!bloqueado && (
+          <button
+            onClick={() => entrada.current?.click()}
+            style={{
+              aspectRatio: '1', borderRadius: 10, cursor: 'pointer',
+              border: '1px dashed var(--border-strong)', background: 'var(--surface-2)',
+              color: 'var(--text-2)', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 4,
+              fontFamily: 'var(--font)', fontSize: 11, fontWeight: 600, padding: 4,
+            }}
+          >
+            <Icon name="camera" size={22} />
+            {rotulo}
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={entrada} type="file" accept="image/*" capture="environment" multiple
+        onChange={escolher} style={{ display: 'none' }}
+      />
+    </div>
+  )
+}
+
+/* Visualização ampliada. Fundo preto e navegação por seta, porque
+   quem abre uma foto quase sempre quer ver a seguinte também. */
+export function VisorFoto({ foto, fotos, links, onFechar, onIr, extra }) {
+  const aoTeclar = useCallback((e) => {
+    if (e.key === 'Escape') onFechar()
+    if (e.key === 'ArrowRight') onIr?.(1)
+    if (e.key === 'ArrowLeft') onIr?.(-1)
+  }, [onFechar, onIr])
+
+  useEffect(() => {
+    if (!foto) return
+    window.addEventListener('keydown', aoTeclar)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', aoTeclar)
+      document.body.style.overflow = ''
+    }
+  }, [foto, aoTeclar])
+
+  if (!foto) return null
+  const posicao = fotos ? fotos.findIndex((f) => f.id === foto.id) + 1 : null
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.94)',
+               display: 'flex', flexDirection: 'column' }}
+      onClick={onFechar} role="dialog" aria-modal="true"
+    >
+      <div
+        className="row-between"
+        style={{ padding: '12px 14px', color: '#fff', flex: 'none' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="grow" style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }} className="truncate">
+            {foto.legenda || 'Foto da obra'}
+          </div>
+          {posicao && (
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              {posicao} de {fotos.length}
+            </div>
+          )}
+        </div>
+        <div className="row-flex" style={{ gap: 6 }}>
+          {extra}
+          <button
+            onClick={() => baixarFoto(foto)} aria-label="Baixar"
+            style={{ border: 0, background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer',
+                     width: 36, height: 36, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="baixar" size={18} />
+          </button>
+          <button
+            onClick={onFechar} aria-label="Fechar"
+            style={{ border: 0, background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer',
+                     width: 36, height: 36, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="x" size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="grow"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, minHeight: 0 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {onIr && fotos && fotos.length > 1 && (
+          <button
+            onClick={() => onIr(-1)} aria-label="Anterior"
+            style={{ border: 0, background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer',
+                     width: 40, height: 40, borderRadius: 999, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="voltar" size={20} />
+          </button>
+        )}
+        <img
+          src={links[foto.caminho]} alt={foto.legenda || 'Foto da obra'}
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', flex: 1 }}
+        />
+        {onIr && fotos && fotos.length > 1 && (
+          <button
+            onClick={() => onIr(1)} aria-label="Próxima"
+            style={{ border: 0, background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer',
+                     width: 40, height: 40, borderRadius: 999, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="avancar" size={20} />
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 

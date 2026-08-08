@@ -19,7 +19,11 @@ import {
   hojeISO, formatarData, formatarDataLonga, diarioDaData,
   ROTULO_ATIVIDADE, TOM_ATIVIDADE, situacaoDiario, plural,
 } from '../lib/dominio'
-import { Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista } from '../components'
+import {
+  Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista,
+  CampoFotos, VisorFoto, useLinksDeFotos,
+} from '../components'
+import { legendaAutomatica } from '../lib/fotos'
 
 const ETAPAS = ['Presenças', 'Frentes de serviço', 'Ocorrências', 'Revisão']
 
@@ -37,6 +41,10 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
   const [confirmacao, setConfirmacao] = useState(null)
   const [salvo, setSalvo] = useState('')
   const [gravando, setGravando] = useState(false)
+  const [enviandoFoto, setEnviandoFoto] = useState({})
+  const [fotoAberta, setFotoAberta] = useState(null)
+
+  const links = useLinksDeFotos(diario.fotos)
 
   const somenteLeitura = diario.status === 'finalizado'
   const sit = situacaoDiario(existente)
@@ -58,6 +66,58 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
     setSalvo(status === 'finalizado' ? 'Diário finalizado.' : 'Rascunho salvo.')
     setTimeout(() => setSalvo(''), 2600)
     return resultado
+  }
+
+  /* ── Fotos ────────────────────────────────────────────────
+     A foto precisa de um diário e de uma frente que já EXISTAM no
+     banco, para se pendurar neles. Enquanto o lançamento é rascunho
+     na tela, nada disso tem identificador ainda. Então, na primeira
+     foto, o diário é salvo automaticamente antes do envio — em vez
+     de mandar a pessoa "salvar antes de fotografar", que é o tipo de
+     exigência que faz o mestre desistir e mandar a foto por outro
+     canal qualquer. */
+  const garantirSalvo = async () => {
+    const faltaSalvar = !diario.id || diario.atividades.some((a) => String(a.id).startsWith('da-'))
+    if (!faltaSalvar) return diario
+    return await gravar('rascunho')
+  }
+
+  const enviarFotos = async (arquivos, { plannedId = null, principal = false, legenda = null }) => {
+    const chave = plannedId || 'dia'
+    setEnviandoFoto((e) => ({ ...e, [chave]: (e[chave] || 0) + arquivos.length }))
+    try {
+      const base = await garantirSalvo()
+      if (!base) return
+      const ativ = plannedId ? base.atividades.find((a) => a.planned_id === plannedId) : null
+      const novas = []
+      for (const arquivo of arquivos) {
+        const f = await dados.adicionarFoto({
+          arquivo,
+          reportId: base.id,
+          activityId: ativ ? ativ.id : null,
+          legenda,
+          principal,
+        })
+        if (f) novas.push(f)
+      }
+      if (novas.length) setDiario((d) => ({ ...d, fotos: [...(d.fotos || []), ...novas] }))
+    } finally {
+      setEnviandoFoto((e) => ({ ...e, [chave]: Math.max(0, (e[chave] || 0) - arquivos.length) }))
+    }
+  }
+
+  const removerFoto = async (foto) => {
+    const ok = await dados.removerFoto(foto)
+    if (ok) setDiario((d) => ({ ...d, fotos: (d.fotos || []).filter((f) => f.id !== foto.id) }))
+  }
+
+  const fotos = {
+    lista: diario.fotos || [],
+    links,
+    enviando: enviandoFoto,
+    enviar: enviarFotos,
+    remover: removerFoto,
+    abrir: setFotoAberta,
   }
 
   const finalizar = () => {
@@ -118,9 +178,9 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
         )}
 
         {etapa === 0 && <EtapaPresencas diario={diario} alterar={alterar} bloqueado={somenteLeitura} />}
-        {etapa === 1 && <EtapaFrentes diario={diario} alterar={alterar} bloqueado={somenteLeitura} pedirConfirmacao={setConfirmacao} />}
+        {etapa === 1 && <EtapaFrentes diario={diario} alterar={alterar} bloqueado={somenteLeitura} pedirConfirmacao={setConfirmacao} fotos={fotos} />}
         {etapa === 2 && <EtapaOcorrencias diario={diario} alterar={alterar} bloqueado={somenteLeitura} />}
-        {etapa === 3 && <EtapaRevisao diario={diario} alterar={alterar} bloqueado={somenteLeitura} irPara={setEtapa} />}
+        {etapa === 3 && <EtapaRevisao diario={diario} alterar={alterar} bloqueado={somenteLeitura} irPara={setEtapa} fotos={fotos} />}
       </div>
 
       {/* ── Barra de ação fixa ── */}
@@ -170,6 +230,19 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
         perigo={confirmacao?.perigo}
         onOk={confirmacao?.onOk}
         onCancelar={() => setConfirmacao(null)}
+      />
+
+      <VisorFoto
+        foto={fotoAberta}
+        fotos={diario.fotos || []}
+        links={links}
+        onFechar={() => setFotoAberta(null)}
+        onIr={(passo) => {
+          const lista = diario.fotos || []
+          const i = lista.findIndex((f) => f.id === fotoAberta.id)
+          const proxima = lista[(i + passo + lista.length) % lista.length]
+          if (proxima) setFotoAberta(proxima)
+        }}
       />
     </>
   )
@@ -333,7 +406,7 @@ function EtapaPresencas({ diario, alterar, bloqueado }) {
    Etapa 2 — Frentes de serviço
    ============================================================ */
 
-function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao }) {
+function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
   const dados = useDados()
   const [equipeDe, setEquipeDe] = useState(null)   // atividade cuja equipe está sendo escolhida
   const [nova, setNova] = useState(null)
@@ -496,6 +569,29 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao }) {
                     })
                   }
                 />
+
+                {/* Fotos desta frente. A legenda já nasce com serviço,
+                    local e data — foto de obra sem contexto não serve
+                    para nada três meses depois. */}
+                <div style={{ marginTop: 12 }}>
+                  <div className="t-micro" style={{ marginBottom: 8 }}>Fotos desta frente</div>
+                  <CampoFotos
+                    fotos={fotos.lista.filter((f) => f.activity_id === a.id)}
+                    links={fotos.links}
+                    enviando={fotos.enviando[a.planned_id] || 0}
+                    bloqueado={bloqueado}
+                    onAbrir={fotos.abrir}
+                    onRemover={fotos.remover}
+                    onAdicionar={(arquivos) =>
+                      fotos.enviar(arquivos, {
+                        plannedId: a.planned_id,
+                        legenda: legendaAutomatica({
+                          servico: r.servico, local: r.local, data: diario.data,
+                        }),
+                      })
+                    }
+                  />
+                </div>
               </div>
             )
           })}
@@ -744,8 +840,9 @@ function EtapaOcorrencias({ diario, alterar, bloqueado }) {
    Etapa 4 — Revisão
    ============================================================ */
 
-function EtapaRevisao({ diario, alterar, bloqueado, irPara }) {
+function EtapaRevisao({ diario, alterar, bloqueado, irPara, fotos }) {
   const dados = useDados()
+  const principal = fotos.lista.find((f) => f.principal) || null
   const concluidas = diario.atividades.filter((a) => a.status === 'concluida').length
   const andamento = diario.atividades.filter((a) => a.status === 'em_andamento').length
   const paradas = diario.atividades.filter((a) => a.status === 'nao_iniciada').length
@@ -768,6 +865,41 @@ function EtapaRevisao({ diario, alterar, bloqueado, irPara }) {
           <Numero rotulo="Paradas" valor={paradas} cor={paradas ? 'var(--danger)' : undefined} />
           <Numero rotulo="Ocorrências" valor={diario.ocorrencias.length} cor={diario.ocorrencias.length ? 'var(--danger)' : undefined} />
         </div>
+      </div>
+
+      {/* A foto principal é UMA só: é a que representa o dia no
+          histórico e nos relatórios. Por isso o botão de adicionar
+          some assim que existe uma — escolher "a foto do dia" entre
+          seis é decisão que ninguém quer tomar depois. */}
+      <div className="card">
+        <div className="row-between" style={{ marginBottom: 10 }}>
+          <div className="t-micro">Foto principal do dia</div>
+          {principal && <Chip tom="success">Definida</Chip>}
+        </div>
+        <div style={{ maxWidth: 200 }}>
+          <CampoFotos
+            fotos={principal ? [principal] : []}
+            links={fotos.links}
+            enviando={fotos.enviando.dia || 0}
+            bloqueado={bloqueado || Boolean(principal)}
+            rotulo="Foto do dia"
+            onAbrir={fotos.abrir}
+            onRemover={fotos.remover}
+            onAdicionar={(arquivos) =>
+              fotos.enviar(arquivos.slice(0, 1), {
+                principal: true,
+                legenda: legendaAutomatica({
+                  servico: 'Resumo do dia', local: dados.obra.nome, data: diario.data,
+                }),
+              })
+            }
+          />
+        </div>
+        {!principal && !bloqueado && (
+          <div className="t-caption" style={{ marginTop: 10, lineHeight: 1.5 }}>
+            Opcional, mas é a foto que aparece no histórico e nos relatórios do dia.
+          </div>
+        )}
       </div>
 
       <div className="card stack-2">
