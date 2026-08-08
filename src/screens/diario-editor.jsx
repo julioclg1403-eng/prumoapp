@@ -36,18 +36,28 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
   const [etapa, setEtapa] = useState(0)
   const [confirmacao, setConfirmacao] = useState(null)
   const [salvo, setSalvo] = useState('')
+  const [gravando, setGravando] = useState(false)
 
   const somenteLeitura = diario.status === 'finalizado'
   const sit = situacaoDiario(existente)
 
   const alterar = (mudanca) => setDiario((d) => ({ ...d, ...mudanca }))
 
-  const gravar = (status) => {
-    const salvo = dados.salvarDiario({ ...diario, status, autor_id: diario.autor_id || perfil.id })
-    setDiario(salvo)
+  /* Agora a gravação vai até o banco e volta. O que a tela mostra
+     depois é o que ficou GRAVADO, não o que ela achava que gravou:
+     se o banco recusar, o diário não muda de estado e o aviso de
+     erro aparece na barra vermelha. */
+  const gravar = async (status) => {
+    setGravando(true)
+    const resultado = await dados.salvarDiario({
+      ...diario, status, autor_id: diario.autor_id || perfil.id,
+    })
+    setGravando(false)
+    if (!resultado) return null
+    setDiario(resultado)
     setSalvo(status === 'finalizado' ? 'Diário finalizado.' : 'Rascunho salvo.')
     setTimeout(() => setSalvo(''), 2600)
-    return salvo
+    return resultado
   }
 
   const finalizar = () => {
@@ -57,7 +67,7 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
         totalMarcados(diario), 'pessoa', 'pessoas',
       )} e ${plural(diario.atividades.length, 'frente', 'frentes')}. Depois de finalizado ele só volta a ser editável se alguém reabrir, e isso fica registrado.`,
       rotuloOk: 'Finalizar',
-      onOk: () => { setConfirmacao(null); gravar('finalizado'); setEtapa(3) },
+      onOk: async () => { setConfirmacao(null); await gravar('finalizado'); setEtapa(3) },
     })
   }
 
@@ -66,9 +76,9 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
       titulo: 'Reabrir o diário?',
       texto: 'O diário volta para rascunho e pode ser editado. A reabertura fica registrada com seu nome e a data.',
       rotuloOk: 'Reabrir',
-      onOk: () => {
+      onOk: async () => {
         setConfirmacao(null)
-        dados.reabrirDiario(diario.id)
+        await dados.reabrirDiario(diario.id)
         setDiario((d) => ({ ...d, status: 'rascunho' }))
       },
     })
@@ -133,8 +143,8 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
             </button>
           )}
           {!somenteLeitura && (
-            <button className="btn btn-ghost btn-sm" onClick={() => gravar('rascunho')}>
-              Salvar rascunho
+            <button className="btn btn-ghost btn-sm" onClick={() => gravar('rascunho')} disabled={gravando}>
+              {gravando ? 'Salvando…' : 'Salvar rascunho'}
             </button>
           )}
           <div className="grow" />
@@ -145,8 +155,8 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
           ) : somenteLeitura ? (
             <button className="btn btn-secondary" onClick={voltar}>Fechar</button>
           ) : (
-            <button className="btn btn-primary" onClick={finalizar}>
-              <Icon name="check" size={18} /> Finalizar diário
+            <button className="btn btn-primary" onClick={finalizar} disabled={gravando}>
+              <Icon name="check" size={18} /> {gravando ? 'Salvando…' : 'Finalizar diário'}
             </button>
           )}
         </div>
@@ -206,10 +216,11 @@ function EtapaPresencas({ diario, alterar, bloqueado }) {
     })
   }
 
-  const salvarNovo = () => {
+  const salvarNovo = async () => {
     const nome = (novo.nome || '').trim()
     if (!nome) return
-    const col = dados.criarColaboradorRapido({ nome, funcao: novo.funcao, company_id: empresaId })
+    const col = await dados.criarColaboradorRapido({ nome, funcao: novo.funcao, company_id: empresaId })
+    if (!col) return   // o banco recusou; o aviso já apareceu
     alterar({ presencas: [...diario.presencas, { worker_id: col.id, company_id: col.company_id, presente: true }] })
     setNovo(null)
   }
@@ -367,15 +378,16 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao }) {
     })
   }
 
-  const criarFrente = () => {
+  const criarFrente = async () => {
     if (!nova?.service_id || !nova?.location_id) return
-    const pl = dados.salvarPlanejado({
+    const pl = await dados.salvarPlanejado({
       data: diario.data,
       service_id: nova.service_id,
       location_id: nova.location_id,
       company_id: nova.company_id || null,
-      observacao: '',
+      observacao: null,
     })
+    if (!pl) return
     alterar({
       atividades: [
         ...diario.atividades,

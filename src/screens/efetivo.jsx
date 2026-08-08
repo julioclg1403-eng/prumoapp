@@ -197,18 +197,28 @@ function FilaDeRevisao() {
   const dados = useDados()
   const [editando, setEditando] = useState(null)
   const [mesclando, setMesclando] = useState(null)
+  const [ocupado, setOcupado] = useState(false)
 
   const fila = pendentesDeRevisao(dados.colaboradores)
 
-  const confirmar = () => {
+  const confirmar = async () => {
     if (!editando?.nome?.trim()) return
-    dados.revisarColaborador(editando.id, {
+    setOcupado(true)
+    await dados.revisarColaborador(editando.id, {
       nome: editando.nome.trim(),
-      funcao: (editando.funcao || '').trim(),
+      funcao: (editando.funcao || '').trim() || null,
       company_id: editando.company_id,
       documento_conferido: Boolean(editando.documento_conferido),
     })
+    setOcupado(false)
     setEditando(null)
+  }
+
+  const mesclar = async (mantidoId) => {
+    setOcupado(true)
+    await dados.mesclarColaborador(mesclando.id, mantidoId)
+    setOcupado(false)
+    setMesclando(null)
   }
 
   const candidatos = mesclando
@@ -265,8 +275,11 @@ function FilaDeRevisao() {
         rodape={
           <div className="row-flex">
             <button className="btn btn-secondary grow" onClick={() => setEditando(null)}>Cancelar</button>
-            <button className="btn btn-primary grow" onClick={confirmar} disabled={!editando?.nome?.trim()}>
-              Aprovar cadastro
+            <button
+              className="btn btn-primary grow" onClick={confirmar}
+              disabled={ocupado || !editando?.nome?.trim()}
+            >
+              {ocupado ? 'Salvando…' : 'Aprovar cadastro'}
             </button>
           </div>
         }
@@ -323,7 +336,7 @@ function FilaDeRevisao() {
                 key={c.id}
                 titulo={c.nome}
                 sub={`${c.funcao || '—'} · ${dados.nomeDe(dados.empresas, c.company_id)}`}
-                onClick={() => { dados.mesclarColaborador(mesclando.id, c.id); setMesclando(null) }}
+                onClick={() => !ocupado && mesclar(c.id)}
               />
             ))
           )}

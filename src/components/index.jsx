@@ -198,6 +198,29 @@ export function Vazio({ titulo, texto, acao }) {
   )
 }
 
+/* ── Aviso de falha ──────────────────────────────────────────
+   Erro de banco não pode passar em branco: se a gravação não foi,
+   a pessoa precisa saber ANTES de sair da tela achando que salvou. */
+
+export function BarraErro({ mensagem }) {
+  if (!mensagem) return null
+  return (
+    <div
+      role="alert"
+      style={{
+        position: 'fixed', left: 12, right: 12, bottom: 84, zIndex: 90,
+        maxWidth: 560, margin: '0 auto',
+        background: 'var(--surface)', boxShadow: 'var(--shadow-pop)',
+        borderLeft: '4px solid var(--danger)', color: 'var(--danger)',
+        borderRadius: '0 var(--radius-btn) var(--radius-btn) 0',
+        padding: '12px 14px', fontSize: 14, lineHeight: 1.45,
+      }}
+    >
+      {mensagem}
+    </div>
+  )
+}
+
 /* ── Item de lista clicável ──────────────────────────────── */
 
 export function ItemLista({ titulo, sub, direita, onClick, aviso }) {

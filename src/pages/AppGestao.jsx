@@ -6,7 +6,7 @@
    ============================================================ */
 
 import { useState, useCallback } from 'react'
-import { Icon, useDesktop } from '../components'
+import { Icon, useDesktop, BarraErro } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { contarPendencias, pendentesDeRevisao } from '../lib/dominio'
 import { MarcaLateral, RodapeLateral } from './AppCampo'
@@ -84,6 +84,8 @@ export default function AppGestao({ perfil, onSair }) {
       </nav>
 
       <div className="app-body">{corpo}</div>
+
+      <BarraErro mensagem={dados.erro} />
 
       <nav className="bottom-nav" aria-label="Navegação principal">
         {abasCelular.map((i) => (

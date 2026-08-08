@@ -1,11 +1,11 @@
 /* ============================================================
    O ÚNICO INTERRUPTOR entre "dados de mentira" e banco real.
-   Hoje: true  -> o app roda sozinho, sem banco, para você ver e
-                  clicar em tudo (Etapa 4).
-   Etapa 7: vira false -> as mesmas telas passam a ler e gravar
-            no Supabase, sem precisar mexer em tela nenhuma.
+
+   Virou false na Etapa 7: o app agora lê e grava no Supabase.
+   O arquivo src/lib/mockData.js continua existindo porque virou
+   a origem do supabase-seed.sql — não é mais lido pelo app.
    ============================================================ */
 
-export const USAR_MOCK = true
+export const USAR_MOCK = false
 
 export const APP_NOME = 'Prumo'

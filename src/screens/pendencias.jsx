@@ -20,6 +20,7 @@ export default function Pendencias({ perfil, params = {} }) {
   const [filtro, setFiltro] = useState('abertas')
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
+  const [salvando, setSalvando] = useState(false)
   const [destaque, setDestaque] = useState(params.destacar || null)
 
   const cont = contarPendencias(dados.pendencias, hoje)
@@ -44,15 +45,17 @@ export default function Pendencias({ perfil, params = {} }) {
       prazo: '', responsavel_id: perfil.id, status: 'aberta',
     })
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!editando?.titulo?.trim()) return
-    dados.salvarPendencia({
+    setSalvando(true)
+    const ok = await dados.salvarPendencia({
       ...editando,
       titulo: editando.titulo.trim(),
       descricao: (editando.descricao || '').trim(),
       prazo: editando.prazo || null,
     })
-    setEditando(null)
+    setSalvando(false)
+    if (ok) setEditando(null)
   }
 
   const pedirAlternar = (p) => {
@@ -61,7 +64,7 @@ export default function Pendencias({ perfil, params = {} }) {
         titulo: 'Reabrir pendência?',
         texto: `«${p.titulo}» volta para a lista de abertas.`,
         rotuloOk: 'Reabrir',
-        onOk: () => { dados.alternarPendencia(p.id); setConfirmar(null) },
+        onOk: async () => { setConfirmar(null); await dados.alternarPendencia(p.id) },
       })
     } else {
       dados.alternarPendencia(p.id)
@@ -179,8 +182,11 @@ export default function Pendencias({ perfil, params = {} }) {
         rodape={
           <div className="row-flex">
             <button className="btn btn-secondary grow" onClick={() => setEditando(null)}>Cancelar</button>
-            <button className="btn btn-primary grow" onClick={salvar} disabled={!editando?.titulo?.trim()}>
-              Salvar
+            <button
+              className="btn btn-primary grow" onClick={salvar}
+              disabled={salvando || !editando?.titulo?.trim()}
+            >
+              {salvando ? 'Salvando…' : 'Salvar'}
             </button>
           </div>
         }

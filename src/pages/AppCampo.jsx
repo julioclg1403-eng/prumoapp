@@ -9,7 +9,7 @@
    ============================================================ */
 
 import { useState, useCallback } from 'react'
-import { Icon, useDesktop } from '../components'
+import { Icon, useDesktop, BarraErro } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { contarPendencias } from '../lib/dominio'
 
@@ -85,6 +85,8 @@ export default function AppCampo({ perfil, onSair }) {
       </nav>
 
       <div className="app-body">{corpo}</div>
+
+      <BarraErro mensagem={dados.erro} />
 
       <nav className="bottom-nav" aria-label="Navegação principal">
         {ABAS.map((a) => (

@@ -60,12 +60,20 @@ const TIPOS = {
   },
 }
 
-export default function Cadastros({ voltar, params = {} }) {
+export default function Cadastros({ voltar, perfil, params = {} }) {
   const dados = useDados()
   const [tipo, setTipo] = useState(params.tipo && TIPOS[params.tipo] ? params.tipo : 'empresas')
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
+  const [salvando, setSalvando] = useState(false)
   const [mostrarArquivados, setMostrarArquivados] = useState(false)
+
+  /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
+     gravação barrada pela permissão não dá erro, simplesmente não
+     acontece. Deixar o botão à mostra para o campo seria oferecer
+     um clique que não faz nada. Criar, ele pode: é o cadastro
+     provisório, que a gestão confere depois. */
+  const podeEditar = perfil?.role !== 'campo'
 
   const def = TIPOS[tipo]
   const todos = dados[tipo] || []
@@ -74,11 +82,13 @@ export default function Cadastros({ voltar, params = {} }) {
 
   const abrirNovo = () => setEditando({})
 
-  const salvar = () => {
+  const salvar = async () => {
     const faltando = def.campos.filter((c) => c.obrigatorio && !String(editando?.[c.nome] || '').trim())
     if (faltando.length) return
-    dados.salvarCadastro(tipo, { ...editando })
-    setEditando(null)
+    setSalvando(true)
+    const ok = await dados.salvarCadastro(tipo, { ...editando })
+    setSalvando(false)
+    if (ok) setEditando(null)
   }
 
   const pedirArquivar = (item) => {
@@ -90,7 +100,7 @@ export default function Cadastros({ voltar, params = {} }) {
         : `«${item.nome}» volta a aparecer nas listas de escolha.`,
       rotuloOk: arquivando ? 'Arquivar' : 'Reativar',
       perigo: arquivando,
-      onOk: () => { dados.arquivarCadastro(tipo, item.id); setConfirmar(null) },
+      onOk: async () => { setConfirmar(null); await dados.arquivarCadastro(tipo, item.id) },
     })
   }
 
@@ -117,6 +127,13 @@ export default function Cadastros({ voltar, params = {} }) {
         />
 
         <div className="stack-2">
+          {!podeEditar && (
+            <div className="alert info">
+              Você pode <strong>cadastrar</strong> aqui, e o que criar entra como provisório para a
+              gestão conferir. Editar e arquivar cadastro existente é com ela.
+            </div>
+          )}
+
           <Segmentos
             valor={tipo}
             onChange={(t) => { setTipo(t); setMostrarArquivados(false) }}
@@ -159,20 +176,24 @@ export default function Cadastros({ voltar, params = {} }) {
                     <div className="row-flex" style={{ gap: 4 }}>
                       {item.provisorio && !item.revisado && <Chip tom="info">Provisório</Chip>}
                       {item.ativo === false && <Chip>Arquivado</Chip>}
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => setEditando({ ...item })}
-                        aria-label="Editar"
-                      >
-                        <Icon name="editar" size={16} />
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => pedirArquivar(item)}
-                        aria-label={item.ativo === false ? 'Reativar' : 'Arquivar'}
-                      >
-                        <Icon name={item.ativo === false ? 'check' : 'x'} size={16} />
-                      </button>
+                      {podeEditar && (
+                        <>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setEditando({ ...item })}
+                            aria-label="Editar"
+                          >
+                            <Icon name="editar" size={16} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => pedirArquivar(item)}
+                            aria-label={item.ativo === false ? 'Reativar' : 'Arquivar'}
+                          >
+                            <Icon name={item.ativo === false ? 'check' : 'x'} size={16} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   }
                 />
@@ -191,9 +212,9 @@ export default function Cadastros({ voltar, params = {} }) {
             <button className="btn btn-secondary grow" onClick={() => setEditando(null)}>Cancelar</button>
             <button
               className="btn btn-primary grow" onClick={salvar}
-              disabled={def.campos.some((c) => c.obrigatorio && !String(editando?.[c.nome] || '').trim())}
+              disabled={salvando || def.campos.some((c) => c.obrigatorio && !String(editando?.[c.nome] || '').trim())}
             >
-              Salvar
+              {salvando ? 'Salvando…' : 'Salvar'}
             </button>
           </div>
         }

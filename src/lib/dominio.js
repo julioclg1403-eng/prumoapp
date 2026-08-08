@@ -21,8 +21,21 @@ export function hojeISO() {
   return paraISO(new Date())
 }
 
+/* Dois tipos de data chegam aqui, e tratá-los igual dá erro:
+
+   · DATA DE CALENDÁRIO ("2026-08-07") — o dia do diário, o prazo
+     da pendência. Não tem hora nem fuso. Precisa ser montada
+     campo a campo; jogar no `new Date()` faria o navegador ler
+     como meia-noite UTC e, no Brasil, mostrar o dia anterior.
+
+   · INSTANTE ("2026-08-05T02:30:00+00:00") — quando o registro
+     foi criado. Aí o fuso EXISTE e importa: 02h30 em UTC é 23h30
+     do dia anterior no Brasil. Esse o navegador converte certo
+     sozinho. */
 export function deISO(iso) {
-  const [a, m, d] = String(iso).split('-').map(Number)
+  const texto = String(iso)
+  if (texto.includes('T')) return new Date(texto)
+  const [a, m, d] = texto.split('-').map(Number)
   return new Date(a, m - 1, d)
 }
 
