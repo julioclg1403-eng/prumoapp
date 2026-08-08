@@ -20,6 +20,7 @@ import Efetivo from '../screens/efetivo'
 import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
+import Planejamento from '../screens/planejamento'
 
 const ABAS = [
   { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
@@ -56,6 +57,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'diario':       corpo = <DiarioEditor {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'efetivo':      corpo = <Efetivo goto={goto} perfil={perfil} />; break
     case 'pendencias':   corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
+    case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'mais':         corpo = <Mais goto={goto} perfil={perfil} onSair={onSair} />; break
@@ -78,6 +80,9 @@ export default function AppCampo({ perfil, onSair }) {
             )}
           </button>
         ))}
+        <button onClick={() => irParaAba('planejamento')} aria-current={rota.screen === 'planejamento' ? 'true' : undefined}>
+          <Icon name="planejamento" size={19} /> Planejamento
+        </button>
         <button onClick={() => irParaAba('galeria')} aria-current={rota.screen === 'galeria' ? 'true' : undefined}>
           <Icon name="galeria" size={19} /> Galeria
         </button>
@@ -155,6 +160,7 @@ export function RodapeLateral({ perfil, onSair }) {
 function Mais({ goto, perfil, onSair }) {
   const { obra, org } = useDados()
   const itens = [
+    { chave: 'planejamento', rotulo: 'Planejamento', desc: 'O que está previsto para a semana', icone: 'planejamento' },
     { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
     { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
   ]

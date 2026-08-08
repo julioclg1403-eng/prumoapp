@@ -172,6 +172,94 @@ export function situacaoDiario(diario) {
   return { chave: 'rascunho', rotulo: 'Rascunho', tom: 'info' }
 }
 
+/* ── Semana ──────────────────────────────────────────────────
+   A semana da obra começa na SEGUNDA, não no domingo. É como o
+   planejamento é falado no canteiro ("essa semana a gente fecha o
+   15º"), e é como o fechamento faz sentido. O padrão do JavaScript
+   é domingo, por isso a conta abaixo.                            */
+
+export function inicioDaSemana(iso) {
+  const d = deISO(iso)
+  const diaDaSemana = d.getDay()
+  d.setDate(d.getDate() - (diaDaSemana === 0 ? 6 : diaDaSemana - 1))
+  return paraISO(d)
+}
+
+export function diasDaSemana(inicioISO) {
+  return Array.from({ length: 7 }, (_, i) => somarDias(inicioISO, i))
+}
+
+export function rotuloDaSemana(inicioISO) {
+  const fim = somarDias(inicioISO, 6)
+  const mesmoMes = deISO(inicioISO).getMonth() === deISO(fim).getMonth()
+  return mesmoMes
+    ? `${formatarDataCurta(inicioISO).slice(0, 2)} a ${formatarData(fim)}`
+    : `${formatarDataCurta(inicioISO)} a ${formatarData(fim)}`
+}
+
+/* ── Execução do planejado ───────────────────────────────────
+   O que foi planejado virou o quê? A resposta NÃO é digitada em
+   lugar nenhum: ela é lida do diário, pela atividade que aponta
+   para o planejamento. Uma fonte só (BRIEFING, seção 8, item 6).
+
+   Separo "não executada" de "sem lançamento" de propósito. As
+   duas dão zero de avanço, mas significam coisas opostas: a
+   primeira é um fato registrado pelo mestre; a segunda é a falta
+   do registro. Somá-las esconderia diário não lançado dentro de
+   um número de produtividade — e é justamente esse buraco que a
+   gestão precisa enxergar.                                       */
+
+export const SITUACAO_EXECUCAO = {
+  concluida:      { rotulo: 'Concluída',      tom: 'success' },
+  iniciada:       { rotulo: 'Iniciada',       tom: 'info' },
+  nao_executada:  { rotulo: 'Não executada',  tom: 'danger' },
+  sem_lancamento: { rotulo: 'Sem lançamento', tom: '' },
+}
+
+export function situacaoExecucao(planejada, diarios) {
+  const diario = diarios.find(
+    (d) => d.data === planejada.data && d.worksite_id === planejada.worksite_id,
+  )
+  if (!diario) return { chave: 'sem_lancamento', ...SITUACAO_EXECUCAO.sem_lancamento }
+
+  const executada = (diario.atividades || []).find((a) => a.planned_id === planejada.id)
+  if (!executada) return { chave: 'nao_executada', ...SITUACAO_EXECUCAO.nao_executada, diario }
+
+  if (executada.status === 'concluida') {
+    return { chave: 'concluida', ...SITUACAO_EXECUCAO.concluida, diario, executada }
+  }
+  if (executada.status === 'em_andamento') {
+    return { chave: 'iniciada', ...SITUACAO_EXECUCAO.iniciada, diario, executada }
+  }
+  return { chave: 'nao_executada', ...SITUACAO_EXECUCAO.nao_executada, diario, executada }
+}
+
+/* O fechamento da semana. Esta função alimenta a tela, o resumo e
+   a exportação — se alguém recalcular em qualquer um desses
+   lugares, os três passam a discordar. */
+export function fecharSemana(planejamento, diarios, de, ate) {
+  const itens = planejamento
+    .filter((p) => p.data >= de && p.data <= ate)
+    .map((p) => ({ planejada: p, situacao: situacaoExecucao(p, diarios) }))
+    .sort((a, b) => (a.planejada.data < b.planejada.data ? -1 : 1))
+
+  const conta = (chave) => itens.filter((i) => i.situacao.chave === chave).length
+  const concluidas = conta('concluida')
+
+  return {
+    itens,
+    total: itens.length,
+    concluidas,
+    iniciadas: conta('iniciada'),
+    naoExecutadas: conta('nao_executada'),
+    semLancamento: conta('sem_lancamento'),
+    /* Percentual sobre o total planejado, incluindo o que não foi
+       lançado. Tirar o não lançado da conta inflaria o número
+       justamente nas semanas em que o campo deixou de registrar. */
+    percentual: itens.length ? Math.round((concluidas / itens.length) * 100) : 0,
+  }
+}
+
 /* ── Efetivo ─────────────────────────────────────────────────
    O efetivo não é digitado: ele é a consolidação das presenças
    lançadas nos diários. Uma fonte só.                           */

@@ -609,13 +609,41 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar],
   )
 
+  /* Planejar a semana inteira de uma vez. Vai numa chamada só, e
+     não num laço de vinte: no laço, uma falha no meio deixaria
+     metade da semana planejada e ninguém saberia qual metade. */
+  const salvarPlanejadosEmLote = useCallback(
+    async (itens) => {
+      if (!itens.length) return []
+      const { organization_id, worksite_id } = escopo()
+      const salvos = checar(
+        await supabase.from('planned_activities')
+          .insert(itens.map((i) => ({ ...i, organization_id, worksite_id })))
+          .select('*'),
+        'planejar as atividades',
+      )
+      if (!salvos) return null
+      setTudo((t) => t && ({ ...t, planejamento: [...t.planejamento, ...salvos] }))
+      return salvos
+    },
+    [escopo, checar],
+  )
+
   const removerPlanejado = useCallback(
     async (id) => {
-      const r = await supabase.from('planned_activities').delete().eq('id', id)
-      if (r.error) { checar(r, 'remover do planejamento'); return }
+      const r = await supabase.from('planned_activities').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'remover do planejamento'); return false }
+      /* Zero linhas afetadas = a permissão barrou em silêncio.
+         Sem este aviso, o item sumiria da tela e voltaria no próximo
+         carregamento, sem explicação nenhuma. */
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não pode remover itens do planejamento. Isso é da gestão.')
+        return false
+      }
       setTudo((t) => t && ({ ...t, planejamento: t.planejamento.filter((p) => p.id !== id) }))
+      return true
     },
-    [checar],
+    [checar, avisarErro],
   )
 
   // ── Usuários (só o admin chega aqui) ──────────────────────
@@ -656,7 +684,7 @@ export function DadosProvider({ perfil, children }) {
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
       salvarPendencia, alternarPendencia,
       salvarCadastro, arquivarCadastro,
-      salvarPlanejado, removerPlanejado,
+      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel,
     }),
     [
@@ -665,7 +693,8 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, alternarPendencia,
-      salvarCadastro, arquivarCadastro, salvarPlanejado, removerPlanejado, definirPapel,
+      salvarCadastro, arquivarCadastro,
+      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
     ],
   )
 

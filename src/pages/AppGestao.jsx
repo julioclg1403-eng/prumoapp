@@ -18,6 +18,7 @@ import Efetivo from '../screens/efetivo'
 import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
+import Planejamento from '../screens/planejamento'
 import Usuarios from '../screens/usuarios'
 
 export default function AppGestao({ perfil, onSair }) {
@@ -42,17 +43,31 @@ export default function AppGestao({ perfil, onSair }) {
   const itens = [
     { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
     { chave: 'diarios', rotulo: 'Diários', icone: 'diario' },
-    { chave: 'efetivo', rotulo: 'Efetivo', icone: 'efetivo', badge: revisoes },
+    { chave: 'planejamento', rotulo: 'Planejamento', icone: 'planejamento',
+      desc: 'A semana da obra e o fechamento' },
+    { chave: 'efetivo', rotulo: 'Efetivo', icone: 'efetivo', badge: revisoes,
+      desc: 'Consolidado das presenças e revisão de cadastros' },
     { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias', badge: cont.atrasadas },
-    { chave: 'galeria', rotulo: 'Galeria', icone: 'galeria' },
-    { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros' },
-    ...(perfil.role === 'admin' ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios' }] : []),
+    { chave: 'galeria', rotulo: 'Galeria', icone: 'galeria',
+      desc: 'Todas as fotos da obra, por dia' },
+    { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
+      desc: 'Empresas, colaboradores, locais e serviços' },
+    ...(perfil.role === 'admin'
+      ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' }]
+      : []),
   ]
 
-  /* No celular a barra inferior só comporta cinco. O que sobra
-     continua acessível pelo menu lateral em tela larga e, no
-     celular, pelos atalhos do Início. */
-  const abasCelular = itens.slice(0, 5)
+  /* A barra inferior do celular só comporta cinco destinos, e a
+     gestão tem sete ou oito. Os quatro mais usados no dia a dia
+     ficam fixos; o resto vai para "Mais".
+     Antes disto, Galeria e Cadastros simplesmente NÃO existiam no
+     celular para o perfil de gestão — não havia como chegar neles. */
+  const CHAVES_FIXAS = ['inicio', 'diarios', 'efetivo', 'pendencias']
+  const abasCelular = [
+    ...CHAVES_FIXAS.map((c) => itens.find((i) => i.chave === c)).filter(Boolean),
+    { chave: 'mais', rotulo: 'Mais', icone: 'mais' },
+  ]
+  const noMais = itens.filter((i) => !CHAVES_FIXAS.includes(i.chave))
 
   let corpo
   switch (rota.screen) {
@@ -61,9 +76,11 @@ export default function AppGestao({ perfil, onSair }) {
     case 'diario':     corpo = <DiarioEditor {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'efetivo':    corpo = <Efetivo goto={goto} perfil={perfil} params={rota.params} />; break
     case 'pendencias': corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
+    case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'mais':       corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break
     default:           corpo = <InicioGestao goto={goto} irParaAba={irParaAba} perfil={perfil} />
   }
 
@@ -112,5 +129,46 @@ export default function AppGestao({ perfil, onSair }) {
         ))}
       </nav>
     </div>
+  )
+}
+
+/* ── Aba "Mais": o que não coube na barra inferior ─────────
+   Só aparece no celular. Em tela larga tudo está no menu lateral. */
+
+function Mais({ itens, irParaAba, perfil, onSair }) {
+  const { obra, org } = useDados()
+  return (
+    <>
+      <div className="topbar">
+        <div className="grow">
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Mais</div>
+          <div className="sub">{obra.nome} · {org.nome}</div>
+        </div>
+      </div>
+      <div className="page stack-2">
+        {itens.map((i) => (
+          <button key={i.chave} className="card-tap" onClick={() => irParaAba(i.chave)}>
+            <div className="row-flex">
+              <Icon name={i.icone} size={22} style={{ color: 'var(--primary)' }} />
+              <div className="grow">
+                <div className="t-strong">{i.rotulo}</div>
+                {i.desc && <div className="t-caption">{i.desc}</div>}
+              </div>
+              {i.badge > 0 && <span className="chip danger">{i.badge}</span>}
+              <Icon name="avancar" size={18} style={{ color: 'var(--text-3)' }} />
+            </div>
+          </button>
+        ))}
+
+        <div className="card-flat">
+          <div className="t-micro" style={{ marginBottom: 6 }}>Conta</div>
+          <div className="t-strong">{perfil.nome}</div>
+          <div className="t-caption">{perfil.email}{perfil.cargo ? ` · ${perfil.cargo}` : ''}</div>
+          <button className="btn btn-secondary btn-block" style={{ marginTop: 14 }} onClick={onSair}>
+            <Icon name="sair" size={18} /> Sair
+          </button>
+        </div>
+      </div>
+    </>
   )
 }
