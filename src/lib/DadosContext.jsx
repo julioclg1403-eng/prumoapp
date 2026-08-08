@@ -56,8 +56,13 @@ function normalizarDiario(d) {
   }
 }
 
+const OBRA_LEMBRADA = 'prumo:obra-escolhida'
+
 export function DadosProvider({ perfil, children }) {
   const [tudo, setTudo] = useState(null)
+  const [obraId, setObraId] = useState(() => {
+    try { return localStorage.getItem(OBRA_LEMBRADA) } catch { return null }
+  })
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
   /* Marca se o componente ainda está na tela, para não tentar
@@ -118,12 +123,17 @@ export function DadosProvider({ perfil, children }) {
 
     if (!vivo.current) return
 
-    const obras = obra.data || []
+    const obras = (obra.data || []).filter((o) => o.ativo !== false)
+
+    /* Escolhe a obra: a última que a pessoa usou, senão a do
+       cadastro dela, senão a primeira. */
+    setObraId((atual) => {
+      if (atual && obras.some((o) => o.id === atual)) return atual
+      return obras.find((o) => o.id === perfil.worksite_id)?.id || obras[0]?.id || null
+    })
+
     setTudo({
       org: org.data || { id: null, nome: '' },
-      /* Uma obra por enquanto — a do perfil, ou a primeira que ele
-         enxerga. Várias obras é assunto de outra fase. */
-      obra: obras.find((o) => o.id === perfil.worksite_id) || obras[0] || { id: null, nome: 'Sem obra' },
       obras,
       perfis: perfis.data || [],
       empresas: empresas.data || [],
@@ -168,9 +178,36 @@ export function DadosProvider({ perfil, children }) {
   )
 
   const escopo = useCallback(
-    () => ({ organization_id: perfil.organization_id, worksite_id: tudo?.obra?.id }),
-    [perfil.organization_id, tudo],
+    () => ({ organization_id: perfil.organization_id, worksite_id: obraId }),
+    [perfil.organization_id, obraId],
   )
+
+  /* ── A obra escolhida filtra TUDO ────────────────────────────
+     O recorte acontece aqui, num lugar só, e não em cada tela.
+     Se cada tela filtrasse por conta própria, bastaria uma
+     esquecer para o efetivo da YACHT aparecer somado ao da SEDE —
+     e ninguém perceberia, porque o número continuaria plausível.
+     O banco também separa por obra; isto é a camada de cima. */
+  const daObra = useMemo(() => {
+    if (!tudo) return null
+    const filtrar = (lista) => lista.filter((x) => x.worksite_id === obraId)
+    return {
+      obra: tudo.obras.find((o) => o.id === obraId) || { id: null, nome: 'Sem obra' },
+      empresas: filtrar(tudo.empresas),
+      colaboradores: filtrar(tudo.colaboradores),
+      locais: filtrar(tudo.locais),
+      servicos: filtrar(tudo.servicos),
+      tiposOcorrencia: filtrar(tudo.tiposOcorrencia),
+      planejamento: filtrar(tudo.planejamento),
+      diarios: filtrar(tudo.diarios),
+      pendencias: filtrar(tudo.pendencias),
+    }
+  }, [tudo, obraId])
+
+  const trocarObra = useCallback((id) => {
+    setObraId(id)
+    try { localStorage.setItem(OBRA_LEMBRADA, id) } catch { /* navegador sem storage */ }
+  }, [])
 
   // ── Diário ────────────────────────────────────────────────
   /* Salva o diário inteiro: cabeçalho, presenças, frentes, quem
@@ -524,7 +561,7 @@ export function DadosProvider({ perfil, children }) {
          obra. Liberar o acesso é justamente colocá-lo nelas. */
       if (alvo && !alvo.organization_id) {
         mudanca.organization_id = perfil.organization_id
-        mudanca.worksite_id = tudo?.obra?.id || perfil.worksite_id
+        mudanca.worksite_id = obraId || perfil.worksite_id
       }
       const atualizado = checar(
         await supabase.from('profiles').update(mudanca).eq('id', usuarioId).select('*').single(),
@@ -535,13 +572,17 @@ export function DadosProvider({ perfil, children }) {
         ...t, perfis: t.perfis.map((p) => (p.id === usuarioId ? atualizado : p)),
       }))
     },
-    [tudo, perfil, checar],
+    [tudo, perfil, obraId, checar],
   )
 
   const valor = useMemo(
-    () => tudo && ({
+    () => tudo && daObra && ({
       fonte: 'supabase',
-      ...tudo,
+      org: tudo.org,
+      obras: tudo.obras,
+      perfis: tudo.perfis,
+      ...daObra,
+      trocarObra,
       perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario,
@@ -552,7 +593,7 @@ export function DadosProvider({ perfil, children }) {
       definirPapel,
     }),
     [
-      tudo, perfil, erro, salvando, avisarErro, recarregar,
+      tudo, daObra, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario, criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, alternarPendencia,

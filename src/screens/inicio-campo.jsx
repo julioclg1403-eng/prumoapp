@@ -11,10 +11,11 @@ import {
   progressoDiario, filtrarPendencias, situacaoPendencia, contarPendencias,
   pendentesDeRevisao, plural,
 } from '../lib/dominio'
-import { Icon, Chip, Indicador, ItemLista, Vazio } from '../components'
+import { Icon, Chip, Indicador, ItemLista, Vazio, SeletorObra, useDesktop } from '../components'
 
 export default function InicioCampo({ goto, irParaAba, perfil }) {
   const dados = useDados()
+  const desktop = useDesktop()
   const hoje = hojeISO()
 
   const diarioHoje = diarioDaData(dados.diarios, hoje, dados.obra.id)
@@ -39,7 +40,14 @@ export default function InicioCampo({ goto, irParaAba, perfil }) {
           <div style={{ fontSize: 17, fontWeight: 700 }}>{perfil.nome}</div>
           <div className="sub">{formatarDataLonga(hoje)}</div>
         </div>
-        <Icon name="obra" size={22} />
+        {/* No desktop o seletor já está no menu lateral. */}
+        {!desktop && dados.obras.length > 1 ? (
+          <div style={{ width: 145, flex: 'none' }}>
+            <SeletorObra obras={dados.obras} obraId={dados.obra.id} onTrocar={dados.trocarObra} escuro />
+          </div>
+        ) : (
+          <Icon name="obra" size={22} />
+        )}
       </div>
 
       <div className="page stack-3">

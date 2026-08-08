@@ -198,6 +198,32 @@ export function Vazio({ titulo, texto, acao }) {
   )
 }
 
+/* ── Seletor de obra ─────────────────────────────────────────
+   Fica no cabeçalho porque a obra é o escopo de TUDO: trocar de
+   obra troca o diário, o efetivo, as pendências e os cadastros.
+   Com uma obra só, não aparece — seria um controle que não faz
+   nada ocupando a área mais nobre da tela. */
+
+export function SeletorObra({ obras, obraId, onTrocar, escuro }) {
+  if (!obras || obras.length < 2) return null
+  return (
+    <select
+      value={obraId || ''}
+      onChange={(e) => onTrocar(e.target.value)}
+      aria-label="Obra"
+      style={{
+        width: '100%', height: 34, padding: '0 8px', cursor: 'pointer',
+        borderRadius: 8, fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600,
+        background: escuro ? 'var(--graphite-2)' : 'var(--surface)',
+        color: escuro ? 'var(--on-graphite)' : 'var(--text)',
+        border: `1px solid ${escuro ? 'var(--graphite-3)' : 'var(--border-strong)'}`,
+      }}
+    >
+      {obras.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+    </select>
+  )
+}
+
 /* ── Aviso de falha ──────────────────────────────────────────
    Erro de banco não pode passar em branco: se a gravação não foi,
    a pessoa precisa saber ANTES de sair da tela achando que salvou. */

@@ -9,7 +9,7 @@
    ============================================================ */
 
 import { useState, useCallback } from 'react'
-import { Icon, useDesktop, BarraErro } from '../components'
+import { Icon, useDesktop, BarraErro, SeletorObra } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { contarPendencias } from '../lib/dominio'
 
@@ -114,12 +114,19 @@ export default function AppCampo({ perfil, onSair }) {
 }
 
 export function MarcaLateral({ obra }) {
+  const { obras, obra: atual, trocarObra } = useDados()
   return (
     <div style={{ padding: '4px 12px 18px' }}>
       <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em', color: 'var(--on-graphite)' }}>
         Prumo<span style={{ color: 'var(--primary)' }}>.</span>
       </div>
-      <div style={{ fontSize: 12, color: 'var(--on-graphite-2)', marginTop: 2 }}>{obra}</div>
+      {obras.length > 1 ? (
+        <div style={{ marginTop: 10 }}>
+          <SeletorObra obras={obras} obraId={atual.id} onTrocar={trocarObra} escuro />
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: 'var(--on-graphite-2)', marginTop: 2 }}>{obra}</div>
+      )}
     </div>
   )
 }
