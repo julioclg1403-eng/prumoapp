@@ -792,12 +792,13 @@ export function DadosProvider({ perfil, children }) {
           descricao: i.descricao, data_inicio: i.data_inicio,
           data_fim: i.data_fim, responsavel: i.responsavel || null,
         })),
+        p_worksite_id: escopo().worksite_id,
       })
       if (r.error) { avisarErro(r.error.message); return null }
       await recarregar()
       return r.data?.[0] || { criados: 0, atualizados: 0 }
     },
-    [avisarErro, recarregar],
+    [escopo, avisarErro, recarregar],
   )
 
   const removerItemCronograma = useCallback(
