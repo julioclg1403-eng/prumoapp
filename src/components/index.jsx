@@ -34,6 +34,7 @@ const CAMINHOS = {
   galeria: 'M3 5.5h18v13H3zM3 15l5-4.5 4 3.5 3.5-3L21 15M15.5 9.5h.01',
   baixar: 'M12 4v11M8 11.5l4 4 4-4M4.5 19.5h15',
   filtro: 'M4 6h16l-6.2 7v5.5l-3.6 1.8V13z',
+  pedidos: 'M3 6.5h3l2 10h10l2-7.5H7M9.5 20.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2M17 20.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2',
 }
 
 export function Icon({ name, size = 20, style }) {

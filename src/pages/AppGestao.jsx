@@ -8,7 +8,7 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro } from '../components'
 import { useDados } from '../lib/DadosContext'
-import { contarPendencias, pendentesDeRevisao } from '../lib/dominio'
+import { contarPendencias, pendentesDeRevisao, contarRequisicoes } from '../lib/dominio'
 import { MarcaLateral, RodapeLateral } from './AppCampo'
 
 import InicioGestao from '../screens/inicio-gestao'
@@ -19,6 +19,8 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
+import Requisicoes from '../screens/requisicoes'
+import Requisicao from '../screens/requisicao'
 import Usuarios from '../screens/usuarios'
 
 export default function AppGestao({ perfil, onSair }) {
@@ -39,6 +41,7 @@ export default function AppGestao({ perfil, onSair }) {
 
   const cont = contarPendencias(dados.pendencias)
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
+  const contPedidos = contarRequisicoes(dados.requisicoes, perfil.id)
 
   const itens = [
     { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
@@ -48,6 +51,8 @@ export default function AppGestao({ perfil, onSair }) {
     { chave: 'efetivo', rotulo: 'Efetivo', icone: 'efetivo', badge: revisoes,
       desc: 'Consolidado das presenças e revisão de cadastros' },
     { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias', badge: cont.atrasadas },
+    { chave: 'requisicoes', rotulo: 'Pedidos', icone: 'pedidos', badge: contPedidos.aguardando,
+      desc: 'Requisições de material, da cotação à entrega' },
     { chave: 'galeria', rotulo: 'Galeria', icone: 'galeria',
       desc: 'Todas as fotos da obra, por dia' },
     { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
@@ -77,6 +82,8 @@ export default function AppGestao({ perfil, onSair }) {
     case 'efetivo':    corpo = <Efetivo goto={goto} perfil={perfil} params={rota.params} />; break
     case 'pendencias': corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
     case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
+    case 'requisicoes': corpo = <Requisicoes goto={goto} perfil={perfil} />; break
+    case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break

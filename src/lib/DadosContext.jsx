@@ -70,6 +70,25 @@ function normalizarDiario(d) {
 
 const OBRA_LEMBRADA = 'prumo:obra-escolhida'
 
+/* Mesma regra do SELECT_DIARIO: sem comentário aqui dentro. */
+const SELECT_REQUISICAO = `
+  id, organization_id, worksite_id, numero, titulo, status, autor_id, responsavel_id,
+  observacao, fornecedor, valor_total, anexo_caminho, data_envio, data_compra,
+  previsao_entrega, created_at, atualizado_em,
+  itens:material_request_items ( id, material_id, descricao, quantidade, unidade,
+                                 observacao, data_necessidade, planned_id, ordem ),
+  entregas:deliveries ( id, data, responsavel_id, observacao, comprovante_caminho, created_at,
+                        itens:delivery_items ( id, item_id, quantidade ) )
+`
+
+function normalizarRequisicao(r) {
+  return {
+    ...r,
+    itens: [...(r.itens || [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)),
+    entregas: [...(r.entregas || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
+  }
+}
+
 export function DadosProvider({ perfil, children }) {
   const [tudo, setTudo] = useState(null)
   const [obraId, setObraId] = useState(() => {
@@ -111,7 +130,7 @@ export function DadosProvider({ perfil, children }) {
   const recarregar = useCallback(async () => {
     const [
       org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias,
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -124,10 +143,12 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('planned_activities').select('*').order('data', { ascending: false }),
       supabase.from('daily_reports').select(SELECT_DIARIO).order('data', { ascending: false }),
       supabase.from('issues').select('*').order('prazo', { nullsFirst: false }),
+      supabase.from('materials').select('*').order('usos', { ascending: false }),
+      supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias].find((r) => r.error)
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -156,6 +177,10 @@ export function DadosProvider({ perfil, children }) {
       planejamento: planejamento.data || [],
       diarios: (diarios.data || []).map(normalizarDiario),
       pendencias: pendencias.data || [],
+      /* O catálogo de materiais é da organização, não da obra —
+         por isso não passa pelo filtro de obra mais abaixo. */
+      materiais: materiais.data || [],
+      requisicoes: (requisicoes.data || []).map(normalizarRequisicao),
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -213,6 +238,7 @@ export function DadosProvider({ perfil, children }) {
       planejamento: filtrar(tudo.planejamento),
       diarios: filtrar(tudo.diarios),
       pendencias: filtrar(tudo.pendencias),
+      requisicoes: filtrar(tudo.requisicoes),
     }
   }, [tudo, obraId])
 
@@ -646,6 +672,175 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Requisições de material ───────────────────────────────
+
+  const trocarRequisicaoNaLista = useCallback((nova) => {
+    setTudo((t) => t && ({
+      ...t,
+      requisicoes: t.requisicoes.some((r) => r.id === nova.id)
+        ? t.requisicoes.map((r) => (r.id === nova.id ? nova : r))
+        : [nova, ...t.requisicoes],
+    }))
+  }, [])
+
+  const relerRequisicao = useCallback(
+    async (id) => {
+      const fresca = checar(
+        await supabase.from('material_requests').select(SELECT_REQUISICAO).eq('id', id).single(),
+        'reler o pedido',
+      )
+      if (!fresca) return null
+      const normalizada = normalizarRequisicao(fresca)
+      trocarRequisicaoNaLista(normalizada)
+      return normalizada
+    },
+    [checar, trocarRequisicaoNaLista],
+  )
+
+  /* Salva o cabeçalho e os itens juntos. Os itens são trocados por
+     inteiro em vez de reconciliados um a um: são poucas linhas, e
+     reconciliar traria mais chance de erro que ganho. */
+  const salvarRequisicao = useCallback(
+    async (req, itens) => {
+      const { organization_id, worksite_id } = escopo()
+      const cabecalho = {
+        organization_id, worksite_id,
+        titulo: (req.titulo || '').trim() || null,
+        status: req.status || 'rascunho',
+        autor_id: req.autor_id || perfil.id,
+        responsavel_id: req.responsavel_id || null,
+        observacao: (req.observacao || '').trim() || null,
+        fornecedor: (req.fornecedor || '').trim() || null,
+        valor_total: req.valor_total === '' || req.valor_total == null ? null : Number(req.valor_total),
+        data_envio: req.data_envio || null,
+        data_compra: req.data_compra || null,
+        previsao_entrega: req.previsao_entrega || null,
+        atualizado_em: new Date().toISOString(),
+      }
+      if (req.id) cabecalho.id = req.id
+
+      const salva = checar(
+        await supabase.from('material_requests').upsert(cabecalho).select('id').single(),
+        'salvar o pedido',
+      )
+      if (!salva) return null
+
+      if (itens) {
+        const apagou = await supabase.from('material_request_items')
+          .delete().eq('request_id', salva.id)
+        if (apagou.error) { checar(apagou, 'atualizar os itens'); return null }
+
+        const validos = itens.filter((i) => (i.descricao || '').trim() && Number(i.quantidade) > 0)
+        if (validos.length) {
+          const ins = await supabase.from('material_request_items').insert(
+            validos.map((i, ordem) => ({
+              request_id: salva.id,
+              material_id: i.material_id || null,
+              descricao: i.descricao.trim(),
+              quantidade: Number(i.quantidade),
+              unidade: (i.unidade || '').trim() || null,
+              observacao: (i.observacao || '').trim() || null,
+              data_necessidade: i.data_necessidade || null,
+              planned_id: i.planned_id || null,
+              ordem,
+            })),
+          )
+          if (ins.error) { checar(ins, 'salvar os itens'); return null }
+        }
+      }
+
+      return await relerRequisicao(salva.id)
+    },
+    [perfil.id, escopo, checar, relerRequisicao],
+  )
+
+  /* Mudanças de etapa. Cada uma carimba a data que lhe corresponde,
+     para o histórico do pedido não depender de memória de ninguém. */
+  const moverRequisicao = useCallback(
+    async (id, novoStatus, extra = {}) => {
+      const carimbo = {
+        enviada:     { data_envio: hojeISO(), status: 'enviada' },
+        em_cotacao:  { responsavel_id: perfil.id, status: 'em_cotacao' },
+        comprada:    { data_compra: hojeISO(), status: 'comprada' },
+        em_transito: { status: 'em_transito' },
+        cancelada:   { status: 'cancelada' },
+      }[novoStatus] || { status: novoStatus }
+
+      const r = await supabase.from('material_requests')
+        .update({ ...carimbo, ...extra, atualizado_em: new Date().toISOString() })
+        .eq('id', id).select('id')
+      if (r.error) { checar(r, 'mudar a etapa do pedido'); return null }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não pode mudar a etapa deste pedido.')
+        return null
+      }
+      return await relerRequisicao(id)
+    },
+    [perfil.id, checar, avisarErro, relerRequisicao],
+  )
+
+  const excluirRequisicao = useCallback(
+    async (id) => {
+      const r = await supabase.from('material_requests').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir o pedido'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Só o autor pode excluir um rascunho, e só antes de enviar.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, requisicoes: t.requisicoes.filter((x) => x.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
+  /* Vai inteiro para o banco, numa função que roda em transação:
+     entrega, itens recebidos e mudança de etapa, ou nada. */
+  const registrarEntrega = useCallback(
+    async ({ requestId, data, observacao, comprovante, itens }) => {
+      const r = await supabase.rpc('registrar_entrega', {
+        p_request_id: requestId,
+        p_data: data || hojeISO(),
+        p_observacao: observacao || null,
+        p_comprovante: comprovante || null,
+        p_itens: itens,
+      })
+      if (r.error) {
+        /* A mensagem do banco aqui é escrita para ser lida por
+           gente e começa pelo NOME DO ITEM. Não cortar nada dela:
+           numa nota com vinte itens, saber qual deles estourou é a
+           informação inteira. */
+        avisarErro(r.error.message)
+        return null
+      }
+      return await relerRequisicao(requestId)
+    },
+    [avisarErro, relerRequisicao],
+  )
+
+  // ── Catálogo de materiais ─────────────────────────────────
+  const salvarMaterial = useCallback(
+    async ({ nome, unidade_padrao }) => {
+      const limpo = (nome || '').trim()
+      if (!limpo) return null
+      const existente = tudo?.materiais.find(
+        (m) => m.nome.toLowerCase() === limpo.toLowerCase(),
+      )
+      if (existente) return existente
+
+      const novo = checar(
+        await supabase.from('materials')
+          .insert({ organization_id: perfil.organization_id, nome: limpo,
+                    unidade_padrao: (unidade_padrao || '').trim() || null })
+          .select('*').single(),
+        'cadastrar o material',
+      )
+      if (!novo) return null
+      setTudo((t) => t && ({ ...t, materiais: [...t.materiais, novo] }))
+      return novo
+    },
+    [tudo, perfil.organization_id, checar],
+  )
+
   // ── Usuários (só o admin chega aqui) ──────────────────────
   const definirPapel = useCallback(
     async (usuarioId, papel) => {
@@ -675,7 +870,10 @@ export function DadosProvider({ perfil, children }) {
       org: tudo.org,
       obras: tudo.obras,
       perfis: tudo.perfis,
+      materiais: tudo.materiais,
       ...daObra,
+      salvarRequisicao, moverRequisicao, excluirRequisicao,
+      registrarEntrega, relerRequisicao, salvarMaterial,
       trocarObra,
       perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
@@ -695,6 +893,8 @@ export function DadosProvider({ perfil, children }) {
       mesclarColaborador, salvarPendencia, alternarPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
+      salvarRequisicao, moverRequisicao, excluirRequisicao,
+      registrarEntrega, relerRequisicao, salvarMaterial,
     ],
   )
 
