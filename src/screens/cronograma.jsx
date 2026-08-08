@@ -22,7 +22,7 @@ import {
 } from '../lib/dominio'
 import { parseCSV } from '../lib/csv'
 import {
-  Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador,
+  Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, Segmentos,
 } from '../components'
 
 export default function Cronograma({ perfil }) {
@@ -304,6 +304,7 @@ function ItemCronograma({ item, hoje, podeEditar, onEditar, onMedir, onRemover }
           <div className="t-strong">{item.descricao}</div>
           <div className="t-caption">
             {formatarData(item.data_inicio)} a {formatarData(item.data_fim)} · peso {item.peso}
+            {item.responsavel ? ` · ${item.responsavel}` : ''}
           </div>
         </div>
         <Chip tom={situacao.tom}>{situacao.rotulo}</Chip>
@@ -415,15 +416,20 @@ function baixarModelo() {
 
 function ImportarCronograma({ aberto, onFechar }) {
   const dados = useDados()
+  const [modo, setModo] = useState('pdf')   // 'pdf' | 'csv'
   const [texto, setTexto] = useState('')
   const [resultado, setResultado] = useState(null)
+  const [lendoPDF, setLendoPDF] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [nomeArquivo, setNomeArquivo] = useState('')
 
-  const fechar = () => { setTexto(''); setResultado(null); onFechar() }
+  const fechar = () => {
+    setTexto(''); setResultado(null); setNomeArquivo(''); setModo('pdf'); onFechar()
+  }
 
-  const processar = () => setResultado(processarCSV(texto))
+  const processarTexto = () => setResultado(processarCSV(texto))
 
-  const onArquivo = (e) => {
+  const onArquivoCSV = (e) => {
     const arquivo = e.target.files?.[0]
     if (!arquivo) return
     const leitor = new FileReader()
@@ -436,12 +442,48 @@ function ImportarCronograma({ aberto, onFechar }) {
     e.target.value = ''
   }
 
+  /* O PDF é comparado com o cronograma que JÁ está na tela: a
+     mesma descrição vira atualização (data e responsável mudam,
+     percentual medido fica intacto); descrição nova vira etapa
+     nova. É só para a pessoa VER essa diferença antes de mandar —
+     quem grava de fato é a função do banco, que faz a mesma conta. */
+  const onArquivoPDF = async (e) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    e.target.value = ''
+    setNomeArquivo(arquivo.name)
+    setLendoPDF(true)
+    setResultado(null)
+    try {
+      /* Carregada só aqui, no clique — não no carregamento do app.
+         O leitor de PDF pesa mais de 1 MB (a biblioteca da Mozilla
+         inteira); ninguém que só quer ver o cronograma no celular,
+         no sinal ruim do canteiro, deveria baixar esse peso à toa. */
+      const { lerCronogramaDoPDF } = await import('../lib/pdfCronograma')
+      const lido = await lerCronogramaDoPDF(arquivo)
+      const existentes = new Set(dados.cronograma.map((i) => i.descricao.trim().toLowerCase()))
+      const itens = lido.itens.map((i) => ({
+        ...i,
+        acao: existentes.has(i.descricao.trim().toLowerCase()) ? 'atualiza' : 'novo',
+      }))
+      setResultado({ itens, erroGeral: lido.erroGeral })
+    } catch (err) {
+      setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
+    } finally {
+      setLendoPDF(false)
+    }
+  }
+
   const validos = (resultado?.itens || []).filter((i) => i.valido)
+  const novos = validos.filter((i) => i.acao !== 'atualiza').length
+  const atualizados = validos.filter((i) => i.acao === 'atualiza').length
 
   const confirmar = async () => {
     if (!validos.length) return
     setImportando(true)
-    const ok = await dados.importarCronograma(validos)
+    const ok = modo === 'pdf'
+      ? await dados.importarCronogramaPDF(validos)
+      : await dados.importarCronograma(validos)
     setImportando(false)
     if (ok) fechar()
   }
@@ -449,31 +491,56 @@ function ImportarCronograma({ aberto, onFechar }) {
   return (
     <Sheet aberto={aberto} titulo="Importar cronograma" onFechar={fechar}>
       <div className="stack-2">
-        <div className="t-caption" style={{ lineHeight: 1.5 }}>
-          Cole abaixo as linhas da sua planilha (com cabeçalho: Descrição, Início, Fim e Peso) ou
-          escolha o arquivo .csv exportado do Excel ou do MS Project.
-        </div>
-
-        <div className="row-flex">
-          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
-            Escolher arquivo .csv
-            <input type="file" accept=".csv,text/csv" onChange={onArquivo} style={{ display: 'none' }} />
-          </label>
-          <button className="btn btn-ghost btn-sm" onClick={baixarModelo}>Baixar modelo</button>
-        </div>
-
-        <textarea
-          className="ipt" rows={6}
-          style={{ height: 'auto', padding: 10, fontFamily: 'monospace', fontSize: 12 }}
-          value={texto}
-          onChange={(e) => { setTexto(e.target.value); setResultado(null) }}
-          placeholder={'Descrição;Início;Fim;Peso\nFundação;01/03/2026;30/03/2026;10'}
+        <Segmentos
+          valor={modo}
+          onChange={(m) => { setModo(m); setResultado(null); setTexto(''); setNomeArquivo('') }}
+          opcoes={[
+            { valor: 'pdf', rotulo: 'PDF operacional' },
+            { valor: 'csv', rotulo: 'Planilha (CSV)' },
+          ]}
         />
 
-        {!resultado && (
-          <button className="btn btn-primary" onClick={processar} disabled={!texto.trim()}>
-            Conferir
-          </button>
+        {modo === 'pdf' ? (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              O relatório mensal em PDF, do mesmo jeito que o setor de planejamento manda. Etapa que
+              já existe (mesma descrição) tem a data e o responsável atualizados — o percentual já
+              medido não muda. Etapa nova entra do zero.
+            </div>
+            <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
+              {lendoPDF ? 'Lendo o PDF…' : nomeArquivo || 'Escolher arquivo .pdf'}
+              <input
+                type="file" accept=".pdf,application/pdf" onChange={onArquivoPDF}
+                style={{ display: 'none' }} disabled={lendoPDF}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              Cole as linhas da planilha (cabeçalho: Descrição, Início, Fim e Peso) ou escolha o
+              arquivo .csv exportado do Excel ou do MS Project.
+            </div>
+            <div className="row-flex">
+              <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                Escolher arquivo .csv
+                <input type="file" accept=".csv,text/csv" onChange={onArquivoCSV} style={{ display: 'none' }} />
+              </label>
+              <button className="btn btn-ghost btn-sm" onClick={baixarModelo}>Baixar modelo</button>
+            </div>
+            <textarea
+              className="ipt" rows={6}
+              style={{ height: 'auto', padding: 10, fontFamily: 'monospace', fontSize: 12 }}
+              value={texto}
+              onChange={(e) => { setTexto(e.target.value); setResultado(null) }}
+              placeholder={'Descrição;Início;Fim;Peso\nFundação;01/03/2026;30/03/2026;10'}
+            />
+            {!resultado && (
+              <button className="btn btn-primary" onClick={processarTexto} disabled={!texto.trim()}>
+                Conferir
+              </button>
+            )}
+          </>
         )}
 
         {resultado?.erroGeral && <div className="alert danger">{resultado.erroGeral}</div>}
@@ -481,13 +548,18 @@ function ImportarCronograma({ aberto, onFechar }) {
         {resultado && !resultado.erroGeral && (
           <>
             <div className="alert info">
-              {plural(validos.length, 'etapa pronta', 'etapas prontas')} para importar
+              {modo === 'pdf'
+                ? [
+                    novos ? plural(novos, 'etapa nova', 'etapas novas') : null,
+                    atualizados ? `${plural(atualizados, 'atualização', 'atualizações')} de data/responsável` : null,
+                  ].filter(Boolean).join(' · ') || 'Nada pronto para importar.'
+                : `${plural(validos.length, 'etapa pronta', 'etapas prontas')} para importar`}
               {resultado.itens.length > validos.length
                 ? ` · ${plural(resultado.itens.length - validos.length, 'linha com problema', 'linhas com problema')} (não entram)`
                 : ''}.
             </div>
 
-            <div style={{ maxHeight: 260, overflowY: 'auto' }} className="stack-1">
+            <div style={{ maxHeight: 300, overflowY: 'auto' }} className="stack-1">
               {resultado.itens.map((i) => (
                 <div
                   key={i.linha}
@@ -497,10 +569,29 @@ function ImportarCronograma({ aberto, onFechar }) {
                     background: i.valido ? 'var(--surface)' : 'var(--danger-tint)',
                   }}
                 >
-                  <strong>Linha {i.linha}:</strong> {i.descricao || '(sem descrição)'}
+                  <div className="row-between" style={{ gap: 8 }}>
+                    <strong>{i.descricao || '(sem descrição)'}</strong>
+                    {i.valido && modo === 'pdf' && (
+                      <span
+                        style={{
+                          flex: 'none', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
+                          background: i.acao === 'atualiza' ? 'var(--info-tint)' : 'var(--success-tint)',
+                          color: i.acao === 'atualiza' ? 'var(--info)' : 'var(--success)',
+                        }}
+                      >
+                        {i.acao === 'atualiza' ? 'ATUALIZA' : 'NOVA'}
+                      </span>
+                    )}
+                  </div>
                   {i.valido
-                    ? ` · ${formatarData(i.data_inicio)} a ${formatarData(i.data_fim)} · peso ${i.peso}`
-                    : ` — ${i.problemas.join(', ')}`}
+                    ? (
+                      <div style={{ marginTop: 2 }}>
+                        {formatarData(i.data_inicio)} a {formatarData(i.data_fim)}
+                        {i.responsavel ? ` · ${i.responsavel}` : ''}
+                        {i.peso ? ` · peso ${i.peso}` : ''}
+                      </div>
+                    )
+                    : <div style={{ marginTop: 2 }}>— {i.problemas.join(', ')}</div>}
                 </div>
               ))}
             </div>

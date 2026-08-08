@@ -753,6 +753,26 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Importação recorrente do PDF operacional: casada por descrição
+     no próprio banco, para o item já existente ter a data e o
+     responsável atualizados SEM perder o percentual que a gestão
+     já mediu. É por isso que isto é uma função do banco
+     (importar_cronograma_pdf) e não um upsert client-side comum. */
+  const importarCronogramaPDF = useCallback(
+    async (itens) => {
+      const r = await supabase.rpc('importar_cronograma_pdf', {
+        p_itens: itens.map((i) => ({
+          descricao: i.descricao, data_inicio: i.data_inicio,
+          data_fim: i.data_fim, responsavel: i.responsavel || null,
+        })),
+      })
+      if (r.error) { avisarErro(r.error.message); return null }
+      await recarregar()
+      return r.data?.[0] || { criados: 0, atualizados: 0 }
+    },
+    [avisarErro, recarregar],
+  )
+
   const removerItemCronograma = useCallback(
     async (id) => {
       const r = await supabase.from('schedule_items').delete().eq('id', id).select('id')
@@ -979,7 +999,8 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel,
-      salvarItemCronograma, importarCronograma, medirCronograma, removerItemCronograma,
+      salvarItemCronograma, importarCronograma, importarCronogramaPDF,
+      medirCronograma, removerItemCronograma,
     }),
     [
       tudo, daObra, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -991,7 +1012,8 @@ export function DadosProvider({ perfil, children }) {
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
-      salvarItemCronograma, importarCronograma, medirCronograma, removerItemCronograma,
+      salvarItemCronograma, importarCronograma, importarCronogramaPDF,
+      medirCronograma, removerItemCronograma,
     ],
   )
 
