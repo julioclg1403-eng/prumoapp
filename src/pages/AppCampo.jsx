@@ -21,6 +21,7 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
+import Cronograma from '../screens/cronograma'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 
@@ -60,6 +61,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'efetivo':      corpo = <Efetivo goto={goto} perfil={perfil} />; break
     case 'pendencias':   corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
     case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
+    case 'cronograma':   corpo = <Cronograma perfil={perfil} />; break
     case 'requisicoes':  corpo = <Requisicoes goto={goto} perfil={perfil} />; break
     case 'requisicao':   corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
@@ -86,6 +88,9 @@ export default function AppCampo({ perfil, onSair }) {
         ))}
         <button onClick={() => irParaAba('planejamento')} aria-current={rota.screen === 'planejamento' ? 'true' : undefined}>
           <Icon name="planejamento" size={19} /> Planejamento
+        </button>
+        <button onClick={() => irParaAba('cronograma')} aria-current={rota.screen === 'cronograma' ? 'true' : undefined}>
+          <Icon name="cronograma" size={19} /> Cronograma
         </button>
         <button onClick={() => irParaAba('requisicoes')} aria-current={rota.screen === 'requisicoes' ? 'true' : undefined}>
           <Icon name="pedidos" size={19} /> Pedidos
@@ -169,6 +174,7 @@ function Mais({ goto, perfil, onSair }) {
   const itens = [
     { chave: 'requisicoes', rotulo: 'Pedidos de material', desc: 'Pedir material e conferir o que está chegando', icone: 'pedidos' },
     { chave: 'planejamento', rotulo: 'Planejamento', desc: 'O que está previsto para a semana', icone: 'planejamento' },
+    { chave: 'cronograma', rotulo: 'Cronograma', desc: 'O avanço físico da obra, etapa a etapa', icone: 'cronograma' },
     { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
     { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
   ]

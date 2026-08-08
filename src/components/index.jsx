@@ -35,6 +35,7 @@ const CAMINHOS = {
   baixar: 'M12 4v11M8 11.5l4 4 4-4M4.5 19.5h15',
   filtro: 'M4 6h16l-6.2 7v5.5l-3.6 1.8V13z',
   pedidos: 'M3 6.5h3l2 10h10l2-7.5H7M9.5 20.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2M17 20.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2',
+  cronograma: 'M4 6h9M4 12h14M4 18h6',
 }
 
 export function Icon({ name, size = 20, style }) {

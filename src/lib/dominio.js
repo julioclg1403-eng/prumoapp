@@ -449,6 +449,101 @@ export function formatarDinheiro(v) {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+/* ── Cronograma físico ────────────────────────────────────────
+   O peso e a data vêm de fora (a EAP que a engenharia já mantém em
+   planilha ou MS Project) e o percentual é medido por ela também —
+   diferente de pendência e requisição, aqui NÃO existe um diário
+   granular o bastante para derivar o avanço sozinho: uma etapa de
+   "Alvenaria 5º pavimento" dura semanas e cruza dezenas de lançamentos
+   de diário. Forçar essa derivação seria uma automação frágil demais
+   para confiar. Então o percentual é dado primário, como valor_total
+   na requisição — e o que O APP deriva é a COMPARAÇÃO entre o
+   percentual medido e o que era esperado na data de hoje.          */
+
+/* Quanto do prazo do item já passou, em percentual, 0 antes de
+   começar e 100 depois do fim — a régua contra a qual o percentual
+   medido é comparado. */
+export function progressoEsperado(item, hoje = hojeISO()) {
+  if (hoje <= item.data_inicio) return 0
+  if (hoje >= item.data_fim) return 100
+  const total = diffDias(item.data_fim, item.data_inicio) || 1
+  const decorrido = diffDias(hoje, item.data_inicio)
+  return Math.round((decorrido / total) * 100)
+}
+
+export function situacaoCronograma(item, hoje = hojeISO()) {
+  const real = Number(item.percentual || 0)
+  if (real >= 100) return { chave: 'concluida', rotulo: 'Concluída', tom: 'success', esperado: 100 }
+  if (hoje < item.data_inicio) {
+    return { chave: 'nao_iniciada', rotulo: 'Não iniciada', tom: '', esperado: 0 }
+  }
+  const esperado = progressoEsperado(item, hoje)
+  const diferenca = real - esperado
+  /* Tolerância de 5 pontos: sem ela, todo item em andamento nasceria
+     "atrasado" no primeiro dia, por um arredondamento de nada. */
+  if (diferenca < -5) {
+    return { chave: 'atrasada', rotulo: 'Atrasada', tom: 'danger', esperado, diferenca }
+  }
+  return { chave: 'em_dia', rotulo: 'Em dia', tom: 'info', esperado, diferenca }
+}
+
+export function ordenarCronograma(itens) {
+  return [...itens].sort((a, b) => (a.data_inicio < b.data_inicio ? -1 : 1))
+}
+
+/* A curva física: percentual real e previsto, ponderados pelo peso
+   de cada item — mesma conta usada no resumo e na exportação, para
+   as duas nunca discordarem sobre o avanço da obra. */
+export function curvaFisica(itens, hoje = hojeISO()) {
+  const pesoTotal = itens.reduce((s, i) => s + Number(i.peso || 0), 0)
+  if (!pesoTotal) {
+    return { percentualReal: 0, percentualPrevisto: 0, pesoTotal: 0, atrasados: 0, total: itens.length }
+  }
+  const real = itens.reduce((s, i) => s + Number(i.peso || 0) * Number(i.percentual || 0), 0) / pesoTotal
+  const previsto = itens.reduce(
+    (s, i) => s + Number(i.peso || 0) * progressoEsperado(i, hoje), 0,
+  ) / pesoTotal
+  return {
+    percentualReal: Math.round(real * 10) / 10,
+    percentualPrevisto: Math.round(previsto * 10) / 10,
+    pesoTotal,
+    atrasados: itens.filter((i) => situacaoCronograma(i, hoje).chave === 'atrasada').length,
+    total: itens.length,
+  }
+}
+
+/* Aceita tanto "31/12/2026" (o formato que sai do Excel em
+   português) quanto "2026-12-31". Devolve null se não entender —
+   quem chama decide o que fazer com uma linha ruim, não esta função. */
+export function paraISOdeTextoBR(texto) {
+  const limpo = String(texto || '').trim()
+  if (!limpo) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(limpo)) return limpo
+  const m = limpo.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+  if (!m) return null
+  const [, d, mes, a] = m
+  const data = `${a}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`
+  // Confere que a data existe de verdade (não aceita 31/02).
+  const teste = deISO(data)
+  if (teste.getFullYear() !== Number(a) || teste.getMonth() !== Number(mes) - 1 || teste.getDate() !== Number(d)) {
+    return null
+  }
+  return data
+}
+
+/* Aceita "12,5" (o que sai do Excel em português) e "12.5". Só trata o
+   ponto como separador de milhar quando HÁ vírgula na mesma string —
+   senão "12.5" digitado direto (sem vírgula) virava 125, por sumir
+   com o ponto que era o decimal. */
+export function paraNumeroBR(texto) {
+  if (texto === null || texto === undefined || texto === '') return null
+  const limpo = String(texto).trim()
+  const n = limpo.includes(',')
+    ? Number(limpo.replace(/\./g, '').replace(',', '.'))
+    : Number(limpo)
+  return Number.isFinite(n) ? n : null
+}
+
 /* ── Fila de revisão de colaborador ──────────────────────────
    Quem foi cadastrado às pressas dentro do diário entra como
    provisório e precisa de conferência da gestão.                */

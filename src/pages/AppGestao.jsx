@@ -19,6 +19,7 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
+import Cronograma from '../screens/cronograma'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Usuarios from '../screens/usuarios'
@@ -48,6 +49,8 @@ export default function AppGestao({ perfil, onSair }) {
     { chave: 'diarios', rotulo: 'Diários', icone: 'diario' },
     { chave: 'planejamento', rotulo: 'Planejamento', icone: 'planejamento',
       desc: 'A semana da obra e o fechamento' },
+    { chave: 'cronograma', rotulo: 'Cronograma', icone: 'cronograma',
+      desc: 'Avanço físico da obra, etapa a etapa' },
     { chave: 'efetivo', rotulo: 'Efetivo', icone: 'efetivo', badge: revisoes,
       desc: 'Consolidado das presenças e revisão de cadastros' },
     { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias', badge: cont.atrasadas },
@@ -82,6 +85,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'efetivo':    corpo = <Efetivo goto={goto} perfil={perfil} params={rota.params} />; break
     case 'pendencias': corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
     case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
+    case 'cronograma': corpo = <Cronograma perfil={perfil} />; break
     case 'requisicoes': corpo = <Requisicoes goto={goto} perfil={perfil} />; break
     case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break

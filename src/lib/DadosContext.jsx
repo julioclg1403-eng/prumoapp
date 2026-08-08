@@ -130,7 +130,7 @@ export function DadosProvider({ perfil, children }) {
   const recarregar = useCallback(async () => {
     const [
       org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes,
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -145,10 +145,11 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('issues').select('*').order('prazo', { nullsFirst: false }),
       supabase.from('materials').select('*').order('usos', { ascending: false }),
       supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false }),
+      supabase.from('schedule_items').select('*').order('data_inicio'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes].find((r) => r.error)
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -181,6 +182,7 @@ export function DadosProvider({ perfil, children }) {
          por isso não passa pelo filtro de obra mais abaixo. */
       materiais: materiais.data || [],
       requisicoes: (requisicoes.data || []).map(normalizarRequisicao),
+      cronograma: cronograma.data || [],
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -239,6 +241,7 @@ export function DadosProvider({ perfil, children }) {
       diarios: filtrar(tudo.diarios),
       pendencias: filtrar(tudo.pendencias),
       requisicoes: filtrar(tudo.requisicoes),
+      cronograma: filtrar(tudo.cronograma),
     }
   }, [tudo, obraId])
 
@@ -672,6 +675,98 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Cronograma físico ─────────────────────────────────────
+  const salvarItemCronograma = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        descricao: item.descricao.trim(),
+        data_inicio: item.data_inicio,
+        data_fim: item.data_fim,
+        peso: Number(item.peso),
+        ordem: item.ordem ?? 0,
+      }
+      if (item.id) linha.id = item.id
+
+      const salvo = checar(
+        await supabase.from('schedule_items').upsert(linha).select('*').single(),
+        'salvar o item do cronograma',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        cronograma: t.cronograma.some((i) => i.id === salvo.id)
+          ? t.cronograma.map((i) => (i.id === salvo.id ? salvo : i))
+          : [...t.cronograma, salvo],
+      }))
+      return salvo
+    },
+    [escopo, checar],
+  )
+
+  /* A importação inteira numa chamada só, pelo mesmo motivo do
+     planejamento em lote: uma falha no meio de vinte linhas não pode
+     deixar metade do cronograma importada sem ninguém saber qual
+     metade. */
+  const importarCronograma = useCallback(
+    async (itens) => {
+      if (!itens.length) return []
+      const { organization_id, worksite_id } = escopo()
+      const salvos = checar(
+        await supabase.from('schedule_items')
+          .insert(itens.map((i, idx) => ({
+            organization_id, worksite_id,
+            descricao: i.descricao.trim(),
+            data_inicio: i.data_inicio,
+            data_fim: i.data_fim,
+            peso: Number(i.peso),
+            ordem: idx,
+          })))
+          .select('*'),
+        'importar o cronograma',
+      )
+      if (!salvos) return null
+      setTudo((t) => t && ({ ...t, cronograma: [...t.cronograma, ...salvos] }))
+      return salvos
+    },
+    [escopo, checar],
+  )
+
+  /* A medição: só o percentual muda. Separada de salvarItemCronograma
+     porque é a ação do dia a dia (gestão mede o avanço toda semana) —
+     não precisa reabrir descrição, datas e peso para isso. */
+  const medirCronograma = useCallback(
+    async (id, percentual) => {
+      const salvo = checar(
+        await supabase.from('schedule_items')
+          .update({ percentual: Number(percentual), atualizado_em: new Date().toISOString() })
+          .eq('id', id).select('*').single(),
+        'registrar a medição',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t, cronograma: t.cronograma.map((i) => (i.id === id ? salvo : i)),
+      }))
+      return salvo
+    },
+    [checar],
+  )
+
+  const removerItemCronograma = useCallback(
+    async (id) => {
+      const r = await supabase.from('schedule_items').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'remover o item do cronograma'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não pode remover itens do cronograma. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, cronograma: t.cronograma.filter((i) => i.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   // ── Requisições de material ───────────────────────────────
 
   const trocarRequisicaoNaLista = useCallback((nova) => {
@@ -884,6 +979,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel,
+      salvarItemCronograma, importarCronograma, medirCronograma, removerItemCronograma,
     }),
     [
       tudo, daObra, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -895,6 +991,7 @@ export function DadosProvider({ perfil, children }) {
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
+      salvarItemCronograma, importarCronograma, medirCronograma, removerItemCronograma,
     ],
   )
 
