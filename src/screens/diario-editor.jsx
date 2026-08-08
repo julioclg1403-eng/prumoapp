@@ -22,6 +22,7 @@ import {
 import {
   Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista,
   CampoFotos, VisorFoto, useLinksDeFotos,
+  RelatorioFolha, SecaoRelatorio, TabelaRelatorio, FotosRelatorio,
 } from '../components'
 import { legendaAutomatica } from '../lib/fotos'
 
@@ -152,6 +153,11 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
           <div style={{ fontSize: 17, fontWeight: 700 }}>Diário · {formatarData(diario.data)}</div>
           <div className="sub">{formatarDataLonga(diario.data)}</div>
         </div>
+        {diario.id && (
+          <button onClick={() => window.print()} aria-label="Relatório do diário">
+            <Icon name="relatorio" size={20} />
+          </button>
+        )}
         <Chip tom={sit.tom}>{somenteLeitura ? 'Finalizado' : existente ? 'Rascunho' : 'Novo'}</Chip>
       </div>
 
@@ -244,6 +250,70 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
           if (proxima) setFotoAberta(proxima)
         }}
       />
+
+      <RelatorioFolha
+        titulo="Diário de obra" sub={formatarDataLonga(diario.data)}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio titulo="Resumo do dia">
+          <div style={{ fontSize: 13 }}>
+            Na obra: <strong>{totalMarcados(diario)}</strong> ·
+            Concluídas: <strong>{diario.atividades.filter((a) => a.status === 'concluida').length}</strong> ·
+            Em andamento: <strong>{diario.atividades.filter((a) => a.status === 'em_andamento').length}</strong> ·
+            Paradas: <strong>{diario.atividades.filter((a) => a.status === 'nao_iniciada').length}</strong> ·
+            Ocorrências: <strong>{diario.ocorrencias.length}</strong>
+          </div>
+          {diario.clima && <div style={{ fontSize: 13, marginTop: 6 }}>Clima: {diario.clima}</div>}
+          {diario.observacao && <div style={{ fontSize: 13, marginTop: 6 }}>Observação: {diario.observacao}</div>}
+        </SecaoRelatorio>
+
+        <SecaoRelatorio titulo="Efetivo por empresa">
+          <TabelaRelatorio
+            colunas={['Empresa', 'Presentes']}
+            linhas={dados.empresas
+              .map((e) => [e.nome, diario.presencas.filter((p) => p.presente && p.company_id === e.id).length])
+              .filter(([, n]) => n > 0)}
+          />
+        </SecaoRelatorio>
+
+        <SecaoRelatorio titulo="Frentes de serviço">
+          <TabelaRelatorio
+            colunas={['Serviço', 'Local', 'Empresa', 'Situação', 'Equipe', 'Observação']}
+            linhas={diario.atividades.map((a) => {
+              const r = dados.rotuloAtividade(a.planned_id)
+              const equipe = (a.worker_ids || []).map((w) => dados.colaboradorPorId(w)?.nome).filter(Boolean).join(', ')
+              return [r.servico, r.local, r.empresa, ROTULO_ATIVIDADE[a.status], equipe || '—', a.observacao || '—']
+            })}
+          />
+        </SecaoRelatorio>
+
+        <SecaoRelatorio titulo="Ocorrências">
+          <TabelaRelatorio
+            colunas={['Tipo', 'Descrição', 'Frente']}
+            linhas={diario.ocorrencias.map((o) => {
+              const ativ = diario.atividades.find((a) => a.id === o.activity_id)
+              const r = ativ ? dados.rotuloAtividade(ativ.planned_id) : null
+              return [dados.nomeDe(dados.tiposOcorrencia, o.tipo_id), o.descricao || '—', r ? `${r.servico} · ${r.local}` : '—']
+            })}
+          />
+        </SecaoRelatorio>
+
+        {(diario.fotos || []).length > 0 && (
+          <SecaoRelatorio titulo="Fotos">
+            <FotosRelatorio
+              fotos={diario.fotos}
+              links={links}
+              legenda={(f) => {
+                if (f.principal) return 'Foto principal do dia'
+                const ativ = diario.atividades.find((a) => a.id === f.activity_id)
+                if (!ativ) return f.legenda || '—'
+                const r = dados.rotuloAtividade(ativ.planned_id)
+                return `${r.servico} · ${r.local}`
+              }}
+            />
+          </SecaoRelatorio>
+        )}
+      </RelatorioFolha>
     </>
   )
 }

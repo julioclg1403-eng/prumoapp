@@ -16,7 +16,10 @@ import {
   hojeISO, somarDias, formatarData, formatarDataCurta, nomeDiaSemana,
   consolidarEfetivo, efetivoPorEmpresa, pendentesDeRevisao, plural,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, ItemLista, useDesktop } from '../components'
+import {
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, ItemLista, useDesktop,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+} from '../components'
 
 const PERIODOS = [
   { valor: 7, rotulo: '7 dias' },
@@ -60,6 +63,7 @@ export default function Efetivo({ goto, perfil, params = {} }) {
         <PageHeader
           titulo="Efetivo"
           sub="Consolidado a partir das presenças lançadas nos diários"
+          acao={(aba === 'efetivo' || !gestor) && resumo.dias.length > 0 && <BotaoRelatorio />}
         />
 
         {gestor && (
@@ -178,6 +182,34 @@ export default function Efetivo({ goto, perfil, params = {} }) {
           <FilaDeRevisao />
         )}
       </div>
+
+      <RelatorioFolha
+        titulo="Efetivo" sub={`${formatarData(de)} a ${formatarData(hoje)}${empresaId ? ` · ${dados.nomeDe(dados.empresas, empresaId)}` : ''}`}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio titulo="Resumo do período">
+          <div style={{ fontSize: 13 }}>
+            Homem-dia: <strong>{resumo.total}</strong> · Média/dia: <strong>{resumo.media}</strong> ·
+            Pico: <strong>{resumo.pico}</strong> · Dias lançados: <strong>{resumo.diasComLancamento}/{periodo}</strong>
+          </div>
+        </SecaoRelatorio>
+        <SecaoRelatorio titulo="Por dia">
+          <TabelaRelatorio
+            colunas={['Data', 'Dia', 'Presentes', 'Empresas']}
+            linhas={resumo.dias.map((d) => [
+              formatarData(d.data), nomeDiaSemana(d.data), d.total, resumirEmpresas(d.presentes, dados),
+            ])}
+          />
+        </SecaoRelatorio>
+        {porEmpresa.length > 0 && (
+          <SecaoRelatorio titulo="Por empresa no período">
+            <TabelaRelatorio
+              colunas={['Empresa', 'Homem-dia', 'Média/dia']}
+              linhas={porEmpresa.map(({ empresa, total, media }) => [empresa.nome, total, media])}
+            />
+          </SecaoRelatorio>
+        )}
+      </RelatorioFolha>
     </>
   )
 }

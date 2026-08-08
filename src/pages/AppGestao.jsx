@@ -8,7 +8,9 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro } from '../components'
 import { useDados } from '../lib/DadosContext'
-import { contarPendencias, pendenciasGerais, pendentesDeRevisao, contarRequisicoes } from '../lib/dominio'
+import {
+  contarPendencias, pendenciasGerais, pendentesDeRevisao, contarRequisicoes, situacaoLembrete,
+} from '../lib/dominio'
 import { MarcaLateral, RodapeLateral } from './AppCampo'
 
 import InicioGestao from '../screens/inicio-gestao'
@@ -22,6 +24,7 @@ import Planejamento from '../screens/planejamento'
 import Cronograma from '../screens/cronograma'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
+import Lembretes from '../screens/lembretes'
 import Usuarios from '../screens/usuarios'
 
 export default function AppGestao({ perfil, onSair }) {
@@ -43,6 +46,9 @@ export default function AppGestao({ perfil, onSair }) {
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
   const contPedidos = contarRequisicoes(dados.requisicoes, perfil.id)
+  const lembretesAtrasados = dados.lembretes.filter(
+    (l) => l.destinatario_id === perfil.id && situacaoLembrete(l).chave === 'atrasado',
+  ).length
 
   const itens = [
     { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
@@ -58,6 +64,8 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Requisições de material, da cotação à entrega' },
     { chave: 'galeria', rotulo: 'Galeria', icone: 'galeria',
       desc: 'Todas as fotos da obra, por dia' },
+    { chave: 'lembretes', rotulo: 'Lembretes', icone: 'lembrete', badge: lembretesAtrasados,
+      desc: 'O que você marcou pra não esquecer' },
     { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
       desc: 'Empresas, colaboradores, locais e serviços' },
     ...(perfil.role === 'admin'
@@ -89,6 +97,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'requisicoes': corpo = <Requisicoes goto={goto} perfil={perfil} />; break
     case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
+    case 'lembretes':  corpo = <Lembretes perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'mais':       corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break

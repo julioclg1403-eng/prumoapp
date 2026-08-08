@@ -15,6 +15,7 @@ import { hojeISO, somarDias, formatarData, formatarDataCurta, plural } from '../
 import { formatarTamanho } from '../lib/fotos'
 import {
   Icon, PageHeader, Segmentos, Vazio, Miniatura, VisorFoto, useLinksDeFotos, Confirmar,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, FotosRelatorio,
 } from '../components'
 
 const PERIODOS = [
@@ -79,6 +80,13 @@ export default function Galeria({ perfil }) {
   const filtroAtivo = localId || servicoId || autorId
   const limparFiltros = () => { setLocalId(''); setServicoId(''); setAutorId('') }
 
+  const subRelatorio = [
+    PERIODOS.find((p) => p.valor === periodo)?.rotulo,
+    localId && dados.nomeDe(dados.locais, localId),
+    servicoId && dados.nomeDe(dados.servicos, servicoId),
+    autorId && dados.nomeDe(dados.perfis, autorId),
+  ].filter(Boolean).join(' · ')
+
   const confirmarApagar = async () => {
     const ok = await dados.removerFoto(apagando)
     setApagando(null)
@@ -99,6 +107,7 @@ export default function Galeria({ perfil }) {
         <PageHeader
           titulo="Galeria"
           sub={`${plural(lista.length, 'foto', 'fotos')} no filtro atual`}
+          acao={lista.length > 0 && <BotaoRelatorio />}
         />
 
         <div className="stack-2">
@@ -215,6 +224,20 @@ export default function Galeria({ perfil }) {
         onOk={confirmarApagar}
         onCancelar={() => setApagando(null)}
       />
+
+      <RelatorioFolha
+        titulo="Galeria de fotos" sub={subRelatorio}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        {porDia.map(([data, fotosDoDia]) => (
+          <SecaoRelatorio key={data} titulo={formatarData(data)}>
+            <FotosRelatorio
+              fotos={fotosDoDia} links={links}
+              legenda={(f) => `${f.servico} · ${f.local}`}
+            />
+          </SecaoRelatorio>
+        ))}
+      </RelatorioFolha>
     </>
   )
 }

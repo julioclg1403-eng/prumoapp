@@ -210,3 +210,36 @@ html, body, #root {
 /* ── Estado vazio ── */
 .empty { text-align: center; padding: 40px 20px; color: var(--text-3); }
 .empty .t { color: var(--text-2); font-weight: 600; margin-bottom: 4px; }
+
+/* ── Relatório para impressão ─────────────────────────────────
+   Cada tela carrega sua própria folha de relatório, escondida na
+   tela e populada com os MESMOS dados que já estão filtrados ali —
+   nunca uma consulta em separado, senão o relatório vira uma
+   segunda fonte que diverge da tela.
+
+   "Esconder tudo, mostrar só o relatório" é a única forma confiável
+   de tirar menu lateral e barra inferior da folha impressa: os dois
+   usam position:fixed, que um @media print comum não segura. */
+.relatorio { display: none; }
+
+@media print {
+  @page { margin: 14mm; }
+  body * { visibility: hidden; }
+  .relatorio, .relatorio * { visibility: visible; }
+  .relatorio {
+    display: block; position: absolute; top: 0; left: 0; width: 100%;
+    color: #18181B; font-family: var(--font);
+  }
+  .relatorio .tbl th { color: #52525B; }
+  .relatorio .tbl, .relatorio .tbl th, .relatorio .tbl td { border-color: #D4D4D8; }
+  .relatorio-cabecalho {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    border-bottom: 2px solid #18181B; padding-bottom: 10px; margin-bottom: 18px;
+  }
+  .relatorio-secao { margin-top: 18px; break-inside: avoid; }
+  .relatorio-secao:first-of-type { margin-top: 0; }
+  .relatorio-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
+  .relatorio-foto { break-inside: avoid; }
+  .relatorio-foto img { width: 100%; height: 150px; object-fit: cover; border-radius: 4px; border: 1px solid #D4D4D8; display: block; }
+  .relatorio-foto-legenda { font-size: 10px; color: #52525B; margin-top: 3px; line-height: 1.4; }
+}

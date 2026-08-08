@@ -21,6 +21,7 @@ import {
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop,
+  RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 
 const DIAS = [
@@ -220,6 +221,11 @@ export default function Planejamento({ goto, perfil }) {
               <button className="btn btn-secondary btn-sm" onClick={baixarSemana} disabled={!semana.total}>
                 <Icon name="baixar" size={15} /> Baixar
               </button>
+              {semana.total > 0 && (
+                <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+                  <Icon name="relatorio" size={15} /> Relatório
+                </button>
+              )}
               <button
                 className={`btn btn-sm ${verFechamento ? 'btn-dark' : 'btn-secondary'}`}
                 onClick={() => setVerFechamento((v) => !v)}
@@ -424,6 +430,27 @@ export default function Planejamento({ goto, perfil }) {
         dias={dias}
         inicio={inicio}
       />
+
+      <RelatorioFolha
+        titulo="Planejamento semanal" sub={rotuloDaSemana(inicio)}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio titulo="Fechamento">
+          <div style={{ fontSize: 13 }}>
+            Planejadas: <strong>{semana.total}</strong> · Concluídas: <strong>{semana.concluidas}</strong> ·
+            Iniciadas: <strong>{semana.iniciadas}</strong> · Não executadas: <strong>{semana.naoExecutadas}</strong> ·
+            Sem lançamento: <strong>{semana.semLancamento}</strong> · {semana.percentual}% concluído
+          </div>
+        </SecaoRelatorio>
+        <SecaoRelatorio titulo="Atividades da semana">
+          {/* Mesma função que monta a planilha (linhasDaSemana), sem o
+              cabeçalho — TabelaRelatorio já desenha o próprio. */}
+          <TabelaRelatorio
+            colunas={linhasDaSemana()[0]}
+            linhas={linhasDaSemana().slice(1)}
+          />
+        </SecaoRelatorio>
+      </RelatorioFolha>
     </>
   )
 }

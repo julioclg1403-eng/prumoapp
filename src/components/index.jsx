@@ -36,6 +36,8 @@ const CAMINHOS = {
   filtro: 'M4 6h16l-6.2 7v5.5l-3.6 1.8V13z',
   pedidos: 'M3 6.5h3l2 10h10l2-7.5H7M9.5 20.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2M17 20.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2',
   cronograma: 'M4 6h9M4 12h14M4 18h6',
+  relatorio: 'M7 3.5h7l4 4v13H7zM14 3.5V8h4M9.5 12.5h5M9.5 15.5h5M9.5 18h3',
+  lembrete: 'M12 3.2c-1 0-1.7.8-1.7 1.7v.5C7.8 6.1 6 8.6 6 11.5v3.3L4.3 18h15.4L18 14.8v-3.3c0-2.9-1.8-5.4-4.3-6.1v-.5c0-.9-.7-1.7-1.7-1.7zM9.7 18a2.3 2.3 0 0 0 4.6 0',
 }
 
 export function Icon({ name, size = 20, style }) {
@@ -290,6 +292,84 @@ export function Indicador({ rotulo, valor, tom, onClick }) {
       <div className="t-micro" style={{ marginBottom: 6 }}>{rotulo}</div>
       <div className="t-num" style={{ fontSize: 26, fontWeight: 700, color: cor, lineHeight: 1 }}>{valor}</div>
     </Tag>
+  )
+}
+
+/* ============================================================
+   RELATÓRIO PARA IMPRESSÃO
+
+   Cada tela renderiza sua folha junto com o resto (escondida por
+   CSS — ver .relatorio no index.css) e populada com os MESMOS dados
+   que já estão na tela, já filtrados. O botão só chama window.print():
+   não existe "gerar" separado, porque não existe segunda consulta.
+   ============================================================ */
+
+export function BotaoRelatorio({ onClick }) {
+  return (
+    <button className="btn btn-secondary" onClick={onClick || (() => window.print())}>
+      <Icon name="relatorio" size={17} /> Relatório
+    </button>
+  )
+}
+
+export function RelatorioFolha({ titulo, sub, obra, org, children }) {
+  return (
+    <div className="relatorio">
+      <div className="relatorio-cabecalho">
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>Prumo<span style={{ color: '#EA6E1F' }}>.</span></div>
+          <div style={{ fontSize: 12, color: '#71717A', marginTop: 2 }}>{org} · {obra}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{titulo}</div>
+          {sub && <div style={{ fontSize: 12, color: '#71717A', marginTop: 2 }}>{sub}</div>}
+          <div style={{ fontSize: 11, color: '#A1A1AA', marginTop: 2 }}>
+            Gerado em {new Date().toLocaleDateString('pt-BR')} às{' '}
+            {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+export function SecaoRelatorio({ titulo, children }) {
+  return (
+    <div className="relatorio-secao">
+      {titulo && <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{titulo}</div>}
+      {children}
+    </div>
+  )
+}
+
+export function FotosRelatorio({ fotos, links, legenda }) {
+  if (!fotos.length) return null
+  return (
+    <div className="relatorio-fotos">
+      {fotos.map((f) => (
+        <div key={f.id} className="relatorio-foto">
+          <img src={links[f.caminho]} alt="" />
+          <div className="relatorio-foto-legenda">{legenda ? legenda(f) : (f.legenda || '')}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function TabelaRelatorio({ colunas, linhas }) {
+  if (!linhas.length) {
+    return <div style={{ fontSize: 12, color: '#71717A' }}>Nada neste filtro.</div>
+  }
+  return (
+    <table className="tbl" style={{ width: '100%' }}>
+      <thead><tr>{colunas.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+      <tbody>
+        {linhas.map((linha, i) => (
+          <tr key={i}>{linha.map((c, j) => <td key={j}>{c}</td>)}</tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 

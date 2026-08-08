@@ -73,6 +73,16 @@ export function nomeDiaSemana(iso) {
   return deISO(iso).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
 }
 
+/* Diferente de formatarData: aqui a HORA importa (é um instante,
+   não um dia de calendário -- ver o comentário grande acima sobre
+   deISO). Usada em lembrete, onde "amanhã" sem hora não diz nada. */
+export function formatarDataHora(iso) {
+  if (!iso) return '—'
+  return deISO(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
 /* ── Vocabulário de status ───────────────────────────────────
    Estes valores precisam ser IDÊNTICOS aos do CHECK no banco
    (Etapa 7). Se divergirem, o salvamento falha em silêncio e a
@@ -155,6 +165,33 @@ export function pendenciasGerais(lista) {
 
 export function pendenciasTaticas(lista) {
   return lista.filter((p) => p.origem === ORIGEM_TATICO)
+}
+
+/* ── Lembretes ────────────────────────────────────────────────
+   Só GUARDA a data marcada aqui: quem de fato manda o aviso na hora
+   certa é o disparador do WhatsApp (fora do escopo desta tela). Sem
+   ele configurado, um lembrete "pendente" não avisa ninguém sozinho
+   -- é só uma lista, não uma notificação. */
+
+export const STATUS_LEMBRETE = ['pendente', 'enviado', 'cancelado']
+
+export function situacaoLembrete(l, agora = new Date()) {
+  if (l.status === 'cancelado') return { chave: 'cancelado', rotulo: 'Cancelado', tom: '' }
+  if (l.status === 'enviado') return { chave: 'enviado', rotulo: 'Enviado', tom: 'success' }
+  const disparo = new Date(l.disparar_em)
+  if (disparo < agora) return { chave: 'atrasado', rotulo: 'Atrasado', tom: 'danger' }
+  return { chave: 'pendente', rotulo: 'Pendente', tom: 'info' }
+}
+
+export function filtrarLembretes(lista, filtro, agora = new Date()) {
+  if (filtro === 'pendentes') {
+    return lista.filter((l) => l.status === 'pendente')
+  }
+  if (filtro === 'atrasados') {
+    return lista.filter((l) => situacaoLembrete(l, agora).chave === 'atrasado')
+  }
+  if (filtro === 'cancelados') return lista.filter((l) => l.status === 'cancelado')
+  return lista
 }
 
 /* ── Diário ───────────────────────────────────────────────── */

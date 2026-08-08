@@ -13,7 +13,10 @@ import {
   pendenciasGerais, pendenciasTaticas,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio } from '../components'
+import {
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+} from '../components'
 
 function normalizarComparar(s) {
   return String(s || '')
@@ -106,13 +109,16 @@ export default function Pendencias({ perfil, params = {} }) {
           titulo="Pendências"
           sub={`${plural(lista.length, 'item', 'itens')} neste filtro`}
           acao={
-            categoria === 'tatico' ? (
-              <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
-                Importar PDF tático
-              </button>
-            ) : (
-              <button className="btn btn-primary" onClick={abrirNova}><Icon name="mais_sinal" size={18} /> Nova</button>
-            )
+            <div className="row-flex">
+              {lista.length > 0 && <BotaoRelatorio />}
+              {categoria === 'tatico' ? (
+                <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
+                  Importar PDF tático
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={abrirNova}><Icon name="mais_sinal" size={18} /> Nova</button>
+              )}
+            </div>
           }
         />
 
@@ -291,8 +297,31 @@ export default function Pendencias({ perfil, params = {} }) {
         onFechar={() => setImportandoPDF(false)}
         dados={dados}
       />
+
+      <RelatorioFolha
+        titulo="Pendências"
+        sub={`${categoria === 'tatico' ? 'Tático' : 'Dia a dia'} · ${ROTULO_FILTRO[filtro]}`}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio>
+          <TabelaRelatorio
+            colunas={['Título', 'Responsável', 'Prioridade', 'Prazo', 'Situação']}
+            linhas={lista.map(({ p, s }) => [
+              p.titulo,
+              dados.perfilPorId(p.responsavel_id)?.nome || '—',
+              ROTULO_PRIORIDADE[p.prioridade] || p.prioridade,
+              p.prazo ? formatarData(p.prazo) : '—',
+              s.rotulo,
+            ])}
+          />
+        </SecaoRelatorio>
+      </RelatorioFolha>
     </>
   )
+}
+
+const ROTULO_FILTRO = {
+  abertas: 'Em aberto', atrasadas: 'Atrasadas', resolvidas: 'Resolvidas', todas: 'Todas',
 }
 
 /* ── Importação do PDF tático ─────────────────────────────

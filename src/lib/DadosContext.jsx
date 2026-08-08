@@ -130,7 +130,7 @@ export function DadosProvider({ perfil, children }) {
   const recarregar = useCallback(async () => {
     const [
       org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma,
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -146,10 +146,11 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('materials').select('*').order('usos', { ascending: false }),
       supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false }),
       supabase.from('schedule_items').select('*').order('data_inicio'),
+      supabase.from('reminders').select('*').order('disparar_em'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma].find((r) => r.error)
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -183,6 +184,7 @@ export function DadosProvider({ perfil, children }) {
       materiais: materiais.data || [],
       requisicoes: (requisicoes.data || []).map(normalizarRequisicao),
       cronograma: cronograma.data || [],
+      lembretes: lembretes.data || [],
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -242,6 +244,7 @@ export function DadosProvider({ perfil, children }) {
       pendencias: filtrar(tudo.pendencias),
       requisicoes: filtrar(tudo.requisicoes),
       cronograma: filtrar(tudo.cronograma),
+      lembretes: filtrar(tudo.lembretes),
     }
   }, [tudo, obraId])
 
@@ -815,6 +818,69 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Lembretes ──────────────────────────────────────────────
+  /* Sempre para quem cria (BRIEFING seção 6: "sem recorrência na v1",
+     e aqui sem terceiro também — o mesmo recorte que a Edge Function
+     do WhatsApp usa). Quem de fato dispara o aviso na hora certa é o
+     agendador do WhatsApp; esta tela só guarda a intenção. */
+  const salvarLembrete = useCallback(
+    async (l) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        texto: l.texto.trim(),
+        disparar_em: l.disparar_em,
+        local: (l.local || '').trim() || null,
+        criado_por: perfil.id,
+        destinatario_id: perfil.id,
+        origem: 'app',
+      }
+      if (l.id) linha.id = l.id
+
+      const salvo = checar(
+        await supabase.from('reminders').upsert(linha).select('*').single(),
+        'salvar o lembrete',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        lembretes: t.lembretes.some((x) => x.id === salvo.id)
+          ? t.lembretes.map((x) => (x.id === salvo.id ? salvo : x))
+          : [...t.lembretes, salvo],
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const alternarLembrete = useCallback(
+    async (id) => {
+      const atual = tudo?.lembretes.find((l) => l.id === id)
+      if (!atual) return
+      const novoStatus = atual.status === 'cancelado' ? 'pendente' : 'cancelado'
+
+      setTudo((t) => t && ({
+        ...t, lembretes: t.lembretes.map((l) => (l.id === id ? { ...l, status: novoStatus } : l)),
+      }))
+      const r = await supabase.from('reminders').update({ status: novoStatus }).eq('id', id)
+      if (r.error) {
+        checar(r, 'atualizar o lembrete')
+        setTudo((t) => t && ({ ...t, lembretes: t.lembretes.map((l) => (l.id === id ? atual : l)) }))
+      }
+    },
+    [tudo, checar],
+  )
+
+  const removerLembrete = useCallback(
+    async (id) => {
+      const r = await supabase.from('reminders').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'remover o lembrete'); return false }
+      setTudo((t) => t && ({ ...t, lembretes: t.lembretes.filter((l) => l.id !== id) }))
+      return true
+    },
+    [checar],
+  )
+
   // ── Requisições de material ───────────────────────────────
 
   const trocarRequisicaoNaLista = useCallback((nova) => {
@@ -1029,6 +1095,7 @@ export function DadosProvider({ perfil, children }) {
       definirPapel,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
+      salvarLembrete, alternarLembrete, removerLembrete,
     }),
     [
       tudo, daObra, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -1042,6 +1109,7 @@ export function DadosProvider({ perfil, children }) {
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
+      salvarLembrete, alternarLembrete, removerLembrete,
     ],
   )
 

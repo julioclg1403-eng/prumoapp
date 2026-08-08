@@ -23,6 +23,7 @@ import {
 import { parseCSV } from '../lib/csv'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, Segmentos,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 
 export default function Cronograma({ perfil }) {
@@ -86,16 +87,19 @@ export default function Cronograma({ perfil }) {
           titulo="Cronograma físico"
           sub={plural(itens.length, 'etapa cadastrada', 'etapas cadastradas')}
           acao={
-            podeEditar && (
-              <div className="row-flex">
-                <button className="btn btn-secondary" onClick={() => setImportando(true)}>
-                  <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar
-                </button>
-                <button className="btn btn-primary" onClick={abrirNovo}>
-                  <Icon name="mais_sinal" size={18} /> Nova etapa
-                </button>
-              </div>
-            )
+            <div className="row-flex">
+              {!faltaItens && <BotaoRelatorio />}
+              {podeEditar && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => setImportando(true)}>
+                    <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar
+                  </button>
+                  <button className="btn btn-primary" onClick={abrirNovo}>
+                    <Icon name="mais_sinal" size={18} /> Nova etapa
+                  </button>
+                </>
+              )}
+            </div>
           }
         />
 
@@ -232,6 +236,30 @@ export default function Cronograma({ perfil }) {
       />
 
       <ImportarCronograma aberto={importando} onFechar={() => setImportando(false)} />
+
+      <RelatorioFolha
+        titulo="Cronograma físico" sub={plural(itens.length, 'etapa', 'etapas')}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio titulo="Avanço físico da obra">
+          <div style={{ fontSize: 13 }}>
+            Executado: <strong>{curva.percentualReal}%</strong> · Previsto para hoje:{' '}
+            <strong>{curva.percentualPrevisto}%</strong> · Etapas atrasadas: {curva.atrasados} de {curva.total}
+          </div>
+        </SecaoRelatorio>
+        <SecaoRelatorio titulo="Etapas">
+          <TabelaRelatorio
+            colunas={['Etapa', 'Início', 'Fim', 'Peso', 'Executado', 'Previsto', 'Situação']}
+            linhas={itens.map((item) => {
+              const s = situacaoCronograma(item, hoje)
+              return [
+                item.descricao, formatarData(item.data_inicio), formatarData(item.data_fim),
+                item.peso, `${Number(item.percentual || 0)}%`, `${progressoEsperado(item, hoje)}%`, s.rotulo,
+              ]
+            })}
+          />
+        </SecaoRelatorio>
+      </RelatorioFolha>
     </>
   )
 }

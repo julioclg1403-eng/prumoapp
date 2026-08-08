@@ -11,10 +11,13 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, plural,
+  hojeISO, formatarData, formatarDinheiro, plural,
   situacaoRequisicao, saldosDaRequisicao, filtrarRequisicoes, contarRequisicoes,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Vazio, Indicador } from '../components'
+import {
+  Icon, Chip, PageHeader, Segmentos, Vazio, Indicador,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+} from '../components'
 
 export default function Requisicoes({ goto, perfil }) {
   const dados = useDados()
@@ -61,9 +64,12 @@ export default function Requisicoes({ goto, perfil }) {
           titulo="Pedidos de material"
           sub={`${plural(lista.length, 'pedido', 'pedidos')} neste filtro`}
           acao={
-            <button className="btn btn-primary" onClick={novo}>
-              <Icon name="mais_sinal" size={18} /> Nova requisição
-            </button>
+            <div className="row-flex">
+              {lista.length > 0 && <BotaoRelatorio />}
+              <button className="btn btn-primary" onClick={novo}>
+                <Icon name="mais_sinal" size={18} /> Nova requisição
+              </button>
+            </div>
           }
         />
 
@@ -129,8 +135,37 @@ export default function Requisicoes({ goto, perfil }) {
           )}
         </div>
       </div>
+
+      <RelatorioFolha
+        titulo="Pedidos de material" sub={ROTULO_FILTRO_REQ[filtro]}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio>
+          <TabelaRelatorio
+            colunas={['Nº', 'Título', 'Status', 'Fornecedor', 'Valor', 'Previsão', '% recebido']}
+            linhas={lista.map((r) => {
+              const sit = situacaoRequisicao(r, hoje)
+              const saldos = saldosDaRequisicao(r)
+              return [
+                r.numero ?? '—',
+                r.titulo || `${plural(saldos.totalItens, 'item', 'itens')}`,
+                sit.rotulo,
+                r.fornecedor || '—',
+                formatarDinheiro(r.valor_total),
+                r.previsao_entrega ? formatarData(r.previsao_entrega) : '—',
+                saldos.entrega === 'nada' ? '—' : `${saldos.percentual}%`,
+              ]
+            })}
+          />
+        </SecaoRelatorio>
+      </RelatorioFolha>
     </>
   )
+}
+
+const ROTULO_FILTRO_REQ = {
+  abertas: 'Em aberto', aguardando: 'Aguardando', transito: 'A caminho',
+  rascunhos: 'Rascunhos', recebidas: 'Recebidos', todas: 'Todos',
 }
 
 function CartaoRequisicao({ req, hoje, dados, perfil, onAbrir }) {
