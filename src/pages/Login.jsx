@@ -80,8 +80,16 @@ export default function Login() {
           <div className="card">
             <div className="t-title" style={{ marginBottom: 8 }}>Falta a configuração do banco</div>
             <div className="t-caption" style={{ lineHeight: 1.6 }}>
-              O arquivo <strong>.env.local</strong> não foi encontrado ou está sem as chaves do
-              Supabase. Sem ele o app não tem como conversar com o banco.
+              O app foi montado sem as chaves do Supabase, então não tem como conversar com o banco.
+              Faltam <strong>VITE_SUPABASE_URL</strong> e <strong>VITE_SUPABASE_ANON_KEY</strong>.
+            </div>
+            <div className="alert info" style={{ marginTop: 14, lineHeight: 1.6 }}>
+              <strong>No site publicado:</strong> cadastre as duas em Settings → Environment
+              Variables e mande publicar de novo. As chaves entram na hora de montar o app, não
+              quando alguém abre a página — por isso cadastrar sem republicar não resolve.
+              <br /><br />
+              <strong>No seu computador:</strong> elas ficam no arquivo <code>.env.local</code>, na
+              pasta do projeto.
             </div>
           </div>
         </div>
