@@ -2,8 +2,27 @@
 
 App de gestão de obra. React 19 + Vite 6 + Supabase + Vercel.
 
-Estado atual: **front-end pronto, rodando com dados de demonstração.**
-Ainda não existe banco de dados.
+**No ar:** https://prumoapp-kohl.vercel.app
+
+Estado atual: **publicado, com banco de dados real e as duas obras
+cadastradas** (YACHT by Fama e SEDE FAMA).
+
+## Como publicar uma alteração
+
+Não existe passo manual. A Vercel está ligada ao repositório:
+
+```bash
+git add .
+git commit -m "o que mudou"
+git push
+```
+
+O site se atualiza sozinho em cerca de um minuto, no mesmo endereço.
+
+> **Atenção às variáveis de ambiente.** `VITE_SUPABASE_URL` e
+> `VITE_SUPABASE_ANON_KEY` são lidas na hora de MONTAR o app, não quando
+> alguém abre a página. Mudar uma delas na Vercel não tem efeito até a
+> próxima publicação.
 
 ---
 
@@ -89,8 +108,17 @@ Duas regras que sustentam o resto:
 | 3 | Front-end | ✅ |
 | 4 | Testar com dados mock | ✅ |
 | 5 | Debug e plano de reparo | ✅ |
-| 6 | Subir para o GitHub | ⬜ próxima |
-| 7 | Banco no Supabase + seed | ⬜ |
-| 8 | Manter o demo ou começar limpo | ⬜ |
-| 9 | Deploy na Vercel | ⬜ |
-| 10 | Debug final no ar | ⬜ |
+| 6 | Subir para o GitHub | ✅ |
+| 7 | Banco no Supabase | ✅ |
+| 8 | Obras reais cadastradas | ✅ |
+| 9 | Deploy na Vercel | ✅ |
+| 10 | Debug final no ar | ✅ |
+
+## O que falta para o uso real
+
+- [ ] Cadastrar **empresas** e **serviços** das duas obras (pelo app)
+- [ ] Julio criar a conta própria e ser promovido a admin
+- [ ] Apagar as três contas de demonstração (`*@example.com`)
+- [ ] Ligar a proteção contra senha vazada no painel do Supabase
+- [ ] Colaboradores: **não digitar** — o mestre cadastra no diário e a
+      gestão confere na fila de revisão
