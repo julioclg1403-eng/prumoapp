@@ -54,9 +54,29 @@ export default function Login() {
     })
     setEnviando(false)
 
-    if (error) { setErro(`Não consegui criar a conta. ${error.message}`); return }
+    if (error) {
+      /* O Supabase recusa domínios reservados (example.com, test.com).
+         A mensagem crua dele não ajuda quem não é técnico. */
+      setErro(
+        error.message.toLowerCase().includes('invalid')
+          ? 'Esse endereço de e-mail não é aceito. Use o e-mail que você realmente usa.'
+          : error.message.toLowerCase().includes('already')
+            ? 'Já existe conta com esse e-mail. Tente entrar, ou peça uma nova senha.'
+            : `Não consegui criar a conta. ${error.message}`,
+      )
+      return
+    }
+
+    /* Sem sessão = o projeto exige confirmação por e-mail. Cuidado
+       com a promessa: o serviço de e-mail padrão do Supabase é
+       limitado e às vezes simplesmente não entrega. Prometer "o
+       e-mail chegou" deixa a pessoa num beco sem saída — melhor
+       dizer desde já qual é a saída alternativa. */
     if (!data.session) {
-      setAviso('Conta criada. Confirme o e-mail que acabamos de enviar e depois entre por aqui.')
+      setAviso(
+        'Conta criada. Se chegar um e-mail de confirmação, confirme (olhe também no spam). ' +
+        'Se não chegar, não tem problema: avise o administrador, que ele libera seu acesso do mesmo jeito.',
+      )
       setModo('entrar')
       return
     }
