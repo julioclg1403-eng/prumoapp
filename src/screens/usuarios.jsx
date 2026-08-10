@@ -35,6 +35,7 @@ export default function Usuarios({ voltar, perfil }) {
 
   const aguardando = dados.perfis.filter((u) => !u.role || !u.organization_id)
   const ativos = dados.perfis.filter((u) => u.role && u.organization_id)
+  const contatosWhatsapp = dados.contatosWhatsapp || []
 
   const aplicar = async (u, papel) => {
     setOcupado(true)
@@ -146,6 +147,64 @@ export default function Usuarios({ voltar, perfil }) {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* ── Números de WhatsApp ── */}
+          <div>
+            <div className="row-between" style={{ marginBottom: 10 }}>
+              <div className="t-micro">Números de WhatsApp</div>
+              {contatosWhatsapp.some((c) => !c.profile_id) && (
+                <Chip tom="info">{contatosWhatsapp.filter((c) => !c.profile_id).length} sem vínculo</Chip>
+              )}
+            </div>
+
+            {contatosWhatsapp.length === 0 ? (
+              <div className="card-flat">
+                <Vazio
+                  titulo="Nenhum número escreveu ainda"
+                  texto="Quando alguém mandar a primeira mensagem para o número do Prumo, ela aparece aqui para você vincular a uma conta."
+                />
+              </div>
+            ) : (
+              <div className="stack-1">
+                {contatosWhatsapp.map((c) => {
+                  const vinculado = ativos.find((u) => u.id === c.profile_id)
+                  return (
+                    <div key={c.id} className="card-flat">
+                      <div className="row-between" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+                        <div className="grow">
+                          <div className="t-strong" style={{ fontSize: 15 }}>{c.nome_whatsapp || 'Sem nome no WhatsApp'}</div>
+                          <div className="t-caption" style={{ marginTop: 2 }}>{c.telefone}</div>
+                        </div>
+                        <Chip tom={vinculado ? '' : 'info'}>{vinculado ? vinculado.nome : 'Sem vínculo'}</Chip>
+                      </div>
+                      <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
+                        <select
+                          className="input"
+                          style={{ maxWidth: 260 }}
+                          value={c.profile_id || ''}
+                          disabled={ocupado}
+                          onChange={(e) => dados.vincularContatoWhatsapp(c.id, e.target.value || null)}
+                        >
+                          <option value="">Sem vínculo</option>
+                          {ativos.map((u) => (
+                            <option key={u.id} value={u.id}>{u.nome}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="card-flat" style={{ marginTop: 10 }}>
+              <div className="t-caption" style={{ lineHeight: 1.6 }}>
+                Vincular liga o número à conta: mensagens desse número passam a virar
+                pendência, atualização do diário, lembrete, foto ou rascunho de requisição,
+                na obra da pessoa. Sem vínculo, o bot responde pedindo pra você cadastrar.
+              </div>
             </div>
           </div>
 

@@ -131,6 +131,7 @@ export function DadosProvider({ perfil, children }) {
     const [
       org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
+      contatosWhatsapp,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -147,10 +148,12 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false }),
       supabase.from('schedule_items').select('*').order('data_inicio'),
       supabase.from('reminders').select('*').order('disparar_em'),
+      supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
-      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes].find((r) => r.error)
+      tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
+      contatosWhatsapp].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -185,6 +188,7 @@ export function DadosProvider({ perfil, children }) {
       requisicoes: (requisicoes.data || []).map(normalizarRequisicao),
       cronograma: cronograma.data || [],
       lembretes: lembretes.data || [],
+      contatosWhatsapp: contatosWhatsapp.data || [],
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -1073,6 +1077,25 @@ export function DadosProvider({ perfil, children }) {
     [tudo, perfil, obraId, checar],
   )
 
+  /* Liga um número que já escreveu pro bot a um perfil existente --
+     sem isso a Edge Function nunca acha o "dono" da mensagem e o
+     número fica preso respondendo "peça pro administrador te
+     cadastrar" pra sempre. profileId null desfaz o vínculo. */
+  const vincularContatoWhatsapp = useCallback(
+    async (contatoId, profileId) => {
+      const atualizado = checar(
+        await supabase.from('whatsapp_contacts')
+          .update({ profile_id: profileId }).eq('id', contatoId).select('*').single(),
+        'vincular o número de WhatsApp',
+      )
+      if (!atualizado) return
+      setTudo((t) => t && ({
+        ...t, contatosWhatsapp: t.contatosWhatsapp.map((c) => (c.id === contatoId ? atualizado : c)),
+      }))
+    },
+    [checar],
+  )
+
   const valor = useMemo(
     () => tudo && daObra && ({
       fonte: 'supabase',
@@ -1080,6 +1103,7 @@ export function DadosProvider({ perfil, children }) {
       obras: tudo.obras,
       perfis: tudo.perfis,
       materiais: tudo.materiais,
+      contatosWhatsapp: tudo.contatosWhatsapp,
       ...daObra,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
@@ -1092,7 +1116,7 @@ export function DadosProvider({ perfil, children }) {
       salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
-      definirPapel,
+      definirPapel, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
       salvarLembrete, alternarLembrete, removerLembrete,
@@ -1105,6 +1129,7 @@ export function DadosProvider({ perfil, children }) {
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
+      vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
