@@ -1,0 +1,18 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#18181B"/>
+  <!-- mesmo desenho do ícone normal, mas encolhido pra caber na
+       zona segura (~80% central) que o Android usa pra recortar
+       ícones "maskable" em formatos variados -->
+  <g transform="translate(256 256) scale(0.72) translate(-256 -256)">
+    <line x1="256" y1="96" x2="256" y2="228" stroke="#EA6E1F" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="256" cy="96" r="12" fill="#EA6E1F"/>
+    <path d="M 256 220
+             C 300 236 336 268 336 306
+             C 336 336 312 356 284 356
+             L 256 420
+             L 228 356
+             C 200 356 176 336 176 306
+             C 176 268 212 236 256 220 Z"
+          fill="#EA6E1F"/>
+  </g>
+</svg>
