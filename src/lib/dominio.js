@@ -110,6 +110,20 @@ export const ROTULO_PRIORIDADE = { baixa: 'Baixa', media: 'Média', alta: 'Alta'
 
 export const STATUS_PENDENCIA = ['aberta', 'resolvida']
 
+export const STATUS_EQUIPAMENTO = ['disponivel', 'em_uso', 'manutencao']
+
+export const ROTULO_STATUS_EQUIPAMENTO = {
+  disponivel: 'Disponível',
+  em_uso: 'Em uso',
+  manutencao: 'Manutenção',
+}
+
+export const TOM_STATUS_EQUIPAMENTO = {
+  disponivel: 'success',
+  em_uso: 'info',
+  manutencao: 'danger',
+}
+
 /* ── Pendências ──────────────────────────────────────────────
    "Em aberto" INCLUI as atrasadas. Esta mesma função alimenta a
    tela, o contador do menu e o resumo do início — é isso que

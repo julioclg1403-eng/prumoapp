@@ -25,6 +25,7 @@ import Cronograma from '../screens/cronograma'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
+import Equipamentos from '../screens/equipamentos'
 
 const ABAS = [
   { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
@@ -67,6 +68,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'requisicao':   corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
+    case 'equipamentos': corpo = <Equipamentos voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'mais':         corpo = <Mais goto={goto} perfil={perfil} onSair={onSair} />; break
     default:             corpo = <InicioCampo goto={goto} irParaAba={irParaAba} perfil={perfil} />
@@ -102,6 +104,9 @@ export default function AppCampo({ perfil, onSair }) {
         </button>
         <button onClick={() => irParaAba('lembretes')} aria-current={rota.screen === 'lembretes' ? 'true' : undefined}>
           <Icon name="lembrete" size={19} /> Lembretes
+        </button>
+        <button onClick={() => irParaAba('equipamentos')} aria-current={rota.screen === 'equipamentos' ? 'true' : undefined}>
+          <Icon name="equipamento" size={19} /> Equipamentos
         </button>
         <button onClick={() => irParaAba('cadastros')} aria-current={rota.screen === 'cadastros' ? 'true' : undefined}>
           <Icon name="cadastros" size={19} /> Cadastros
@@ -182,6 +187,7 @@ function Mais({ goto, perfil, onSair }) {
     { chave: 'cronograma', rotulo: 'Cronograma', desc: 'O avanço físico da obra, etapa a etapa', icone: 'cronograma' },
     { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
     { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
+    { chave: 'equipamentos', rotulo: 'Equipamentos', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
     { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
   ]
   return (

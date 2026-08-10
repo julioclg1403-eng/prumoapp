@@ -31,6 +31,7 @@ const TABELA = {
   locais: 'locations',
   servicos: 'services',
   tiposOcorrencia: 'occurrence_types',
+  equipamentos: 'equipment',
 }
 
 /* ATENÇÃO: isto é a lista de campos que o Supabase entende, não
@@ -131,7 +132,7 @@ export function DadosProvider({ perfil, children }) {
     const [
       org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
-      contatosWhatsapp,
+      contatosWhatsapp, equipamentos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -149,11 +150,12 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('schedule_items').select('*').order('data_inicio'),
       supabase.from('reminders').select('*').order('disparar_em'),
       supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false }),
+      supabase.from('equipment').select('*').order('nome'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
-      contatosWhatsapp].find((r) => r.error)
+      contatosWhatsapp, equipamentos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -189,6 +191,7 @@ export function DadosProvider({ perfil, children }) {
       cronograma: cronograma.data || [],
       lembretes: lembretes.data || [],
       contatosWhatsapp: contatosWhatsapp.data || [],
+      equipamentos: equipamentos.data || [],
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -249,6 +252,7 @@ export function DadosProvider({ perfil, children }) {
       requisicoes: filtrar(tudo.requisicoes),
       cronograma: filtrar(tudo.cronograma),
       lembretes: filtrar(tudo.lembretes),
+      equipamentos: filtrar(tudo.equipamentos),
     }
   }, [tudo, obraId])
 
