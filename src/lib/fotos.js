@@ -144,6 +144,69 @@ export async function apagarFoto(foto) {
   return {}
 }
 
+/* ── Fotos de pendência ───────────────────────────────────────
+   Mesmo mecanismo das fotos do diário (comprime, sobe, só depois
+   grava o metadado), só que penduradas em issue_photos em vez de
+   daily_photos -- uma pendência não pertence a um diário. */
+function montarCaminhoPendencia(obraId, issueId) {
+  const id = globalThis.crypto?.randomUUID?.() || String(Date.now() + Math.random())
+  return `${obraId}/pendencias/${issueId}/${id}.jpg`
+}
+
+export async function enviarFotoPendencia({
+  arquivo, organizationId, obraId, issueId, legenda = null, autorId = null,
+}) {
+  if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
+    return { erro: 'Esta imagem passa de 10 MB. Tente tirar a foto de novo.' }
+  }
+
+  let comprimida
+  try {
+    comprimida = await comprimirImagem(arquivo)
+  } catch (e) {
+    return { erro: e.message }
+  }
+
+  const caminho = montarCaminhoPendencia(obraId, issueId)
+
+  const envio = await supabase.storage
+    .from('fotos')
+    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false })
+  if (envio.error) {
+    return { erro: `Não consegui enviar a foto. ${envio.error.message}` }
+  }
+
+  const registro = await supabase
+    .from('issue_photos')
+    .insert({
+      organization_id: organizationId,
+      worksite_id: obraId,
+      issue_id: issueId,
+      caminho,
+      legenda,
+      largura: comprimida.largura,
+      altura: comprimida.altura,
+      tamanho_bytes: comprimida.blob.size,
+      autor_id: autorId,
+    })
+    .select('*')
+    .single()
+
+  if (registro.error) {
+    await supabase.storage.from('fotos').remove([caminho])
+    return { erro: `Não consegui registrar a foto. ${registro.error.message}` }
+  }
+
+  return { foto: registro.data }
+}
+
+export async function apagarFotoPendencia(foto) {
+  const doBanco = await supabase.from('issue_photos').delete().eq('id', foto.id)
+  if (doBanco.error) return { erro: `Não consegui apagar a foto. ${doBanco.error.message}` }
+  await supabase.storage.from('fotos').remove([foto.caminho])
+  return {}
+}
+
 /* ── Exibição ───────────────────────────────────────────────── */
 
 /* O balde é privado, então não existe endereço fixo para a imagem:

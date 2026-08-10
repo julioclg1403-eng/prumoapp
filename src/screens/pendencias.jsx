@@ -16,6 +16,7 @@ import {
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+  CampoFotos, VisorFoto, useLinksDeFotos,
 } from '../components'
 
 function normalizarComparar(s) {
@@ -34,6 +35,10 @@ export default function Pendencias({ perfil, params = {} }) {
   const [salvando, setSalvando] = useState(false)
   const [destaque, setDestaque] = useState(params.destacar || null)
   const [importandoPDF, setImportandoPDF] = useState(false)
+  const [enviandoFoto, setEnviandoFoto] = useState(0)
+  const [fotoAberta, setFotoAberta] = useState(null)
+
+  const links = useLinksDeFotos(editando?.fotos)
 
   /* Tático (vem do PDF de restrições, revisado semana a semana) é
      uma categoria à parte do dia a dia (manual ou vindo do diário)
@@ -60,21 +65,61 @@ export default function Pendencias({ perfil, params = {} }) {
 
   const abrirNova = () =>
     setEditando({
-      titulo: '', descricao: '', prioridade: 'media',
+      titulo: '', descricao: '', prioridade: 'media', resolucao: '', fotos: [],
       prazo: '', responsavel_id: perfil.id, status: 'aberta',
     })
 
   const salvar = async () => {
     if (!editando?.titulo?.trim()) return
     setSalvando(true)
-    const ok = await dados.salvarPendencia({
+    const salva = await dados.salvarPendencia({
+      ...editando,
+      titulo: editando.titulo.trim(),
+      descricao: (editando.descricao || '').trim(),
+      resolucao: (editando.resolucao || '').trim(),
+      prazo: editando.prazo || null,
+    })
+    setSalvando(false)
+    if (salva) setEditando(null)
+  }
+
+  /* A foto precisa de uma pendência que já exista no banco, pra se
+     pendurar nela. Se a pessoa ainda está criando uma nova (sem id)
+     e já quer anexar foto, salva primeiro -- mesma saída que o
+     diário usa (garantirSalvo), pelo mesmo motivo: não faz sentido
+     pedir "salve antes de fotografar". */
+  const garantirSalvo = async () => {
+    if (editando.id) return editando
+    if (!editando.titulo?.trim()) return null
+    const salva = await dados.salvarPendencia({
       ...editando,
       titulo: editando.titulo.trim(),
       descricao: (editando.descricao || '').trim(),
       prazo: editando.prazo || null,
     })
-    setSalvando(false)
-    if (ok) setEditando(null)
+    if (salva) setEditando(salva)
+    return salva
+  }
+
+  const enviarFotosPendencia = async (arquivos) => {
+    setEnviandoFoto((n) => n + arquivos.length)
+    try {
+      const base = await garantirSalvo()
+      if (!base) return
+      const novas = []
+      for (const arquivo of arquivos) {
+        const f = await dados.adicionarFotoPendencia(base.id, arquivo)
+        if (f) novas.push(f)
+      }
+      if (novas.length) setEditando((p) => ({ ...p, fotos: [...(p.fotos || []), ...novas] }))
+    } finally {
+      setEnviandoFoto((n) => Math.max(0, n - arquivos.length))
+    }
+  }
+
+  const removerFotoPendencia = async (foto) => {
+    const ok = await dados.removerFotoPendencia(foto)
+    if (ok) setEditando((p) => ({ ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }))
   }
 
   const pedirAlternar = (p) => {
@@ -208,10 +253,26 @@ export default function Pendencias({ perfil, params = {} }) {
                         </div>
                       </div>
 
-                      <button className="btn btn-ghost btn-sm" onClick={() => setEditando({ ...p, prazo: p.prazo || '' })} aria-label="Editar">
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setEditando({ ...p, prazo: p.prazo || '', resolucao: p.resolucao || '', fotos: p.fotos || [] })}
+                        aria-label="Editar"
+                      >
                         <Icon name="editar" size={16} />
                       </button>
                     </div>
+
+                    {resolvida && p.resolucao && (
+                      <div className="t-caption" style={{ marginTop: 8, paddingLeft: 32, lineHeight: 1.5 }}>
+                        <strong>Resolução:</strong> {p.resolucao}
+                      </div>
+                    )}
+                    {p.fotos?.length > 0 && (
+                      <div className="t-caption" style={{ marginTop: 6, paddingLeft: 32, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="camera" size={13} />
+                        {plural(p.fotos.length, 'foto', 'fotos')}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -280,8 +341,38 @@ export default function Pendencias({ perfil, params = {} }) {
               </Campo>
             </div>
           </div>
+          <Campo label="Resolução" dica="O que foi feito para resolver — fica registrado pra quem olhar depois.">
+            <textarea
+              className="txt" value={editando?.resolucao || ''}
+              onChange={(e) => setEditando((p) => ({ ...p, resolucao: e.target.value }))}
+              placeholder="Ex.: reforçado o escoramento e liberado pela fiscalização."
+            />
+          </Campo>
+          <Campo label="Fotos">
+            <CampoFotos
+              fotos={editando?.fotos || []}
+              links={links}
+              enviando={enviandoFoto}
+              onAdicionar={enviarFotosPendencia}
+              onRemover={removerFotoPendencia}
+              onAbrir={setFotoAberta}
+            />
+          </Campo>
         </div>
       </Sheet>
+
+      <VisorFoto
+        foto={fotoAberta}
+        fotos={editando?.fotos || []}
+        links={links}
+        onFechar={() => setFotoAberta(null)}
+        onIr={(delta) => {
+          const lista = editando?.fotos || []
+          const i = lista.findIndex((f) => f.id === fotoAberta.id)
+          const prox = lista[(i + delta + lista.length) % lista.length]
+          if (prox) setFotoAberta(prox)
+        }}
+      />
 
       <Confirmar
         aberto={Boolean(confirmar)}

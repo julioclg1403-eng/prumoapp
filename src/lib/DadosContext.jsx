@@ -20,7 +20,7 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import { hojeISO } from './dominio'
-import { enviarFoto, apagarFoto } from './fotos'
+import { enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia } from './fotos'
 
 const Ctx = createContext(null)
 
@@ -143,7 +143,7 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('occurrence_types').select('*').order('ordem'),
       supabase.from('planned_activities').select('*').order('data', { ascending: false }),
       supabase.from('daily_reports').select(SELECT_DIARIO).order('data', { ascending: false }),
-      supabase.from('issues').select('*').order('prazo', { nullsFirst: false }),
+      supabase.from('issues').select('*, fotos:issue_photos(*)').order('prazo', { nullsFirst: false }),
       supabase.from('materials').select('*').order('usos', { ascending: false }),
       supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false }),
       supabase.from('schedule_items').select('*').order('data_inicio'),
@@ -181,7 +181,7 @@ export function DadosProvider({ perfil, children }) {
       tiposOcorrencia: tiposOcorrencia.data || [],
       planejamento: planejamento.data || [],
       diarios: (diarios.data || []).map(normalizarDiario),
-      pendencias: pendencias.data || [],
+      pendencias: (pendencias.data || []).map((p) => ({ ...p, fotos: p.fotos || [] })),
       /* O catálogo de materiais é da organização, não da obra —
          por isso não passa pelo filtro de obra mais abaixo. */
       materiais: materiais.data || [],
@@ -527,6 +527,7 @@ export function DadosProvider({ perfil, children }) {
         prioridade: p.prioridade || 'media',
         prazo: p.prazo || null,
         status: p.status || 'aberta',
+        resolucao: p.resolucao || null,
         origem: p.origem || 'manual',
         origem_id: p.origem_id || null,
         autor_id: p.autor_id || perfil.id,
@@ -538,15 +539,56 @@ export function DadosProvider({ perfil, children }) {
         'salvar a pendência',
       )
       if (!salva) return null
+      /* upsert não devolve as fotos (não foram tocadas aqui) --
+         preserva as que já estavam carregadas, senão a lista local
+         perde as miniaturas que já apareciam na tela. */
+      const comFotos = { ...salva, fotos: tudo?.pendencias.find((x) => x.id === salva.id)?.fotos || [] }
       setTudo((t) => t && ({
         ...t,
-        pendencias: t.pendencias.some((x) => x.id === salva.id)
-          ? t.pendencias.map((x) => (x.id === salva.id ? salva : x))
-          : [...t.pendencias, salva],
+        pendencias: t.pendencias.some((x) => x.id === comFotos.id)
+          ? t.pendencias.map((x) => (x.id === comFotos.id ? comFotos : x))
+          : [...t.pendencias, comFotos],
       }))
-      return salva
+      return comFotos
     },
-    [perfil.id, escopo, checar],
+    [perfil.id, escopo, checar, tudo],
+  )
+
+  /* ── Fotos de pendência ──────────────────────────────────── */
+  const adicionarFotoPendencia = useCallback(
+    async (issueId, arquivo) => {
+      const { foto, erro } = await enviarFotoPendencia({
+        arquivo,
+        organizationId: perfil.organization_id,
+        obraId: obraId,
+        issueId,
+        autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      setTudo((t) => t && ({
+        ...t,
+        pendencias: t.pendencias.map((p) =>
+          p.id === issueId ? { ...p, fotos: [...(p.fotos || []), foto] } : p),
+      }))
+      return foto
+    },
+    [perfil, obraId, avisarErro],
+  )
+
+  const removerFotoPendencia = useCallback(
+    async (foto) => {
+      const { erro } = await apagarFotoPendencia(foto)
+      if (erro) { avisarErro(erro); return false }
+      setTudo((t) => t && ({
+        ...t,
+        pendencias: t.pendencias.map((p) =>
+          p.id === foto.issue_id
+            ? { ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }
+            : p),
+      }))
+      return true
+    },
+    [avisarErro],
   )
 
   const salvarPendenciasEmLote = useCallback(
@@ -1114,6 +1156,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
       salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
+      adicionarFotoPendencia, removerFotoPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, vincularContatoWhatsapp,
@@ -1127,6 +1170,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
+      adicionarFotoPendencia, removerFotoPendencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       vincularContatoWhatsapp,
