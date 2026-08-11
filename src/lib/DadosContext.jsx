@@ -1511,6 +1511,22 @@ export function DadosProvider({ perfil, children }) {
     [tudo, perfil, obraId, checar],
   )
 
+  /* `lista === null` = sem restrição, vê todos os módulos. Um array
+     (mesmo vazio) trava o menu a só esses. */
+  const definirModulosPermitidos = useCallback(
+    async (usuarioId, lista) => {
+      const atualizado = checar(
+        await supabase.from('profiles').update({ modulos_permitidos: lista }).eq('id', usuarioId).select('*').single(),
+        'alterar os módulos liberados',
+      )
+      if (!atualizado) return
+      setTudo((t) => t && ({
+        ...t, perfis: t.perfis.map((p) => (p.id === usuarioId ? atualizado : p)),
+      }))
+    },
+    [checar],
+  )
+
   /* Liga um número que já escreveu pro bot a um perfil existente --
      sem isso a Edge Function nunca acha o "dono" da mensagem e o
      número fica preso respondendo "peça pro administrador te
@@ -1559,7 +1575,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
-      definirPapel, vincularContatoWhatsapp,
+      definirPapel, definirModulosPermitidos, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
       salvarLembrete, alternarLembrete, removerLembrete,
@@ -1581,7 +1597,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
-      vincularContatoWhatsapp,
+      definirModulosPermitidos, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,

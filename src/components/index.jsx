@@ -793,6 +793,26 @@ export function CampoAnexos({ anexos, links, onAdicionar, onRemover, bloqueado, 
 
 /* ── Linha selecionável (presenças, equipes) ─────────────── */
 
+/* Chip clicável, liga/desliga. Usado onde a escolha é "marque quantos
+   fizerem sentido" (categorias, locais, módulos liberados) — mais
+   compacto que uma lista de Selecionavel quando são poucas opções. */
+export function ChipToggle({ ativo, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="chip"
+      style={{
+        cursor: 'pointer', fontFamily: 'var(--font)',
+        border: ativo ? '1.5px solid var(--primary)' : '1px solid var(--border-strong)',
+        background: ativo ? 'var(--primary-tint)' : 'var(--surface-2)',
+        color: ativo ? 'var(--primary-dark)' : 'var(--text-2)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 export function Selecionavel({ marcado, onToggle, titulo, sub, direita }) {
   return (
     <button className="pick" data-on={marcado ? '1' : '0'} onClick={onToggle} aria-pressed={marcado}>

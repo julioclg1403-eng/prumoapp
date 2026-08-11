@@ -80,7 +80,14 @@ export default function AppGestao({ perfil, onSair }) {
     ...(perfil.role === 'admin'
       ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' }]
       : []),
-  ]
+  ].filter((i) => (
+    /* "Início" e "Usuários" nunca são restringíveis por essa lista —
+       Início porque sem ele não sobra pra onde cair, Usuários porque
+       já é admin-only por papel. Admin também nunca é restringido:
+       é quem restringe os outros, em Usuários. */
+    i.chave === 'inicio' || i.chave === 'usuarios' || perfil.role === 'admin'
+      || !perfil.modulos_permitidos || perfil.modulos_permitidos.includes(i.chave)
+  ))
 
   /* A barra inferior do celular só comporta cinco destinos, e a
      gestão tem sete ou oito. Os quatro mais usados no dia a dia
@@ -94,8 +101,30 @@ export default function AppGestao({ perfil, onSair }) {
   ]
   const noMais = itens.filter((i) => !CHAVES_FIXAS.includes(i.chave))
 
+  /* Segunda trava, além do menu escondido: um atalho do Início (ex.
+     "Abrir efetivo") ou um link salvo não passam pela lista de itens
+     acima, então chegam direto no `goto`. `diario`/`requisicao` são
+     telas de detalhe sem entrada própria no menu — herdam a permissão
+     do módulo que as abre. */
+  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes' }
+  const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
+  const semRestricao = perfil.role === 'admin' || !perfil.modulos_permitidos
+  const permitido = ['inicio', 'mais', 'usuarios'].includes(chaveDoModulo)
+    || semRestricao || perfil.modulos_permitidos.includes(chaveDoModulo)
+
   let corpo
-  switch (rota.screen) {
+  if (!permitido) {
+    corpo = (
+      <div className="page">
+        <div className="empty" style={{ paddingTop: 80 }}>
+          Você não tem acesso a este módulo.
+          <div style={{ marginTop: 16 }}>
+            <button className="btn btn-primary" onClick={() => irParaAba('inicio')}>Voltar ao início</button>
+          </div>
+        </div>
+      </div>
+    )
+  } else switch (rota.screen) {
     case 'inicio':     corpo = <InicioGestao goto={goto} irParaAba={irParaAba} perfil={perfil} />; break
     case 'diarios':    corpo = <Diarios goto={goto} perfil={perfil} />; break
     case 'diario':     corpo = <DiarioEditor {...rota.params} voltar={voltar} perfil={perfil} />; break

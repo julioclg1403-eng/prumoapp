@@ -148,6 +148,25 @@ export const VISIBILIDADE_APONTAMENTO = ['rascunho', 'publicado']
 
 export const ROTULO_VISIBILIDADE_APONTAMENTO = { rascunho: 'Rascunho', publicado: 'Publicado' }
 
+/* Módulos que dá pra restringir por usuário (tela Usuários). "Início"
+   fica de fora de propósito — sem ele não sobra pra onde a pessoa
+   cair ao entrar. "Usuários" também fica de fora: é admin-only por
+   papel, não por essa lista. */
+export const MODULOS_RESTRINGIVEIS = [
+  { chave: 'diarios', rotulo: 'Diários' },
+  { chave: 'planejamento', rotulo: 'Planejamento' },
+  { chave: 'cronograma', rotulo: 'Cronograma' },
+  { chave: 'efetivo', rotulo: 'Efetivo' },
+  { chave: 'pendencias', rotulo: 'Pendências' },
+  { chave: 'requisicoes', rotulo: 'Pedidos' },
+  { chave: 'galeria', rotulo: 'Galeria' },
+  { chave: 'lembretes', rotulo: 'Lembretes' },
+  { chave: 'equipamentos', rotulo: 'Equipamentos' },
+  { chave: 'seguranca', rotulo: 'Segurança' },
+  { chave: 'projetos', rotulo: 'Projetos' },
+  { chave: 'cadastros', rotulo: 'Cadastros' },
+]
+
 /* ── Pendências ──────────────────────────────────────────────
    "Em aberto" INCLUI as atrasadas. Esta mesma função alimenta a
    tela, o contador do menu e o resumo do início — é isso que

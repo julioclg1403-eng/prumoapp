@@ -18,7 +18,8 @@
 
 import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { Icon, Chip, PageHeader, Confirmar, Vazio } from '../components'
+import { Icon, Chip, PageHeader, Confirmar, Vazio, ChipToggle } from '../components'
+import { MODULOS_RESTRINGIVEIS } from '../lib/dominio'
 
 const PAPEIS = [
   { valor: 'campo', rotulo: 'Campo', desc: 'Lança diário, presença e pendências. Celular no canteiro.' },
@@ -55,6 +56,24 @@ export default function Usuarios({ voltar, perfil }) {
       return
     }
     aplicar(u, papel)
+  }
+
+  const alternarRestricao = async (u) => {
+    setOcupado(true)
+    if (u.modulos_permitidos == null) {
+      await dados.definirModulosPermitidos(u.id, MODULOS_RESTRINGIVEIS.map((m) => m.chave))
+    } else {
+      await dados.definirModulosPermitidos(u.id, null)
+    }
+    setOcupado(false)
+  }
+
+  const alternarModulo = async (u, chave) => {
+    const atual = u.modulos_permitidos || []
+    const novo = atual.includes(chave) ? atual.filter((c) => c !== chave) : [...atual, chave]
+    setOcupado(true)
+    await dados.definirModulosPermitidos(u.id, novo)
+    setOcupado(false)
   }
 
   return (
@@ -145,6 +164,34 @@ export default function Usuarios({ voltar, perfil }) {
                       </button>
                     ))}
                   </div>
+
+                  {u.role !== 'admin' && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                      <div className="row-between" style={{ marginBottom: 8 }}>
+                        <span className="t-caption">Módulos</span>
+                        <button
+                          className="btn btn-ghost btn-sm" onClick={() => alternarRestricao(u)} disabled={ocupado}
+                        >
+                          {u.modulos_permitidos == null ? 'Restringir acesso' : 'Liberar tudo'}
+                        </button>
+                      </div>
+                      {u.modulos_permitidos == null ? (
+                        <div className="t-caption">Vê todos os módulos.</div>
+                      ) : (
+                        <div className="row-wrap">
+                          {MODULOS_RESTRINGIVEIS.map((m) => (
+                            <ChipToggle
+                              key={m.chave}
+                              ativo={u.modulos_permitidos.includes(m.chave)}
+                              onClick={() => alternarModulo(u, m.chave)}
+                            >
+                              {m.rotulo}
+                            </ChipToggle>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

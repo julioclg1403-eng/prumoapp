@@ -19,7 +19,7 @@ import {
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
-  TextareaComAudio, CampoAnexos, useLinksDeAnexos,
+  TextareaComAudio, CampoAnexos, useLinksDeAnexos, ChipToggle,
 } from '../components'
 import { enviarAnexoComentario } from '../lib/anexos'
 
@@ -33,23 +33,6 @@ function siglaOuNome(lista, id) {
   const item = (lista || []).find((x) => x.id === id)
   if (!item) return null
   return item.sigla || item.nome
-}
-
-function ChipToggle({ ativo, onClick, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className="chip"
-      style={{
-        cursor: 'pointer', fontFamily: 'var(--font)',
-        border: ativo ? '1.5px solid var(--primary)' : '1px solid var(--border-strong)',
-        background: ativo ? 'var(--primary-tint)' : 'var(--surface-2)',
-        color: ativo ? 'var(--primary-dark)' : 'var(--text-2)',
-      }}
-    >
-      {children}
-    </button>
-  )
 }
 
 const VAZIO_NOVO = {
