@@ -16,7 +16,7 @@ import {
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
-  CampoFotos, VisorFoto, useLinksDeFotos,
+  CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
 } from '../components'
 
 function normalizarComparar(s) {
@@ -306,8 +306,8 @@ export default function Pendencias({ perfil, params = {} }) {
             />
           </Campo>
           <Campo label="Detalhe" >
-            <textarea
-              className="txt" value={editando?.descricao || ''}
+            <TextareaComAudio
+              value={editando?.descricao || ''}
               onChange={(e) => setEditando((p) => ({ ...p, descricao: e.target.value }))}
               placeholder="Contexto suficiente para o responsável agir sem precisar perguntar."
             />
@@ -342,8 +342,8 @@ export default function Pendencias({ perfil, params = {} }) {
             </div>
           </div>
           <Campo label="Resolução" dica="O que foi feito para resolver — fica registrado pra quem olhar depois.">
-            <textarea
-              className="txt" value={editando?.resolucao || ''}
+            <TextareaComAudio
+              value={editando?.resolucao || ''}
               onChange={(e) => setEditando((p) => ({ ...p, resolucao: e.target.value }))}
               placeholder="Ex.: reforçado o escoramento e liberado pela fiscalização."
             />

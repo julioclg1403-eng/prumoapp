@@ -19,7 +19,7 @@ import {
   GRAVIDADES, ROTULO_GRAVIDADE, TOM_GRAVIDADE,
   TIPOS_ADVERTENCIA, ROTULO_ADVERTENCIA,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio } from '../components'
 
 export default function Seguranca({ voltar, perfil }) {
   const dados = useDados()
@@ -222,15 +222,15 @@ function Ocorrencias({ dados, perfil }) {
             </select>
           </Campo>
           <Campo label="Detalhe">
-            <textarea
-              className="txt" value={editando?.descricao || ''}
+            <TextareaComAudio
+              value={editando?.descricao || ''}
               onChange={(e) => setEditando((p) => ({ ...p, descricao: e.target.value }))}
               placeholder="O que aconteceu, com contexto suficiente."
             />
           </Campo>
           <Campo label="Ação tomada" dica="O que foi feito a respeito.">
-            <textarea
-              className="txt" value={editando?.acao_tomada || ''}
+            <TextareaComAudio
+              value={editando?.acao_tomada || ''}
               onChange={(e) => setEditando((p) => ({ ...p, acao_tomada: e.target.value }))}
               placeholder="Ex.: interditada a área, reforçada a sinalização…"
             />
@@ -388,8 +388,8 @@ function Advertencias({ dados, perfil }) {
             />
           </Campo>
           <Campo label="Detalhe" dica="Opcional">
-            <textarea
-              className="txt" value={editando?.descricao || ''}
+            <TextareaComAudio
+              value={editando?.descricao || ''}
               onChange={(e) => setEditando((p) => ({ ...p, descricao: e.target.value }))}
               placeholder="Contexto adicional, se precisar."
             />

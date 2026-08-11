@@ -17,7 +17,7 @@ import {
   situacaoRequisicao, saldosDaRequisicao, acoesDaRequisicao,
   formatarQuantidade, formatarDinheiro,
 } from '../lib/dominio'
-import { Icon, Chip, Sheet, Campo, Confirmar, Vazio, ItemLista } from '../components'
+import { Icon, Chip, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio } from '../components'
 
 const UNIDADES = ['un', 'sc', 'm', 'm²', 'm³', 'kg', 'L', 'cx', 'pç', 'br', 'rl', 'gl']
 
@@ -248,8 +248,8 @@ export default function Requisicao({ id, novo, voltar, perfil }) {
               />
             </Campo>
             <Campo label="Observação">
-              <textarea
-                className="txt" style={{ minHeight: 60 }} value={rascunho.observacao}
+              <TextareaComAudio
+                style={{ minHeight: 60 }} value={rascunho.observacao}
                 disabled={!editandoItens && !acoes.podeEditarItens}
                 onChange={(e) => setRascunho((r) => ({ ...r, observacao: e.target.value }))}
                 placeholder="Algo que quem vai comprar precisa saber"

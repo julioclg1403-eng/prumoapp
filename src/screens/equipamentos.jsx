@@ -12,7 +12,7 @@
 import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { STATUS_EQUIPAMENTO, ROTULO_STATUS_EQUIPAMENTO, TOM_STATUS_EQUIPAMENTO } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio } from '../components'
 
 export default function Equipamentos({ voltar, perfil }) {
   const dados = useDados()
@@ -213,8 +213,8 @@ export default function Equipamentos({ voltar, perfil }) {
             </select>
           </Campo>
           <Campo label="Observação">
-            <textarea
-              className="txt" value={editando?.observacao || ''}
+            <TextareaComAudio
+              value={editando?.observacao || ''}
               onChange={(e) => setEditando((p) => ({ ...p, observacao: e.target.value }))}
               placeholder="Estado, particularidade, o que for útil saber."
             />

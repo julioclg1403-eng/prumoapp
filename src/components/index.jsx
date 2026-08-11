@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { linksTemporarios, baixarFoto } from '../lib/fotos'
+import { transcrever } from '../lib/audio'
 
 /* ── Ícones (SVG na mão, sem biblioteca) ─────────────────── */
 
@@ -39,6 +40,8 @@ const CAMINHOS = {
   relatorio: 'M7 3.5h7l4 4v13H7zM14 3.5V8h4M9.5 12.5h5M9.5 15.5h5M9.5 18h3',
   lembrete: 'M12 3.2c-1 0-1.7.8-1.7 1.7v.5C7.8 6.1 6 8.6 6 11.5v3.3L4.3 18h15.4L18 14.8v-3.3c0-2.9-1.8-5.4-4.3-6.1v-.5c0-.9-.7-1.7-1.7-1.7zM9.7 18a2.3 2.3 0 0 0 4.6 0',
   equipamento: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
+  microfone: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6.5 10.5v1a5.5 5.5 0 0 0 11 0v-1M12 17.5v3M9 20.5h6',
+  parar: 'M6.5 6.5h11v11h-11z',
 }
 
 export function Icon({ name, size = 20, style }) {
@@ -167,6 +170,83 @@ export function Campo({ label, children, dica }) {
       <label className="lbl">{label}</label>
       {children}
       {dica && <div className="t-caption" style={{ marginTop: 4, fontSize: 12 }}>{dica}</div>}
+    </div>
+  )
+}
+
+/* ── Campo de texto com microfone ─────────────────────────
+   Substituto de <textarea> em qualquer formulário do app: mesmas
+   props, mais um botão de gravar que transcreve e ACRESCENTA ao
+   que já estiver escrito (nunca troca — quem já tinha digitado
+   algo não perde nada se gravar por cima).
+
+   Três estados: parado → gravando → transcrevendo → parado. O
+   pedido de permissão do microfone só acontece no primeiro toque,
+   como qualquer app. */
+export function TextareaComAudio({ value, onChange, style, ...props }) {
+  const [estado, setEstado] = useState('parado') // parado | gravando | transcrevendo
+  const [erro, setErro] = useState('')
+  const gravadorRef = useRef(null)
+  const pedacosRef = useRef([])
+
+  const alternar = async () => {
+    if (estado === 'gravando') {
+      gravadorRef.current?.stop()
+      return
+    }
+    if (estado !== 'parado') return
+
+    setErro('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const gravador = new MediaRecorder(stream)
+      pedacosRef.current = []
+      gravador.ondataavailable = (e) => { if (e.data.size > 0) pedacosRef.current.push(e.data) }
+      gravador.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        setEstado('transcrevendo')
+        const blob = new Blob(pedacosRef.current, { type: gravador.mimeType || 'audio/webm' })
+        const texto = await transcrever(blob)
+        setEstado('parado')
+        if (texto == null) { setErro('Não consegui transcrever. Tenta de novo.'); return }
+        if (!texto.trim()) return
+        const atual = value || ''
+        onChange({ target: { value: atual ? `${atual}\n${texto.trim()}` : texto.trim() } })
+      }
+      gravadorRef.current = gravador
+      gravador.start()
+      setEstado('gravando')
+    } catch {
+      setErro('Não consegui acessar o microfone. Verifique a permissão do navegador.')
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ position: 'relative' }}>
+        <textarea
+          className="txt" value={value} onChange={onChange}
+          style={{ paddingRight: props.disabled ? undefined : 46, ...style }} {...props}
+        />
+        {!props.disabled && (
+          <button
+            type="button" onClick={alternar} disabled={estado === 'transcrevendo'}
+            aria-label={estado === 'gravando' ? 'Parar gravação' : 'Gravar áudio'}
+            style={{
+              position: 'absolute', top: 8, right: 8, width: 30, height: 30, border: 0, borderRadius: 999,
+              background: estado === 'gravando' ? 'var(--danger)' : 'var(--surface-2)',
+              color: estado === 'gravando' ? '#fff' : 'var(--text-2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: estado === 'transcrevendo' ? 'default' : 'pointer',
+            }}
+          >
+            <Icon name={estado === 'gravando' ? 'parar' : 'microfone'} size={16} />
+          </button>
+        )}
+      </div>
+      {estado === 'gravando' && <div className="t-caption" style={{ marginTop: 4 }}>Gravando… toque de novo para parar.</div>}
+      {estado === 'transcrevendo' && <div className="t-caption" style={{ marginTop: 4 }}>Transcrevendo…</div>}
+      {erro && <div className="t-caption" style={{ marginTop: 4, color: 'var(--danger)' }}>{erro}</div>}
     </div>
   )
 }

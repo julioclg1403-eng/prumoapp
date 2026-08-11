@@ -21,7 +21,7 @@ import {
 } from '../lib/dominio'
 import {
   Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista,
-  CampoFotos, VisorFoto, useLinksDeFotos,
+  CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, FotosRelatorio,
 } from '../components'
 import { legendaAutomatica } from '../lib/fotos'
@@ -626,8 +626,8 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
                   <span className="t-num" style={{ opacity: 0.7 }}>{equipe.length}</span>
                 </button>
 
-                <textarea
-                  className="txt" style={{ marginTop: 10, minHeight: 60 }}
+                <TextareaComAudio
+                  style={{ marginTop: 10, minHeight: 60 }}
                   placeholder="Observação desta frente (opcional)"
                   value={a.observacao || ''}
                   disabled={bloqueado}
@@ -882,8 +882,8 @@ function EtapaOcorrencias({ diario, alterar, bloqueado }) {
             </select>
           </Campo>
           <Campo label="O que aconteceu">
-            <textarea
-              className="txt" value={nova?.descricao || ''}
+            <TextareaComAudio
+              value={nova?.descricao || ''}
               onChange={(e) => setNova((n) => ({ ...n, descricao: e.target.value }))}
               placeholder="Descreva o suficiente para alguém entender daqui a um mês."
             />
@@ -981,8 +981,8 @@ function EtapaRevisao({ diario, alterar, bloqueado, irPara, fotos }) {
           />
         </Campo>
         <Campo label="Observação geral">
-          <textarea
-            className="txt" value={diario.observacao || ''} disabled={bloqueado}
+          <TextareaComAudio
+            value={diario.observacao || ''} disabled={bloqueado}
             onChange={(e) => alterar({ observacao: e.target.value })}
             placeholder="O que mais precisa ficar registrado sobre este dia."
           />
