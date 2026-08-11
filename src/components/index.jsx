@@ -547,17 +547,35 @@ export function Miniatura({ src, legenda, onClick, onRemover, enviando, erro }) 
   )
 }
 
-/* Grade de fotos + botão de adicionar. `capture="environment"` faz o
-   celular abrir direto a câmera traseira, em vez da galeria — um
-   toque a menos para quem está de capacete e luva. */
+/* Grade de fotos + dois botões de adicionar. `capture="environment"`
+   faz o celular abrir direto a câmera traseira — um toque a menos
+   para quem está de capacete e luva. O segundo botão, sem `capture`,
+   abre a galeria: para quem já tirou a foto antes e só quer anexar. */
 export function CampoFotos({ fotos, links, onAdicionar, onRemover, onAbrir, bloqueado, enviando, rotulo = 'Adicionar foto' }) {
-  const entrada = useRef(null)
+  const entradaCamera = useRef(null)
+  const entradaGaleria = useRef(null)
 
   const escolher = (e) => {
     const arquivos = [...(e.target.files || [])]
     e.target.value = ''
     if (arquivos.length) onAdicionar(arquivos)
   }
+
+  const BotaoAdicionar = ({ onClick, icone, texto }) => (
+    <button
+      onClick={onClick}
+      style={{
+        aspectRatio: '1', borderRadius: 10, cursor: 'pointer',
+        border: '1px dashed var(--border-strong)', background: 'var(--surface-2)',
+        color: 'var(--text-2)', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 4,
+        fontFamily: 'var(--font)', fontSize: 11, fontWeight: 600, padding: 4,
+      }}
+    >
+      <Icon name={icone} size={22} />
+      {texto}
+    </button>
+  )
 
   return (
     <div>
@@ -577,24 +595,19 @@ export function CampoFotos({ fotos, links, onAdicionar, onRemover, onAbrir, bloq
         ))}
 
         {!bloqueado && (
-          <button
-            onClick={() => entrada.current?.click()}
-            style={{
-              aspectRatio: '1', borderRadius: 10, cursor: 'pointer',
-              border: '1px dashed var(--border-strong)', background: 'var(--surface-2)',
-              color: 'var(--text-2)', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 4,
-              fontFamily: 'var(--font)', fontSize: 11, fontWeight: 600, padding: 4,
-            }}
-          >
-            <Icon name="camera" size={22} />
-            {rotulo}
-          </button>
+          <>
+            <BotaoAdicionar onClick={() => entradaCamera.current?.click()} icone="camera" texto={rotulo} />
+            <BotaoAdicionar onClick={() => entradaGaleria.current?.click()} icone="galeria" texto="Da galeria" />
+          </>
         )}
       </div>
 
       <input
-        ref={entrada} type="file" accept="image/*" capture="environment" multiple
+        ref={entradaCamera} type="file" accept="image/*" capture="environment" multiple
+        onChange={escolher} style={{ display: 'none' }}
+      />
+      <input
+        ref={entradaGaleria} type="file" accept="image/*" multiple
         onChange={escolher} style={{ display: 'none' }}
       />
     </div>
