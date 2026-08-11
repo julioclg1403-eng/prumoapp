@@ -124,6 +124,20 @@ export const TOM_STATUS_EQUIPAMENTO = {
   manutencao: 'danger',
 }
 
+export const TIPOS_OCORRENCIA_SEGURANCA = ['quase_acidente', 'acidente']
+
+export const ROTULO_OCORRENCIA_SEGURANCA = { quase_acidente: 'Quase acidente', acidente: 'Acidente' }
+
+export const GRAVIDADES = ['leve', 'moderada', 'grave']
+
+export const ROTULO_GRAVIDADE = { leve: 'Leve', moderada: 'Moderada', grave: 'Grave' }
+
+export const TOM_GRAVIDADE = { leve: '', moderada: 'info', grave: 'danger' }
+
+export const TIPOS_ADVERTENCIA = ['verbal', 'escrita']
+
+export const ROTULO_ADVERTENCIA = { verbal: 'Verbal', escrita: 'Escrita' }
+
 /* ── Pendências ──────────────────────────────────────────────
    "Em aberto" INCLUI as atrasadas. Esta mesma função alimenta a
    tela, o contador do menu e o resumo do início — é isso que

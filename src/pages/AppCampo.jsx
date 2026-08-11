@@ -26,6 +26,7 @@ import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
 import Equipamentos from '../screens/equipamentos'
+import Seguranca from '../screens/seguranca'
 
 const ABAS = [
   { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
@@ -69,6 +70,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Equipamentos voltar={voltar} perfil={perfil} />; break
+    case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'mais':         corpo = <Mais goto={goto} perfil={perfil} onSair={onSair} />; break
     default:             corpo = <InicioCampo goto={goto} irParaAba={irParaAba} perfil={perfil} />
@@ -107,6 +109,9 @@ export default function AppCampo({ perfil, onSair }) {
         </button>
         <button onClick={() => irParaAba('equipamentos')} aria-current={rota.screen === 'equipamentos' ? 'true' : undefined}>
           <Icon name="equipamento" size={19} /> Equipamentos
+        </button>
+        <button onClick={() => irParaAba('seguranca')} aria-current={rota.screen === 'seguranca' ? 'true' : undefined}>
+          <Icon name="alerta" size={19} /> Segurança
         </button>
         <button onClick={() => irParaAba('cadastros')} aria-current={rota.screen === 'cadastros' ? 'true' : undefined}>
           <Icon name="cadastros" size={19} /> Cadastros
@@ -188,6 +193,7 @@ function Mais({ goto, perfil, onSair }) {
     { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
     { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
     { chave: 'equipamentos', rotulo: 'Equipamentos', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
+    { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
     { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
   ]
   return (

@@ -132,7 +132,7 @@ export function DadosProvider({ perfil, children }) {
     const [
       org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
-      contatosWhatsapp, equipamentos,
+      contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -151,11 +151,13 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('reminders').select('*').order('disparar_em'),
       supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false }),
       supabase.from('equipment').select('*').order('nome'),
+      supabase.from('safety_occurrences').select('*').order('data', { ascending: false }),
+      supabase.from('warnings').select('*').order('data', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
-      contatosWhatsapp, equipamentos].find((r) => r.error)
+      contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -192,6 +194,8 @@ export function DadosProvider({ perfil, children }) {
       lembretes: lembretes.data || [],
       contatosWhatsapp: contatosWhatsapp.data || [],
       equipamentos: equipamentos.data || [],
+      ocorrenciasSeguranca: ocorrenciasSeguranca.data || [],
+      advertencias: advertencias.data || [],
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -253,6 +257,8 @@ export function DadosProvider({ perfil, children }) {
       cronograma: filtrar(tudo.cronograma),
       lembretes: filtrar(tudo.lembretes),
       equipamentos: filtrar(tudo.equipamentos),
+      ocorrenciasSeguranca: filtrar(tudo.ocorrenciasSeguranca),
+      advertencias: filtrar(tudo.advertencias),
     }
   }, [tudo, obraId])
 
@@ -645,6 +651,97 @@ export function DadosProvider({ perfil, children }) {
       }
     },
     [tudo, checar],
+  )
+
+  // ── Segurança ──────────────────────────────────────────────
+  const salvarOcorrenciaSeguranca = useCallback(
+    async (o) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        data: o.data, titulo: o.titulo,
+        tipo: o.tipo || 'quase_acidente',
+        gravidade: o.gravidade || 'leve',
+        location_id: o.location_id || null,
+        worker_id: o.worker_id || null,
+        descricao: o.descricao || null,
+        acao_tomada: o.acao_tomada || null,
+        autor_id: o.autor_id || perfil.id,
+      }
+      if (o.id) linha.id = o.id
+
+      const salva = checar(
+        await supabase.from('safety_occurrences').upsert(linha).select('*').single(),
+        'salvar a ocorrência',
+      )
+      if (!salva) return null
+      setTudo((t) => t && ({
+        ...t,
+        ocorrenciasSeguranca: t.ocorrenciasSeguranca.some((x) => x.id === salva.id)
+          ? t.ocorrenciasSeguranca.map((x) => (x.id === salva.id ? salva : x))
+          : [...t.ocorrenciasSeguranca, salva],
+      }))
+      return salva
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirOcorrenciaSeguranca = useCallback(
+    async (id) => {
+      const r = await supabase.from('safety_occurrences').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a ocorrência'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Peça à gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, ocorrenciasSeguranca: t.ocorrenciasSeguranca.filter((x) => x.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
+  const salvarAdvertencia = useCallback(
+    async (a) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        worker_id: a.worker_id,
+        data: a.data, tipo: a.tipo || 'verbal',
+        motivo: a.motivo, descricao: a.descricao || null,
+        aplicada_por: a.aplicada_por || perfil.id,
+        occurrence_id: a.occurrence_id || null,
+        autor_id: a.autor_id || perfil.id,
+      }
+      if (a.id) linha.id = a.id
+
+      const salva = checar(
+        await supabase.from('warnings').upsert(linha).select('*').single(),
+        'salvar a advertência',
+      )
+      if (!salva) return null
+      setTudo((t) => t && ({
+        ...t,
+        advertencias: t.advertencias.some((x) => x.id === salva.id)
+          ? t.advertencias.map((x) => (x.id === salva.id ? salva : x))
+          : [...t.advertencias, salva],
+      }))
+      return salva
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirAdvertencia = useCallback(
+    async (id) => {
+      const r = await supabase.from('warnings').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a advertência'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Peça à gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, advertencias: t.advertencias.filter((x) => x.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
   )
 
   // ── Cadastros auxiliares ──────────────────────────────────
@@ -1161,6 +1258,8 @@ export function DadosProvider({ perfil, children }) {
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
       salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
+      salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
+      salvarAdvertencia, excluirAdvertencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, vincularContatoWhatsapp,
@@ -1175,6 +1274,8 @@ export function DadosProvider({ perfil, children }) {
       criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
+      salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
+      salvarAdvertencia, excluirAdvertencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       vincularContatoWhatsapp,
