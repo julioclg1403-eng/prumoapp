@@ -27,6 +27,7 @@ import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
 import Equipamentos from '../screens/equipamentos'
 import Seguranca from '../screens/seguranca'
+import Projetos from '../screens/projetos'
 import Usuarios from '../screens/usuarios'
 
 export default function AppGestao({ perfil, onSair }) {
@@ -72,6 +73,8 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Máquinas e ferramentas, e onde cada uma está' },
     { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
       desc: 'Ocorrências e advertências da obra' },
+    { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
+      desc: 'Apontamentos entre projeto e obra, por disciplina' },
     { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
       desc: 'Empresas, colaboradores, locais e serviços' },
     ...(perfil.role === 'admin'
@@ -106,6 +109,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'lembretes':  corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Equipamentos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'mais':       corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break

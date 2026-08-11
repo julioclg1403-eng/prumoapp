@@ -19,6 +19,7 @@ const TIPOS = {
   empresas: {
     rotulo: 'Empresas',
     singular: 'empresa',
+    feminino: true,
     campos: [
       { nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Empresa ou equipe' },
       {
@@ -57,6 +58,36 @@ const TIPOS = {
     singular: 'tipo de ocorrência',
     campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Falta de material' }],
     sub: () => 'Categoria de imprevisto do diário',
+  },
+  disciplinasProjeto: {
+    rotulo: 'Disciplinas',
+    singular: 'disciplina',
+    feminino: true,
+    campos: [
+      { nome: 'sigla', rotulo: 'Sigla', placeholder: 'EST' },
+      { nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Estrutura' },
+    ],
+    sub: (item) => item.sigla || 'Usada nos apontamentos de Projetos',
+  },
+  categoriasProjeto: {
+    rotulo: 'Categorias de apontamento',
+    singular: 'categoria',
+    feminino: true,
+    campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Decisões da obra' }],
+    sub: () => 'Usada nos apontamentos de Projetos',
+  },
+  etapasProjeto: {
+    rotulo: 'Etapas de projeto',
+    singular: 'etapa',
+    feminino: true,
+    campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Projeto executivo' }],
+    sub: () => 'Fase em que o apontamento nasceu',
+  },
+  statusDisciplinaProjeto: {
+    rotulo: 'Status das disciplinas',
+    singular: 'status',
+    campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Aguardando resposta' }],
+    sub: () => 'Andamento de cada disciplina dentro do apontamento',
   },
 }
 
@@ -112,7 +143,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           <div style={{ fontSize: 17, fontWeight: 700 }}>Cadastros</div>
           <div className="sub">{dados.obra.nome}</div>
         </div>
-        <button onClick={abrirNovo} aria-label={`Novo ${def.singular}`}><Icon name="mais_sinal" size={22} /></button>
+        <button onClick={abrirNovo} aria-label={`Nov${def.feminino ? 'a' : 'o'} ${def.singular}`}><Icon name="mais_sinal" size={22} /></button>
       </div>
 
       <div className="page">
@@ -156,11 +187,11 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           {lista.length === 0 ? (
             <div className="card-flat">
               <Vazio
-                titulo={mostrarArquivados ? 'Nenhum arquivado' : `Nenhum ${def.singular} cadastrado`}
+                titulo={mostrarArquivados ? 'Nenhum arquivado' : `Nenhum${def.feminino ? 'a' : ''} ${def.singular} cadastrad${def.feminino ? 'a' : 'o'}`}
                 texto={
                   mostrarArquivados
                     ? 'Nada foi arquivado neste cadastro.'
-                    : `Cadastre ${def.singular === 'empresa' ? 'a primeira empresa' : `o primeiro ${def.singular}`} para começar a usar no diário.`
+                    : `Cadastre ${def.feminino ? 'a primeira' : 'o primeiro'} ${def.singular} para começar a usar.`
                 }
                 acao={!mostrarArquivados && <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar</button>}
               />
@@ -205,7 +236,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
       <Sheet
         aberto={Boolean(editando)}
-        titulo={`${editando?.id ? 'Editar' : 'Novo'} ${def.singular}`}
+        titulo={`${editando?.id ? 'Editar' : `Nov${def.feminino ? 'a' : 'o'}`} ${def.singular}`}
         onFechar={() => setEditando(null)}
         rodape={
           <div className="row-flex">

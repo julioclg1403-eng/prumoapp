@@ -24,6 +24,7 @@ import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
 } from './fotos'
+import { enviarAnexoApontamento, apagarAnexoApontamento } from './anexos'
 
 const Ctx = createContext(null)
 
@@ -35,6 +36,10 @@ const TABELA = {
   servicos: 'services',
   tiposOcorrencia: 'occurrence_types',
   equipamentos: 'equipment',
+  disciplinasProjeto: 'project_disciplines',
+  categoriasProjeto: 'project_categories',
+  etapasProjeto: 'project_stages',
+  statusDisciplinaProjeto: 'project_discipline_statuses',
 }
 
 /* ATENÇÃO: isto é a lista de campos que o Supabase entende, não
@@ -93,6 +98,26 @@ function normalizarRequisicao(r) {
   }
 }
 
+/* Mesma regra do SELECT_DIARIO: sem comentário aqui dentro. */
+const SELECT_APONTAMENTO = `
+  id, organization_id, worksite_id, numero, titulo, descricao, status, prioridade, visibilidade,
+  stage_id, category_ids, location_ids, etiquetas, autor_id, created_at, atualizado_em,
+  disciplinas:project_note_disciplines ( id, discipline_id, status_id, prazo, concluido_em ),
+  comentarios:project_note_comments ( id, autor_id, texto, anexo_caminho, anexo_nome, created_at ),
+  anexos:project_note_attachments ( id, caminho, nome_arquivo, tipo_mime, tamanho_bytes, autor_id, created_at ),
+  historico:project_note_history ( id, autor_id, de_status, para_status, created_at )
+`
+
+function normalizarApontamento(n) {
+  return {
+    ...n,
+    disciplinas: n.disciplinas || [],
+    comentarios: [...(n.comentarios || [])].sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
+    anexos: n.anexos || [],
+    historico: [...(n.historico || [])].sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
+  }
+}
+
 export function DadosProvider({ perfil, children }) {
   const [tudo, setTudo] = useState(null)
   const [obraId, setObraId] = useState(() => {
@@ -136,6 +161,7 @@ export function DadosProvider({ perfil, children }) {
       org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
+      disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -156,11 +182,17 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('equipment').select('*').order('nome'),
       supabase.from('safety_occurrences').select('*, fotos:safety_occurrence_photos(*)').order('data', { ascending: false }),
       supabase.from('warnings').select('*, fotos:warning_photos(*)').order('data', { ascending: false }),
+      supabase.from('project_disciplines').select('*').order('ordem'),
+      supabase.from('project_categories').select('*').order('ordem'),
+      supabase.from('project_stages').select('*').order('ordem'),
+      supabase.from('project_discipline_statuses').select('*').order('ordem'),
+      supabase.from('project_notes').select(SELECT_APONTAMENTO).order('created_at', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
-      contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias].find((r) => r.error)
+      contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
+      disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -199,6 +231,11 @@ export function DadosProvider({ perfil, children }) {
       equipamentos: equipamentos.data || [],
       ocorrenciasSeguranca: (ocorrenciasSeguranca.data || []).map((o) => ({ ...o, fotos: o.fotos || [] })),
       advertencias: (advertencias.data || []).map((a) => ({ ...a, fotos: a.fotos || [] })),
+      disciplinasProjeto: disciplinasProjeto.data || [],
+      categoriasProjeto: categoriasProjeto.data || [],
+      etapasProjeto: etapasProjeto.data || [],
+      statusDisciplinaProjeto: statusDisciplinaProjeto.data || [],
+      apontamentos: (apontamentos.data || []).map(normalizarApontamento),
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -262,6 +299,11 @@ export function DadosProvider({ perfil, children }) {
       equipamentos: filtrar(tudo.equipamentos),
       ocorrenciasSeguranca: filtrar(tudo.ocorrenciasSeguranca),
       advertencias: filtrar(tudo.advertencias),
+      disciplinasProjeto: filtrar(tudo.disciplinasProjeto),
+      categoriasProjeto: filtrar(tudo.categoriasProjeto),
+      etapasProjeto: filtrar(tudo.etapasProjeto),
+      statusDisciplinaProjeto: filtrar(tudo.statusDisciplinaProjeto),
+      apontamentos: filtrar(tudo.apontamentos),
     }
   }, [tudo, obraId])
 
@@ -809,6 +851,190 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Projetos (apontamentos multi-disciplina) ──────────────
+  /* O apontamento tem quatro coleções penduradas nele (disciplinas,
+     comentários, anexos, histórico). Em vez de tentar remendar cada
+     uma na mão a cada gravação — como as fotos fazem em um relacionamento
+     só —, toda função aqui termina relendo o apontamento inteiro do
+     banco. É uma consulta a mais por ação, mas garante que a tela
+     sempre mostra exatamente o que ficou gravado. */
+  const relerApontamento = useCallback(
+    async (id) => {
+      const r = await supabase.from('project_notes').select(SELECT_APONTAMENTO).eq('id', id).single()
+      if (r.error) { checar(r, 'atualizar o apontamento'); return null }
+      return normalizarApontamento(r.data)
+    },
+    [checar],
+  )
+
+  const atualizarApontamentoLocal = useCallback((fresco) => {
+    if (!fresco) return
+    setTudo((t) => t && ({
+      ...t,
+      apontamentos: t.apontamentos.some((x) => x.id === fresco.id)
+        ? t.apontamentos.map((x) => (x.id === fresco.id ? fresco : x))
+        : [...t.apontamentos, fresco],
+    }))
+  }, [])
+
+  const salvarApontamento = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const ehNovo = !item.id
+      const linha = {
+        organization_id, worksite_id,
+        titulo: item.titulo,
+        descricao: item.descricao || null,
+        prioridade: item.prioridade || 'media',
+        visibilidade: item.visibilidade || 'rascunho',
+        stage_id: item.stage_id || null,
+        category_ids: item.category_ids || [],
+        location_ids: item.location_ids || [],
+        etiquetas: item.etiquetas || [],
+        autor_id: item.autor_id || perfil.id,
+      }
+      if (item.id) linha.id = item.id
+
+      const salvo = checar(
+        await supabase.from('project_notes').upsert(linha).select('id').single(),
+        'salvar o apontamento',
+      )
+      if (!salvo) return null
+
+      if (ehNovo) {
+        const h = await supabase.from('project_note_history').insert({
+          organization_id, worksite_id, note_id: salvo.id, autor_id: perfil.id,
+          de_status: null, para_status: 'ativo',
+        })
+        if (h.error) console.error('[Prumo] histórico do apontamento:', h.error)
+      }
+
+      const fresco = await relerApontamento(salvo.id)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [escopo, checar, perfil.id, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  /* Ativo → Resolvido/Reprovado, ou reaberto de volta a Ativo. Cada
+     troca vira uma linha de histórico — é o "aviso" pedido para o
+     ❌✅ do detalhe. */
+  const mudarStatusApontamento = useCallback(
+    async (id, novoStatus) => {
+      const atual = tudo?.apontamentos?.find((x) => x.id === id)
+      if (!atual) return null
+      const { organization_id, worksite_id } = escopo()
+
+      const r = await supabase.from('project_notes')
+        .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
+        .eq('id', id).select('id')
+      if (r.error) { checar(r, 'mudar o status do apontamento'); return null }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para isso. Peça à gestão.')
+        return null
+      }
+
+      const h = await supabase.from('project_note_history').insert({
+        organization_id, worksite_id, note_id: id, autor_id: perfil.id,
+        de_status: atual.status, para_status: novoStatus,
+      })
+      if (h.error) console.error('[Prumo] histórico do apontamento:', h.error)
+
+      const fresco = await relerApontamento(id)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [tudo, escopo, checar, avisarErro, perfil.id, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  const salvarDisciplinaApontamento = useCallback(
+    async (noteId, linha) => {
+      const { organization_id, worksite_id } = escopo()
+      const registro = {
+        organization_id, worksite_id, note_id: noteId,
+        discipline_id: linha.discipline_id,
+        status_id: linha.status_id || null,
+        prazo: linha.prazo || null,
+        concluido_em: linha.concluido_em || null,
+      }
+      if (linha.id) registro.id = linha.id
+      const salvo = checar(
+        await supabase.from('project_note_disciplines').upsert(registro).select('id').single(),
+        'salvar a disciplina do apontamento',
+      )
+      if (!salvo) return null
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [escopo, checar, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  const removerDisciplinaApontamento = useCallback(
+    async (noteId, disciplinaLinhaId) => {
+      const r = await supabase.from('project_note_disciplines').delete().eq('id', disciplinaLinhaId).select('id')
+      if (r.error) { checar(r, 'remover a disciplina do apontamento'); return null }
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [checar, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  const salvarComentarioApontamento = useCallback(
+    async (noteId, texto, anexo) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id, note_id: noteId, autor_id: perfil.id, texto,
+        anexo_caminho: anexo?.caminho || null, anexo_nome: anexo?.nome || null,
+      }
+      const salvo = checar(
+        await supabase.from('project_note_comments').insert(linha).select('id').single(),
+        'salvar o comentário',
+      )
+      if (!salvo) return null
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [escopo, perfil.id, checar, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  const apagarComentarioApontamento = useCallback(
+    async (noteId, comentarioId) => {
+      const r = await supabase.from('project_note_comments').delete().eq('id', comentarioId).select('id')
+      if (r.error) { checar(r, 'apagar o comentário'); return null }
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [checar, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  const adicionarAnexoApontamento = useCallback(
+    async (noteId, arquivo) => {
+      const { erro } = await enviarAnexoApontamento({
+        arquivo, organizationId: perfil.organization_id, obraId, noteId, autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [perfil, obraId, avisarErro, relerApontamento, atualizarApontamentoLocal],
+  )
+
+  const removerAnexoApontamento = useCallback(
+    async (noteId, anexo) => {
+      const { erro } = await apagarAnexoApontamento(anexo)
+      if (erro) { avisarErro(erro); return null }
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [avisarErro, relerApontamento, atualizarApontamentoLocal],
+  )
+
   // ── Cadastros auxiliares ──────────────────────────────────
   const salvarCadastro = useCallback(
     async (tipo, item) => {
@@ -1327,6 +1553,10 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia,
+      salvarApontamento, mudarStatusApontamento,
+      salvarDisciplinaApontamento, removerDisciplinaApontamento,
+      salvarComentarioApontamento, apagarComentarioApontamento,
+      adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, vincularContatoWhatsapp,
@@ -1345,6 +1575,10 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia,
+      salvarApontamento, mudarStatusApontamento,
+      salvarDisciplinaApontamento, removerDisciplinaApontamento,
+      salvarComentarioApontamento, apagarComentarioApontamento,
+      adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       vincularContatoWhatsapp,

@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { linksTemporarios, baixarFoto } from '../lib/fotos'
+import { linksTemporariosAnexos } from '../lib/anexos'
 import { transcrever } from '../lib/audio'
 
 /* ── Ícones (SVG na mão, sem biblioteca) ─────────────────── */
@@ -42,6 +43,9 @@ const CAMINHOS = {
   equipamento: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
   microfone: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6.5 10.5v1a5.5 5.5 0 0 0 11 0v-1M12 17.5v3M9 20.5h6',
   parar: 'M6.5 6.5h11v11h-11z',
+  projeto: 'M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
+  anexo: 'M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 5 5L9.41 17.02a1.5 1.5 0 0 1-2.12-2.12l8.49-8.48',
+  comentario: 'M21 11.5a8.4 8.4 0 0 1-8.4 8.4H12a8.3 8.3 0 0 1-3.8-.9L3 21l1.9-5.2a8.3 8.3 0 0 1-.9-3.8A8.4 8.4 0 0 1 12.5 3h.1a8.4 8.4 0 0 1 8.4 8.4z',
 }
 
 export function Icon({ name, size = 20, style }) {
@@ -704,6 +708,85 @@ export function VisorFoto({ foto, fotos, links, onFechar, onIr, extra }) {
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/* Mesmo raciocínio do useLinksDeFotos, mas para o bucket `anexos`
+   (PDF e imagem, sem compressão). */
+export function useLinksDeAnexos(anexos) {
+  const [links, setLinks] = useState({})
+  const pedidos = useRef(new Set())
+  const caminhos = (anexos || []).map((a) => a.caminho).join('|')
+
+  useEffect(() => {
+    const lista = [...new Set((anexos || []).map((a) => a.caminho).filter(Boolean))]
+    const faltando = lista.filter((c) => !pedidos.current.has(c))
+    if (faltando.length === 0) return
+    faltando.forEach((c) => pedidos.current.add(c))
+    linksTemporariosAnexos(faltando).then((novos) => {
+      faltando.forEach((c) => { if (!novos[c]) pedidos.current.delete(c) })
+      setLinks((atual) => ({ ...atual, ...novos }))
+    })
+  }, [caminhos]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return links
+}
+
+/* Lista de anexos (PDF/imagem) + botão de adicionar. Ao contrário de
+   CampoFotos, aqui não existe miniatura de câmera: quem anexa uma
+   prancha ou nota técnica já tem o arquivo pronto no aparelho. */
+export function CampoAnexos({ anexos, links, onAdicionar, onRemover, bloqueado, enviando, rotulo = 'Adicionar anexo' }) {
+  const entrada = useRef(null)
+
+  const escolher = (e) => {
+    const arquivos = [...(e.target.files || [])]
+    e.target.value = ''
+    if (arquivos.length) onAdicionar(arquivos)
+  }
+
+  return (
+    <div>
+      <div className="stack-1">
+        {(anexos || []).map((a) => (
+          <div key={a.id} className="row-between" style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' }}>
+            <a
+              href={links[a.caminho]} target="_blank" rel="noreferrer"
+              className="row-flex" style={{ gap: 8, minWidth: 0, textDecoration: 'none', color: 'inherit' }}
+            >
+              <Icon name="relatorio" size={18} style={{ flex: 'none', color: 'var(--text-2)' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {a.nome_arquivo || 'Anexo'}
+              </span>
+            </a>
+            {!bloqueado && onRemover && (
+              <button
+                onClick={() => onRemover(a)} aria-label="Remover anexo"
+                className="btn btn-ghost btn-sm" style={{ flex: 'none', padding: 4 }}
+              >
+                <Icon name="x" size={16} />
+              </button>
+            )}
+          </div>
+        ))}
+
+        {enviando > 0 && Array.from({ length: enviando }).map((_, i) => (
+          <div key={`enviando-${i}`} className="row-flex t-caption" style={{ gap: 8, padding: '8px 10px' }}>
+            <Icon name="relatorio" size={18} /> enviando…
+          </div>
+        ))}
+      </div>
+
+      {!bloqueado && (
+        <button className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => entrada.current?.click()}>
+          <Icon name="anexo" size={16} /> {rotulo}
+        </button>
+      )}
+
+      <input
+        ref={entrada} type="file" accept="application/pdf,image/*" multiple
+        onChange={escolher} style={{ display: 'none' }}
+      />
     </div>
   )
 }

@@ -138,6 +138,16 @@ export const TIPOS_ADVERTENCIA = ['verbal', 'escrita']
 
 export const ROTULO_ADVERTENCIA = { verbal: 'Verbal', escrita: 'Escrita' }
 
+export const STATUS_APONTAMENTO = ['ativo', 'resolvido', 'reprovado']
+
+export const ROTULO_STATUS_APONTAMENTO = { ativo: 'Ativo', resolvido: 'Resolvido', reprovado: 'Reprovado' }
+
+export const TOM_STATUS_APONTAMENTO = { ativo: 'danger', resolvido: 'success', reprovado: '' }
+
+export const VISIBILIDADE_APONTAMENTO = ['rascunho', 'publicado']
+
+export const ROTULO_VISIBILIDADE_APONTAMENTO = { rascunho: 'Rascunho', publicado: 'Publicado' }
+
 /* ── Pendências ──────────────────────────────────────────────
    "Em aberto" INCLUI as atrasadas. Esta mesma função alimenta a
    tela, o contador do menu e o resumo do início — é isso que
