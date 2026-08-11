@@ -207,6 +207,75 @@ export async function apagarFotoPendencia(foto) {
   return {}
 }
 
+/* ── Fotos de segurança (ocorrência e advertência) ────────────
+   Mesmo mecanismo de novo, generalizado desta vez -- é a terceira
+   variação do mesmo padrão (a quarta, contando as duas aqui), então
+   compensa um helper único em vez de mais um par de funções coladas. */
+async function enviarFotoGenerica({
+  arquivo, organizationId, obraId, tabela, colunaId, idValor, pasta, legenda = null, autorId = null,
+}) {
+  if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
+    return { erro: 'Esta imagem passa de 10 MB. Tente tirar a foto de novo.' }
+  }
+
+  let comprimida
+  try {
+    comprimida = await comprimirImagem(arquivo)
+  } catch (e) {
+    return { erro: e.message }
+  }
+
+  const id = globalThis.crypto?.randomUUID?.() || String(Date.now() + Math.random())
+  const caminho = `${obraId}/${pasta}/${idValor}/${id}.jpg`
+
+  const envio = await supabase.storage
+    .from('fotos')
+    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false })
+  if (envio.error) {
+    return { erro: `Não consegui enviar a foto. ${envio.error.message}` }
+  }
+
+  const registro = await supabase
+    .from(tabela)
+    .insert({
+      organization_id: organizationId,
+      worksite_id: obraId,
+      [colunaId]: idValor,
+      caminho,
+      legenda,
+      largura: comprimida.largura,
+      altura: comprimida.altura,
+      tamanho_bytes: comprimida.blob.size,
+      autor_id: autorId,
+    })
+    .select('*')
+    .single()
+
+  if (registro.error) {
+    await supabase.storage.from('fotos').remove([caminho])
+    return { erro: `Não consegui registrar a foto. ${registro.error.message}` }
+  }
+
+  return { foto: registro.data }
+}
+
+async function apagarFotoGenerica(tabela, foto) {
+  const doBanco = await supabase.from(tabela).delete().eq('id', foto.id)
+  if (doBanco.error) return { erro: `Não consegui apagar a foto. ${doBanco.error.message}` }
+  await supabase.storage.from('fotos').remove([foto.caminho])
+  return {}
+}
+
+export const enviarFotoOcorrencia = (p) => enviarFotoGenerica({
+  ...p, tabela: 'safety_occurrence_photos', colunaId: 'occurrence_id', idValor: p.occurrenceId, pasta: 'seguranca/ocorrencias',
+})
+export const apagarFotoOcorrencia = (foto) => apagarFotoGenerica('safety_occurrence_photos', foto)
+
+export const enviarFotoAdvertencia = (p) => enviarFotoGenerica({
+  ...p, tabela: 'warning_photos', colunaId: 'warning_id', idValor: p.warningId, pasta: 'seguranca/advertencias',
+})
+export const apagarFotoAdvertencia = (foto) => apagarFotoGenerica('warning_photos', foto)
+
 /* ── Exibição ───────────────────────────────────────────────── */
 
 /* O balde é privado, então não existe endereço fixo para a imagem:

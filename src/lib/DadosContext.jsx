@@ -20,7 +20,10 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import { hojeISO } from './dominio'
-import { enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia } from './fotos'
+import {
+  enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
+  enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
+} from './fotos'
 
 const Ctx = createContext(null)
 
@@ -151,8 +154,8 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('reminders').select('*').order('disparar_em'),
       supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false }),
       supabase.from('equipment').select('*').order('nome'),
-      supabase.from('safety_occurrences').select('*').order('data', { ascending: false }),
-      supabase.from('warnings').select('*').order('data', { ascending: false }),
+      supabase.from('safety_occurrences').select('*, fotos:safety_occurrence_photos(*)').order('data', { ascending: false }),
+      supabase.from('warnings').select('*, fotos:warning_photos(*)').order('data', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -194,8 +197,8 @@ export function DadosProvider({ perfil, children }) {
       lembretes: lembretes.data || [],
       contatosWhatsapp: contatosWhatsapp.data || [],
       equipamentos: equipamentos.data || [],
-      ocorrenciasSeguranca: ocorrenciasSeguranca.data || [],
-      advertencias: advertencias.data || [],
+      ocorrenciasSeguranca: (ocorrenciasSeguranca.data || []).map((o) => ({ ...o, fotos: o.fotos || [] })),
+      advertencias: (advertencias.data || []).map((a) => ({ ...a, fotos: a.fotos || [] })),
     })
   }, [perfil.worksite_id, avisarErro])
 
@@ -675,15 +678,46 @@ export function DadosProvider({ perfil, children }) {
         'salvar a ocorrência',
       )
       if (!salva) return null
+      const comFotos = { ...salva, fotos: tudo?.ocorrenciasSeguranca.find((x) => x.id === salva.id)?.fotos || [] }
       setTudo((t) => t && ({
         ...t,
-        ocorrenciasSeguranca: t.ocorrenciasSeguranca.some((x) => x.id === salva.id)
-          ? t.ocorrenciasSeguranca.map((x) => (x.id === salva.id ? salva : x))
-          : [...t.ocorrenciasSeguranca, salva],
+        ocorrenciasSeguranca: t.ocorrenciasSeguranca.some((x) => x.id === comFotos.id)
+          ? t.ocorrenciasSeguranca.map((x) => (x.id === comFotos.id ? comFotos : x))
+          : [...t.ocorrenciasSeguranca, comFotos],
       }))
-      return salva
+      return comFotos
     },
-    [perfil.id, escopo, checar],
+    [perfil.id, escopo, checar, tudo],
+  )
+
+  const adicionarFotoOcorrencia = useCallback(
+    async (occurrenceId, arquivo) => {
+      const { foto, erro } = await enviarFotoOcorrencia({
+        arquivo, organizationId: perfil.organization_id, obraId: obraId, occurrenceId, autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      setTudo((t) => t && ({
+        ...t,
+        ocorrenciasSeguranca: t.ocorrenciasSeguranca.map((o) =>
+          o.id === occurrenceId ? { ...o, fotos: [...(o.fotos || []), foto] } : o),
+      }))
+      return foto
+    },
+    [perfil, obraId, avisarErro],
+  )
+
+  const removerFotoOcorrencia = useCallback(
+    async (foto) => {
+      const { erro } = await apagarFotoOcorrencia(foto)
+      if (erro) { avisarErro(erro); return false }
+      setTudo((t) => t && ({
+        ...t,
+        ocorrenciasSeguranca: t.ocorrenciasSeguranca.map((o) =>
+          o.id === foto.occurrence_id ? { ...o, fotos: (o.fotos || []).filter((f) => f.id !== foto.id) } : o),
+      }))
+      return true
+    },
+    [avisarErro],
   )
 
   const excluirOcorrenciaSeguranca = useCallback(
@@ -719,15 +753,46 @@ export function DadosProvider({ perfil, children }) {
         'salvar a advertência',
       )
       if (!salva) return null
+      const comFotos = { ...salva, fotos: tudo?.advertencias.find((x) => x.id === salva.id)?.fotos || [] }
       setTudo((t) => t && ({
         ...t,
-        advertencias: t.advertencias.some((x) => x.id === salva.id)
-          ? t.advertencias.map((x) => (x.id === salva.id ? salva : x))
-          : [...t.advertencias, salva],
+        advertencias: t.advertencias.some((x) => x.id === comFotos.id)
+          ? t.advertencias.map((x) => (x.id === comFotos.id ? comFotos : x))
+          : [...t.advertencias, comFotos],
       }))
-      return salva
+      return comFotos
     },
-    [perfil.id, escopo, checar],
+    [perfil.id, escopo, checar, tudo],
+  )
+
+  const adicionarFotoAdvertencia = useCallback(
+    async (warningId, arquivo) => {
+      const { foto, erro } = await enviarFotoAdvertencia({
+        arquivo, organizationId: perfil.organization_id, obraId: obraId, warningId, autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      setTudo((t) => t && ({
+        ...t,
+        advertencias: t.advertencias.map((a) =>
+          a.id === warningId ? { ...a, fotos: [...(a.fotos || []), foto] } : a),
+      }))
+      return foto
+    },
+    [perfil, obraId, avisarErro],
+  )
+
+  const removerFotoAdvertencia = useCallback(
+    async (foto) => {
+      const { erro } = await apagarFotoAdvertencia(foto)
+      if (erro) { avisarErro(erro); return false }
+      setTudo((t) => t && ({
+        ...t,
+        advertencias: t.advertencias.map((a) =>
+          a.id === foto.warning_id ? { ...a, fotos: (a.fotos || []).filter((f) => f.id !== foto.id) } : a),
+      }))
+      return true
+    },
+    [avisarErro],
   )
 
   const excluirAdvertencia = useCallback(
@@ -1259,7 +1324,9 @@ export function DadosProvider({ perfil, children }) {
       salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
+      adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
+      adicionarFotoAdvertencia, removerFotoAdvertencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, vincularContatoWhatsapp,
@@ -1275,7 +1342,9 @@ export function DadosProvider({ perfil, children }) {
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
+      adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
+      adicionarFotoAdvertencia, removerFotoAdvertencia,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       vincularContatoWhatsapp,

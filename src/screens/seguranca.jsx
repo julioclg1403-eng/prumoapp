@@ -11,7 +11,7 @@
    Não estava no BRIEFING original; entrou por pedido direto.
    ============================================================ */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData,
@@ -19,7 +19,22 @@ import {
   GRAVIDADES, ROTULO_GRAVIDADE, TOM_GRAVIDADE,
   TIPOS_ADVERTENCIA, ROTULO_ADVERTENCIA,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio } from '../components'
+import {
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio,
+  CampoFotos, VisorFoto, useLinksDeFotos,
+  RelatorioFolha, SecaoRelatorio, FotosRelatorio,
+} from '../components'
+
+/* Uma linha rótulo/valor no aviso impresso. */
+function LinhaRelatorio({ rotulo, valor }) {
+  if (!valor) return null
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{rotulo}</div>
+      <div style={{ fontSize: 14, marginTop: 2, lineHeight: 1.5 }}>{valor}</div>
+    </div>
+  )
+}
 
 export default function Seguranca({ voltar, perfil }) {
   const dados = useDados()
@@ -61,8 +76,20 @@ function Ocorrencias({ dados, perfil }) {
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [enviandoFoto, setEnviandoFoto] = useState(0)
+  const [fotoAberta, setFotoAberta] = useState(null)
+  const [imprimindo, setImprimindo] = useState(null)
 
   const podeExcluir = perfil?.role !== 'campo'
+
+  const links = useLinksDeFotos(editando?.fotos)
+  const linksImprimir = useLinksDeFotos(imprimindo?.fotos)
+
+  useEffect(() => {
+    if (!imprimindo) return
+    const id = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(id)
+  }, [imprimindo])
 
   const lista = useMemo(
     () => [...dados.ocorrenciasSeguranca].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -71,7 +98,7 @@ function Ocorrencias({ dados, perfil }) {
 
   const abrirNova = () => setEditando({
     data: hojeISO(), titulo: '', tipo: 'quase_acidente', gravidade: 'leve',
-    location_id: '', worker_id: '', descricao: '', acao_tomada: '',
+    location_id: '', worker_id: '', descricao: '', acao_tomada: '', fotos: [],
   })
 
   const salvar = async () => {
@@ -87,6 +114,42 @@ function Ocorrencias({ dados, perfil }) {
     })
     setSalvando(false)
     if (ok) setEditando(null)
+  }
+
+  /* Mesma saída do diário e das pendências: sem id no banco ainda,
+     a foto não tem onde se pendurar. Salva primeiro, na hora. */
+  const garantirSalvo = async () => {
+    if (editando.id) return editando
+    if (!editando.titulo?.trim() || !editando.data) return null
+    const salva = await dados.salvarOcorrenciaSeguranca({
+      ...editando,
+      titulo: editando.titulo.trim(),
+      location_id: editando.location_id || null,
+      worker_id: editando.worker_id || null,
+    })
+    if (salva) setEditando(salva)
+    return salva
+  }
+
+  const enviarFotosOcorrencia = async (arquivos) => {
+    setEnviandoFoto((n) => n + arquivos.length)
+    try {
+      const base = await garantirSalvo()
+      if (!base) return
+      const novas = []
+      for (const arquivo of arquivos) {
+        const f = await dados.adicionarFotoOcorrencia(base.id, arquivo)
+        if (f) novas.push(f)
+      }
+      if (novas.length) setEditando((p) => ({ ...p, fotos: [...(p.fotos || []), ...novas] }))
+    } finally {
+      setEnviandoFoto((n) => Math.max(0, n - arquivos.length))
+    }
+  }
+
+  const removerFotoOcorrencia = async (foto) => {
+    const ok = await dados.removerFotoOcorrencia(foto)
+    if (ok) setEditando((p) => ({ ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }))
   }
 
   const pedirExcluir = (item) => {
@@ -132,8 +195,16 @@ function Ocorrencias({ dados, perfil }) {
                       <strong>Ação tomada:</strong> {o.acao_tomada}
                     </div>
                   )}
+                  {o.fotos?.length > 0 && (
+                    <div className="t-caption" style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="camera" size={13} /> {o.fotos.length === 1 ? '1 foto' : `${o.fotos.length} fotos`}
+                    </div>
+                  )}
                 </div>
                 <div className="row-flex" style={{ gap: 2 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setImprimindo(o)} aria-label="Imprimir">
+                    <Icon name="relatorio" size={16} />
+                  </button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setEditando({ ...o })} aria-label="Editar">
                     <Icon name="editar" size={16} />
                   </button>
@@ -235,8 +306,55 @@ function Ocorrencias({ dados, perfil }) {
               placeholder="Ex.: interditada a área, reforçada a sinalização…"
             />
           </Campo>
+          <Campo label="Fotos">
+            <CampoFotos
+              fotos={editando?.fotos || []}
+              links={links}
+              enviando={enviandoFoto}
+              onAdicionar={enviarFotosOcorrencia}
+              onRemover={removerFotoOcorrencia}
+              onAbrir={setFotoAberta}
+            />
+          </Campo>
         </div>
       </Sheet>
+
+      <VisorFoto
+        foto={fotoAberta}
+        fotos={editando?.fotos || []}
+        links={links}
+        onFechar={() => setFotoAberta(null)}
+        onIr={(delta) => {
+          const lista2 = editando?.fotos || []
+          const i = lista2.findIndex((f) => f.id === fotoAberta.id)
+          const prox = lista2[(i + delta + lista2.length) % lista2.length]
+          if (prox) setFotoAberta(prox)
+        }}
+      />
+
+      {imprimindo && (
+        <RelatorioFolha
+          titulo="Ocorrência de segurança"
+          sub={`${ROTULO_OCORRENCIA_SEGURANCA[imprimindo.tipo]} · ${ROTULO_GRAVIDADE[imprimindo.gravidade]}`}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio>
+            <LinhaRelatorio rotulo="O que aconteceu" valor={imprimindo.titulo} />
+            <LinhaRelatorio rotulo="Data" valor={formatarData(imprimindo.data)} />
+            <LinhaRelatorio
+              rotulo="Local"
+              valor={imprimindo.location_id ? dados.nomeDe(dados.locais, imprimindo.location_id) : null}
+            />
+            <LinhaRelatorio
+              rotulo="Colaborador envolvido"
+              valor={imprimindo.worker_id ? dados.nomeDe(dados.colaboradores, imprimindo.worker_id) : null}
+            />
+            <LinhaRelatorio rotulo="Detalhe" valor={imprimindo.descricao} />
+            <LinhaRelatorio rotulo="Ação tomada" valor={imprimindo.acao_tomada} />
+          </SecaoRelatorio>
+          <FotosRelatorio fotos={imprimindo.fotos || []} links={linksImprimir} />
+        </RelatorioFolha>
+      )}
 
       <Confirmar
         aberto={Boolean(confirmar)}
@@ -257,11 +375,23 @@ function Advertencias({ dados, perfil }) {
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [enviandoFoto, setEnviandoFoto] = useState(0)
+  const [fotoAberta, setFotoAberta] = useState(null)
+  const [imprimindo, setImprimindo] = useState(null)
 
   /* Registrar todo mundo pode -- é o campo aplicando na hora. Editar
      ou apagar depois de criada é só a gestão (política do banco);
      esconder aqui evita oferecer um clique que seria recusado. */
   const podeGerenciar = perfil?.role !== 'campo'
+
+  const links = useLinksDeFotos(editando?.fotos)
+  const linksImprimir = useLinksDeFotos(imprimindo?.fotos)
+
+  useEffect(() => {
+    if (!imprimindo) return
+    const id = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(id)
+  }, [imprimindo])
 
   const lista = useMemo(
     () => [...dados.advertencias].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -269,7 +399,7 @@ function Advertencias({ dados, perfil }) {
   )
 
   const abrirNova = () => setEditando({
-    data: hojeISO(), worker_id: '', tipo: 'verbal', motivo: '', descricao: '', aplicada_por: perfil.id,
+    data: hojeISO(), worker_id: '', tipo: 'verbal', motivo: '', descricao: '', aplicada_por: perfil.id, fotos: [],
   })
 
   const salvar = async () => {
@@ -282,6 +412,35 @@ function Advertencias({ dados, perfil }) {
     })
     setSalvando(false)
     if (ok) setEditando(null)
+  }
+
+  const garantirSalvo = async () => {
+    if (editando.id) return editando
+    if (!editando.worker_id || !editando.motivo?.trim() || !editando.data) return null
+    const salva = await dados.salvarAdvertencia({ ...editando, motivo: editando.motivo.trim() })
+    if (salva) setEditando(salva)
+    return salva
+  }
+
+  const enviarFotosAdvertencia = async (arquivos) => {
+    setEnviandoFoto((n) => n + arquivos.length)
+    try {
+      const base = await garantirSalvo()
+      if (!base) return
+      const novas = []
+      for (const arquivo of arquivos) {
+        const f = await dados.adicionarFotoAdvertencia(base.id, arquivo)
+        if (f) novas.push(f)
+      }
+      if (novas.length) setEditando((p) => ({ ...p, fotos: [...(p.fotos || []), ...novas] }))
+    } finally {
+      setEnviandoFoto((n) => Math.max(0, n - arquivos.length))
+    }
+  }
+
+  const removerFotoAdvertencia = async (foto) => {
+    const ok = await dados.removerFotoAdvertencia(foto)
+    if (ok) setEditando((p) => ({ ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }))
   }
 
   const pedirExcluir = (item) => {
@@ -313,10 +472,13 @@ function Advertencias({ dados, perfil }) {
             <ItemLista
               key={a.id}
               titulo={dados.nomeDe(dados.colaboradores, a.worker_id)}
-              sub={`${a.motivo} · ${formatarData(a.data)}`}
+              sub={`${a.motivo} · ${formatarData(a.data)}${a.fotos?.length ? ` · ${a.fotos.length === 1 ? '1 foto' : `${a.fotos.length} fotos`}` : ''}`}
               direita={
                 <div className="row-flex" style={{ gap: 4 }}>
                   <Chip tom={a.tipo === 'escrita' ? 'danger' : ''}>{ROTULO_ADVERTENCIA[a.tipo]}</Chip>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setImprimindo(a)} aria-label="Imprimir">
+                    <Icon name="relatorio" size={16} />
+                  </button>
                   {podeGerenciar && (
                     <>
                       <button className="btn btn-ghost btn-sm" onClick={() => setEditando({ ...a })} aria-label="Editar">
@@ -394,8 +556,56 @@ function Advertencias({ dados, perfil }) {
               placeholder="Contexto adicional, se precisar."
             />
           </Campo>
+          <Campo label="Fotos">
+            <CampoFotos
+              fotos={editando?.fotos || []}
+              links={links}
+              enviando={enviandoFoto}
+              onAdicionar={enviarFotosAdvertencia}
+              onRemover={removerFotoAdvertencia}
+              onAbrir={setFotoAberta}
+            />
+          </Campo>
         </div>
       </Sheet>
+
+      <VisorFoto
+        foto={fotoAberta}
+        fotos={editando?.fotos || []}
+        links={links}
+        onFechar={() => setFotoAberta(null)}
+        onIr={(delta) => {
+          const lista2 = editando?.fotos || []
+          const i = lista2.findIndex((f) => f.id === fotoAberta.id)
+          const prox = lista2[(i + delta + lista2.length) % lista2.length]
+          if (prox) setFotoAberta(prox)
+        }}
+      />
+
+      {imprimindo && (
+        <RelatorioFolha
+          titulo="Advertência"
+          sub={ROTULO_ADVERTENCIA[imprimindo.tipo]}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio>
+            <LinhaRelatorio rotulo="Colaborador" valor={dados.nomeDe(dados.colaboradores, imprimindo.worker_id)} />
+            <LinhaRelatorio rotulo="Data" valor={formatarData(imprimindo.data)} />
+            <LinhaRelatorio rotulo="Tipo" valor={ROTULO_ADVERTENCIA[imprimindo.tipo]} />
+            <LinhaRelatorio rotulo="Motivo" valor={imprimindo.motivo} />
+            <LinhaRelatorio rotulo="Detalhe" valor={imprimindo.descricao} />
+            <LinhaRelatorio rotulo="Aplicada por" valor={dados.nomeDe(dados.perfis, imprimindo.aplicada_por)} />
+          </SecaoRelatorio>
+          <FotosRelatorio fotos={imprimindo.fotos || []} links={linksImprimir} />
+          <div style={{ marginTop: 36, fontSize: 12, lineHeight: 1.6 }}>
+            Declaro estar ciente do teor desta advertência.
+            <div style={{ display: 'flex', gap: 40, marginTop: 34 }}>
+              <div style={{ flex: 1, borderTop: '1px solid #18181B', paddingTop: 4 }}>Assinatura do colaborador</div>
+              <div style={{ width: 140, borderTop: '1px solid #18181B', paddingTop: 4 }}>Data</div>
+            </div>
+          </div>
+        </RelatorioFolha>
+      )}
 
       <Confirmar
         aberto={Boolean(confirmar)}
