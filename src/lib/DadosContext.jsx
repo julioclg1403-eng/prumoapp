@@ -203,10 +203,16 @@ export function DadosProvider({ perfil, children }) {
     const obras = (obra.data || []).filter((o) => o.ativo !== false)
 
     /* Escolhe a obra: a última que a pessoa usou, senão a do
-       cadastro dela, senão a primeira. */
+       cadastro dela, senão a primeira — sempre dentro do que foi
+       liberado pra ela. Sem este recorte aqui, uma obra guardada no
+       localStorage de antes de ser restringida ficaria presa (nem
+       aparece na lista pra trocar, nem desmarca sozinha). */
+    const permitidas = (perfil.role === 'admin' || !perfil.obras_permitidas)
+      ? obras
+      : obras.filter((o) => perfil.obras_permitidas.includes(o.id))
     setObraId((atual) => {
-      if (atual && obras.some((o) => o.id === atual)) return atual
-      return obras.find((o) => o.id === perfil.worksite_id)?.id || obras[0]?.id || null
+      if (atual && permitidas.some((o) => o.id === atual)) return atual
+      return permitidas.find((o) => o.id === perfil.worksite_id)?.id || permitidas[0]?.id || null
     })
 
     setTudo({
@@ -237,7 +243,7 @@ export function DadosProvider({ perfil, children }) {
       statusDisciplinaProjeto: statusDisciplinaProjeto.data || [],
       apontamentos: (apontamentos.data || []).map(normalizarApontamento),
     })
-  }, [perfil.worksite_id, avisarErro])
+  }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
   useEffect(() => { recarregar() }, [recarregar])
 
@@ -311,6 +317,14 @@ export function DadosProvider({ perfil, children }) {
     setObraId(id)
     try { localStorage.setItem(OBRA_LEMBRADA, id) } catch { /* navegador sem storage */ }
   }, [])
+
+  /* A lista que o seletor de obra oferece. Admin e quem não tem
+     restrição veem todas; o resto só o que foi liberado em Usuários. */
+  const obrasPermitidas = useMemo(() => {
+    if (!tudo) return []
+    if (perfil.role === 'admin' || !perfil.obras_permitidas) return tudo.obras
+    return tudo.obras.filter((o) => perfil.obras_permitidas.includes(o.id))
+  }, [tudo, perfil.role, perfil.obras_permitidas])
 
   // ── Diário ────────────────────────────────────────────────
   /* Salva o diário inteiro: cabeçalho, presenças, frentes, quem
@@ -1546,11 +1560,26 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* `lista === null` = sem restrição, vê todas as obras. */
+  const definirObrasPermitidas = useCallback(
+    async (usuarioId, lista) => {
+      const atualizado = checar(
+        await supabase.from('profiles').update({ obras_permitidas: lista }).eq('id', usuarioId).select('*').single(),
+        'alterar as obras liberadas',
+      )
+      if (!atualizado) return
+      setTudo((t) => t && ({
+        ...t, perfis: t.perfis.map((p) => (p.id === usuarioId ? atualizado : p)),
+      }))
+    },
+    [checar],
+  )
+
   const valor = useMemo(
     () => tudo && daObra && ({
       fonte: 'supabase',
       org: tudo.org,
-      obras: tudo.obras,
+      obras: obrasPermitidas,
       perfis: tudo.perfis,
       materiais: tudo.materiais,
       contatosWhatsapp: tudo.contatosWhatsapp,
@@ -1575,13 +1604,13 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
-      definirPapel, definirModulosPermitidos, vincularContatoWhatsapp,
+      definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
       salvarLembrete, alternarLembrete, removerLembrete,
     }),
     [
-      tudo, daObra, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
+      tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
@@ -1597,7 +1626,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
-      definirModulosPermitidos, vincularContatoWhatsapp,
+      definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,

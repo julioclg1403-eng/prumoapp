@@ -76,6 +76,24 @@ export default function Usuarios({ voltar, perfil }) {
     setOcupado(false)
   }
 
+  const alternarRestricaoObra = async (u) => {
+    setOcupado(true)
+    if (u.obras_permitidas == null) {
+      await dados.definirObrasPermitidas(u.id, dados.obras.map((o) => o.id))
+    } else {
+      await dados.definirObrasPermitidas(u.id, null)
+    }
+    setOcupado(false)
+  }
+
+  const alternarObra = async (u, obraId) => {
+    const atual = u.obras_permitidas || []
+    const novo = atual.includes(obraId) ? atual.filter((c) => c !== obraId) : [...atual, obraId]
+    setOcupado(true)
+    await dados.definirObrasPermitidas(u.id, novo)
+    setOcupado(false)
+  }
+
   return (
     <>
       <div className="topbar">
@@ -186,6 +204,30 @@ export default function Usuarios({ voltar, perfil }) {
                               onClick={() => alternarModulo(u, m.chave)}
                             >
                               {m.rotulo}
+                            </ChipToggle>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="row-between" style={{ margin: '14px 0 8px' }}>
+                        <span className="t-caption">Obras</span>
+                        <button
+                          className="btn btn-ghost btn-sm" onClick={() => alternarRestricaoObra(u)} disabled={ocupado}
+                        >
+                          {u.obras_permitidas == null ? 'Restringir acesso' : 'Liberar tudo'}
+                        </button>
+                      </div>
+                      {u.obras_permitidas == null ? (
+                        <div className="t-caption">Vê todas as obras.</div>
+                      ) : (
+                        <div className="row-wrap">
+                          {dados.obras.map((o) => (
+                            <ChipToggle
+                              key={o.id}
+                              ativo={u.obras_permitidas.includes(o.id)}
+                              onClick={() => alternarObra(u, o.id)}
+                            >
+                              {o.nome}
                             </ChipToggle>
                           ))}
                         </div>
