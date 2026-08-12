@@ -643,16 +643,27 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
 /* ── Escolha de serviço, local e empresa ─────────────────── */
 
 function SelecaoServicoLocal({ valor, onMudar, dados }) {
+  const temEtapa = (servicoId) => dados.servicosCronograma.some((v) => v.service_id === servicoId)
+
   return (
     <>
-      <Campo label="Serviço">
+      <Campo
+        label="Serviço"
+        dica={
+          valor?.service_id && !temEtapa(valor.service_id)
+            ? 'Este serviço ainda não está ligado a nenhuma etapa do cronograma — o avanço dele não entra na curva física. Ligue em Cadastros → Serviços.'
+            : undefined
+        }
+      >
         <select
           className="sel" value={valor?.service_id || ''}
           onChange={(e) => onMudar((p) => ({ ...p, service_id: e.target.value }))}
         >
           <option value="">Escolha o serviço</option>
           {dados.servicos.filter((s) => s.ativo !== false).map((s) => (
-            <option key={s.id} value={s.id}>{s.nome}</option>
+            <option key={s.id} value={s.id}>
+              {s.nome}{temEtapa(s.id) ? '' : '  ·  sem etapa no cronograma'}
+            </option>
           ))}
         </select>
       </Campo>
@@ -718,7 +729,9 @@ function ColunaDoDia({ data, hoje, desktop, itens, dados, podeEditar, onNova, on
         <div style={{ fontSize: 11, color: 'var(--text-3)', padding: '6px 0' }}>—</div>
       ) : (
         <div className="stack-1">
-          {itens.map(({ planejada, situacao }) => (
+          {itens.map(({ planejada, situacao }) => {
+            const semCronograma = !dados.servicosCronograma.some((v) => v.service_id === planejada.service_id)
+            return (
             <div
               key={planejada.id}
               style={{
@@ -742,8 +755,15 @@ function ColunaDoDia({ data, hoje, desktop, itens, dados, podeEditar, onNova, on
                 </div>
               )}
 
-              <div style={{ marginTop: 6 }}>
+              <div className="row-wrap" style={{ marginTop: 6, gap: 4 }}>
                 <Chip tom={situacao.tom}>{situacao.rotulo}</Chip>
+                {semCronograma && (
+                  <span title="Este serviço não está ligado a nenhuma etapa do cronograma">
+                    <Chip tom="danger">
+                      <Icon name="alerta" size={11} /> Sem cronograma
+                    </Chip>
+                  </span>
+                )}
               </div>
 
               <div className="row-flex" style={{ gap: 2, marginTop: 6, flexWrap: 'wrap' }}>
@@ -771,7 +791,8 @@ function ColunaDoDia({ data, hoje, desktop, itens, dados, podeEditar, onNova, on
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
