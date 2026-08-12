@@ -211,6 +211,11 @@ html, body, #root {
 .empty { text-align: center; padding: 40px 20px; color: var(--text-3); }
 .empty .t { color: var(--text-2); font-weight: 600; margin-bottom: 4px; }
 
+/* ── Calendário de diários ── */
+.calendario-dia-semana-longo { display: none; }
+.app[data-desktop="1"] .calendario-dia-semana-curto { display: none; }
+.app[data-desktop="1"] .calendario-dia-semana-longo { display: inline; }
+
 /* ── Relatório para impressão ─────────────────────────────────
    Cada tela carrega sua própria folha de relatório, escondida na
    tela e populada com os MESMOS dados que já estão filtrados ali —
