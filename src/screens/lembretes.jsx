@@ -44,6 +44,7 @@ export default function Lembretes({ perfil }) {
   const cont = useMemo(() => ({
     pendentes: meus.filter((l) => l.status === 'pendente').length,
     atrasados: meus.filter((l) => situacaoLembrete(l, agora).chave === 'atrasado').length,
+    concluidos: meus.filter((l) => l.status === 'concluido').length,
     cancelados: meus.filter((l) => l.status === 'cancelado').length,
     total: meus.length,
   }), [meus]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -98,6 +99,7 @@ export default function Lembretes({ perfil }) {
             opcoes={[
               { valor: 'pendentes', rotulo: 'Pendentes', contador: cont.pendentes },
               { valor: 'atrasados', rotulo: 'Atrasados', contador: cont.atrasados },
+              { valor: 'concluidos', rotulo: 'Concluídos', contador: cont.concluidos },
               { valor: 'cancelados', rotulo: 'Cancelados', contador: cont.cancelados },
               { valor: 'todos', rotulo: 'Todos', contador: cont.total },
             ]}
@@ -143,12 +145,28 @@ export default function Lembretes({ perfil }) {
                         </button>
                       </div>
                     </div>
-                    {(l.status === 'pendente' || l.status === 'cancelado') && (
+                    {(l.status === 'pendente' || s.chave === 'atrasado') && (
+                      <div className="row-flex" style={{ marginTop: 8, gap: 8 }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => dados.mudarStatusLembrete(l.id, 'concluido')}
+                        >
+                          <Icon name="check" size={14} /> Concluir
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => dados.mudarStatusLembrete(l.id, 'cancelado')}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
+                    {(l.status === 'concluido' || l.status === 'cancelado') && (
                       <button
                         className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
-                        onClick={() => dados.alternarLembrete(l.id)}
+                        onClick={() => dados.mudarStatusLembrete(l.id, 'pendente')}
                       >
-                        {l.status === 'pendente' ? 'Cancelar' : 'Reativar'}
+                        Reabrir
                       </button>
                     )}
                   </div>

@@ -73,12 +73,17 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Máquinas e ferramentas, e onde cada uma está' },
     { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
       desc: 'Ocorrências e advertências da obra' },
-    { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
-      desc: 'Apontamentos entre projeto e obra, por disciplina' },
     { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
       desc: 'Empresas, colaboradores, locais e serviços' },
+    /* Projetos e Usuários são admin-only por natureza, não por essa
+       lista de módulos restringíveis — o banco também exige admin
+       pra ler/gravar o que é de Projetos. */
     ...(perfil.role === 'admin'
-      ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' }]
+      ? [
+        { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
+          desc: 'Apontamentos entre projeto e obra, por disciplina' },
+        { chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' },
+      ]
       : []),
   ].filter((i) => (
     /* "Início" e "Usuários" nunca são restringíveis por essa lista —
@@ -108,9 +113,16 @@ export default function AppGestao({ perfil, onSair }) {
      do módulo que as abre. */
   const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes' }
   const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
+  /* Usuários e Projetos são admin-only de verdade (o banco também
+     exige admin pra Projetos) — não passam pela lista de módulos
+     restringíveis, viram "sim" só pra quem é admin. */
+  const ADMIN_ONLY = ['usuarios', 'projetos']
   const semRestricao = perfil.role === 'admin' || !perfil.modulos_permitidos
-  const permitido = ['inicio', 'mais', 'usuarios'].includes(chaveDoModulo)
-    || semRestricao || perfil.modulos_permitidos.includes(chaveDoModulo)
+  const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || (
+    ADMIN_ONLY.includes(chaveDoModulo)
+      ? perfil.role === 'admin'
+      : semRestricao || perfil.modulos_permitidos.includes(chaveDoModulo)
+  )
 
   let corpo
   if (!permitido) {

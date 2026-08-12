@@ -63,6 +63,7 @@ const TIPOS = {
     rotulo: 'Disciplinas',
     singular: 'disciplina',
     feminino: true,
+    soAdmin: true,
     campos: [
       { nome: 'sigla', rotulo: 'Sigla', placeholder: 'EST' },
       { nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Estrutura' },
@@ -73,6 +74,7 @@ const TIPOS = {
     rotulo: 'Categorias de apontamento',
     singular: 'categoria',
     feminino: true,
+    soAdmin: true,
     campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Decisões da obra' }],
     sub: () => 'Usada nos apontamentos de Projetos',
   },
@@ -80,12 +82,14 @@ const TIPOS = {
     rotulo: 'Etapas de projeto',
     singular: 'etapa',
     feminino: true,
+    soAdmin: true,
     campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Projeto executivo' }],
     sub: () => 'Fase em que o apontamento nasceu',
   },
   statusDisciplinaProjeto: {
     rotulo: 'Status das disciplinas',
     singular: 'status',
+    soAdmin: true,
     campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Aguardando resposta' }],
     sub: () => 'Andamento de cada disciplina dentro do apontamento',
   },
@@ -93,7 +97,14 @@ const TIPOS = {
 
 export default function Cadastros({ voltar, perfil, params = {} }) {
   const dados = useDados()
-  const [tipo, setTipo] = useState(params.tipo && TIPOS[params.tipo] ? params.tipo : 'empresas')
+  /* Os cadastros de Projetos (soAdmin) só aparecem pra quem é admin —
+     módulo admin-only, o banco também recusa a leitura pros outros. */
+  const TIPOS_VISIVEIS = Object.fromEntries(
+    Object.entries(TIPOS).filter(([, d]) => !d.soAdmin || perfil?.role === 'admin'),
+  )
+  const [tipo, setTipo] = useState(
+    params.tipo && TIPOS_VISIVEIS[params.tipo] ? params.tipo : 'empresas',
+  )
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
@@ -168,7 +179,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           <Segmentos
             valor={tipo}
             onChange={(t) => { setTipo(t); setMostrarArquivados(false) }}
-            opcoes={Object.entries(TIPOS).map(([chave, d]) => ({
+            opcoes={Object.entries(TIPOS_VISIVEIS).map(([chave, d]) => ({
               valor: chave, rotulo: d.rotulo,
               contador: (dados[chave] || []).filter((x) => x.ativo !== false).length,
             }))}

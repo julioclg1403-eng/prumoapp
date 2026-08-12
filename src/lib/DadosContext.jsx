@@ -1049,6 +1049,24 @@ export function DadosProvider({ perfil, children }) {
     [avisarErro, relerApontamento, atualizarApontamentoLocal],
   )
 
+  /* Apagar de verdade, ao contrário do resto do app — diferente de
+     pendência/ocorrência, apontamento de projeto não tem histórico
+     de terceiros (projetista) pendurado nele que precise sobreviver
+     ao registro em si. */
+  const excluirApontamento = useCallback(
+    async (id) => {
+      const r = await supabase.from('project_notes').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir o apontamento'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Peça a um admin.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, apontamentos: t.apontamentos.filter((x) => x.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   // ── Cadastros auxiliares ──────────────────────────────────
   const salvarCadastro = useCallback(
     async (tipo, item) => {
@@ -1305,11 +1323,10 @@ export function DadosProvider({ perfil, children }) {
     [perfil.id, escopo, checar],
   )
 
-  const alternarLembrete = useCallback(
-    async (id) => {
+  const mudarStatusLembrete = useCallback(
+    async (id, novoStatus) => {
       const atual = tudo?.lembretes.find((l) => l.id === id)
       if (!atual) return
-      const novoStatus = atual.status === 'cancelado' ? 'pendente' : 'cancelado'
 
       setTudo((t) => t && ({
         ...t, lembretes: t.lembretes.map((l) => (l.id === id ? { ...l, status: novoStatus } : l)),
@@ -1598,7 +1615,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia,
-      salvarApontamento, mudarStatusApontamento,
+      salvarApontamento, mudarStatusApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
@@ -1607,7 +1624,7 @@ export function DadosProvider({ perfil, children }) {
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
-      salvarLembrete, alternarLembrete, removerLembrete,
+      salvarLembrete, mudarStatusLembrete, removerLembrete,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -1620,7 +1637,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia,
-      salvarApontamento, mudarStatusApontamento,
+      salvarApontamento, mudarStatusApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
@@ -1631,7 +1648,7 @@ export function DadosProvider({ perfil, children }) {
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma,
-      salvarLembrete, alternarLembrete, removerLembrete,
+      salvarLembrete, mudarStatusLembrete, removerLembrete,
     ],
   )
 

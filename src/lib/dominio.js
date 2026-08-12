@@ -230,9 +230,10 @@ export function pendenciasTaticas(lista) {
    ele configurado, um lembrete "pendente" não avisa ninguém sozinho
    -- é só uma lista, não uma notificação. */
 
-export const STATUS_LEMBRETE = ['pendente', 'enviado', 'cancelado']
+export const STATUS_LEMBRETE = ['pendente', 'enviado', 'concluido', 'cancelado']
 
 export function situacaoLembrete(l, agora = new Date()) {
+  if (l.status === 'concluido') return { chave: 'concluido', rotulo: 'Concluído', tom: 'success' }
   if (l.status === 'cancelado') return { chave: 'cancelado', rotulo: 'Cancelado', tom: '' }
   if (l.status === 'enviado') return { chave: 'enviado', rotulo: 'Enviado', tom: 'success' }
   const disparo = new Date(l.disparar_em)
@@ -247,6 +248,7 @@ export function filtrarLembretes(lista, filtro, agora = new Date()) {
   if (filtro === 'atrasados') {
     return lista.filter((l) => situacaoLembrete(l, agora).chave === 'atrasado')
   }
+  if (filtro === 'concluidos') return lista.filter((l) => l.status === 'concluido')
   if (filtro === 'cancelados') return lista.filter((l) => l.status === 'cancelado')
   return lista
 }

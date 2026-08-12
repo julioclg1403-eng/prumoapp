@@ -4,9 +4,9 @@
    apontamento carrega disciplinas com status/prazo próprios,
    comentários, anexos e um histórico de troca de status.
 
-   Módulo de gestão/admin — não entra na navegação do campo,
-   mesmo padrão de Equipamentos e Segurança. O banco reforça isso:
-   criar/editar exige private.eh_gestao().
+   Módulo admin-only — não entra na navegação de gestão nem campo.
+   O banco reforça isso: ler/gravar qualquer coisa aqui exige
+   private.eh_admin().
    ============================================================ */
 
 import { useState, useMemo } from 'react'
@@ -101,6 +101,19 @@ export default function Projetos({ goto, voltar, perfil }) {
       return
     }
     dados.mudarStatusApontamento(editando.id, novoStatus).then((fresco) => { if (fresco) setEditando(fresco) })
+  }
+
+  const pedirExcluir = () => {
+    setConfirmar({
+      titulo: 'Excluir apontamento?',
+      texto: `«${editando.titulo}» some da lista, com disciplinas, comentários, anexos e histórico. Isso não tem volta.`,
+      rotuloOk: 'Excluir', perigo: true,
+      onOk: async () => {
+        setConfirmar(null)
+        const ok = await dados.excluirApontamento(editando.id)
+        if (ok) setEditando(null)
+      },
+    })
   }
 
   return (
@@ -238,6 +251,9 @@ export default function Projetos({ goto, voltar, perfil }) {
                 ) : (
                   <button className="btn btn-secondary btn-sm" onClick={() => mudarStatus('ativo')}>Reabrir</button>
                 )}
+                <button className="btn btn-ghost btn-sm" onClick={pedirExcluir} aria-label="Excluir apontamento">
+                  <Icon name="x" size={14} /> Excluir
+                </button>
               </div>
             )}
 
@@ -270,6 +286,7 @@ export default function Projetos({ goto, voltar, perfil }) {
         titulo={confirmar?.titulo}
         texto={confirmar?.texto}
         rotuloOk={confirmar?.rotuloOk}
+        perigo={confirmar?.perigo}
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
