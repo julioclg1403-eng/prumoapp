@@ -19,7 +19,7 @@
 
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { hojeISO } from './dominio'
+import { hojeISO, servicoCorrespondeEtapa } from './dominio'
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
@@ -1357,6 +1357,53 @@ export function DadosProvider({ perfil, children }) {
     [tudo, escopo, checar],
   )
 
+  /* Liga em lote, casando pelo nome (dominio.servicoCorrespondeEtapa)
+     — pra não obrigar o Julio a clicar par a par nas dezenas de
+     etapas que o PDF do cronograma já importa de uma vez. Roda tanto
+     sob pedido (botão em Cronograma) quanto sozinha, logo depois de
+     um import de PDF (cronograma ou planejamento), pra ficar
+     sincronizado sem passo manual nenhum daí pra frente. Só CRIA
+     vínculo que falta; nunca desfaz o que já existe. */
+  const vincularServicosAutomaticamente = useCallback(
+    async () => {
+      /* Busca direto no banco, não do estado local (`tudo`) — chamada
+         logo depois de um import, o React ainda não re-renderizou com
+         as etapas/serviços que acabaram de entrar. Ler do banco de
+         novo é a forma simples de nunca correr atrás de dado velho. */
+      const { organization_id, worksite_id } = escopo()
+      const [etapasR, servicosR, vinculosR] = await Promise.all([
+        supabase.from('schedule_items').select('id, descricao').eq('worksite_id', worksite_id),
+        supabase.from('services').select('id, nome').eq('worksite_id', worksite_id).neq('ativo', false),
+        supabase.from('schedule_item_services').select('schedule_item_id, service_id').eq('worksite_id', worksite_id),
+      ])
+      const falhou = [etapasR, servicosR, vinculosR].find((r) => r.error)
+      if (falhou) { checar(falhou, 'vincular serviços automaticamente'); return [] }
+
+      const existentes = new Set(
+        (vinculosR.data || []).map((v) => `${v.schedule_item_id}:${v.service_id}`),
+      )
+      const novos = []
+      ;(etapasR.data || []).forEach((etapa) => {
+        ;(servicosR.data || []).forEach((servico) => {
+          const chave = `${etapa.id}:${servico.id}`
+          if (!existentes.has(chave) && servicoCorrespondeEtapa(servico.nome, etapa.descricao)) {
+            existentes.add(chave) // evita duplicar se dois "servicos" quase iguais casarem os dois
+            novos.push({ organization_id, worksite_id, schedule_item_id: etapa.id, service_id: servico.id })
+          }
+        })
+      })
+      if (!novos.length) return []
+      const inseridos = checar(
+        await supabase.from('schedule_item_services').insert(novos).select('*'),
+        'vincular serviços automaticamente',
+      )
+      if (!inseridos) return []
+      setTudo((t) => t && ({ ...t, servicosCronograma: [...t.servicosCronograma, ...inseridos] }))
+      return inseridos
+    },
+    [escopo, checar],
+  )
+
   // ── Lembretes ──────────────────────────────────────────────
   /* Sempre para quem cria (BRIEFING seção 6: "sem recorrência na v1",
      e aqui sem terceiro também — o mesmo recorte que a Edge Function
@@ -1693,6 +1740,7 @@ export function DadosProvider({ perfil, children }) {
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
+      vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
     }),
     [
@@ -1717,6 +1765,7 @@ export function DadosProvider({ perfil, children }) {
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
+      vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
     ],
   )

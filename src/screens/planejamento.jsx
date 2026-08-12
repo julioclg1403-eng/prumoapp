@@ -539,6 +539,12 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
       }
 
       const salvos = itensParaCriar.length ? await dados.salvarPlanejadosEmLote(itensParaCriar) : []
+
+      /* Serviço novo pode já ter etapa esperando por ele no cronograma
+         (o PDF de cronograma costuma entrar primeiro) — casa pelo nome
+         agora, sem exigir que alguém abra Cadastros pra ligar na mão. */
+      if (servicosNovos.length) await dados.vincularServicosAutomaticamente()
+
       setFeito({
         criados: salvos?.length || 0,
         jaExistiam: totalDiasNovos - (salvos?.length || 0),

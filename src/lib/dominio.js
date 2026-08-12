@@ -715,6 +715,26 @@ export function diasRealizadosEtapa(etapaId, vinculos, planejamento, diarios) {
   return [...dias].sort()
 }
 
+/* O PDF operacional do Julio nomeia a etapa como "Serviço - Local -
+   Sublocal" (ex.: "PINTURA FINAL - BLOCO VENDAS - DECORADO"), e o
+   nome do serviço no Planejamento é só a primeira parte ("PINTURA
+   FINAL"). É esse padrão que deixa ligar etapa a serviço sem digitar
+   nada: casa se a etapa começar pelo nome do serviço seguido de
+   espaço ou hífen (não deixa "Reboco" casar com "Reboco externo e
+   fachada" por acaso — precisa ser a etapa inteira, não uma palavra
+   solta dentro dela). */
+function normalizarParaCasar(s) {
+  return String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
+}
+
+export function servicoCorrespondeEtapa(servicoNome, etapaDescricao) {
+  const s = normalizarParaCasar(servicoNome)
+  const e = normalizarParaCasar(etapaDescricao)
+  if (!s || !e) return false
+  if (e === s) return true
+  return e.startsWith(s) && /^[\s-]/.test(e.slice(s.length))
+}
+
 /* Aceita tanto "31/12/2026" (o formato que sai do Excel em
    português) quanto "2026-12-31". Devolve null se não entender —
    quem chama decide o que fazer com uma linha ruim, não esta função. */

@@ -38,6 +38,8 @@ export default function Cronograma({ perfil, goto }) {
   const [salvando, setSalvando] = useState(false)
   const [verCalendario, setVerCalendario] = useState(null)
   const [mesCalendario, setMesCalendario] = useState(hoje.slice(0, 7))
+  const [vinculando, setVinculando] = useState(false)
+  const [resultadoVinculo, setResultadoVinculo] = useState('')
 
   const itens = useMemo(() => ordenarCronograma(dados.cronograma), [dados.cronograma])
   const curva = useMemo(() => curvaFisica(itens, hoje), [itens, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -65,6 +67,21 @@ export default function Cronograma({ perfil, goto }) {
   }
 
   const abrirCalendario = (item) => { setVerCalendario(item); setMesCalendario(hoje.slice(0, 7)) }
+
+  /* Casa pelo nome (dominio.servicoCorrespondeEtapa) em vez de pedir
+     pra ligar par a par — com dezenas de etapas vindas do PDF, clicar
+     uma a uma tomaria o tempo que essa automação existe pra economizar. */
+  const vincularAutomaticamente = async () => {
+    setVinculando(true)
+    const criados = await dados.vincularServicosAutomaticamente()
+    setVinculando(false)
+    setResultadoVinculo(
+      criados.length
+        ? `${plural(criados.length, 'vínculo criado', 'vínculos criados')} automaticamente, pelo nome da etapa.`
+        : 'Nenhum vínculo novo — o que casava pelo nome já estava ligado.',
+    )
+    setTimeout(() => setResultadoVinculo(''), 6000)
+  }
 
   const salvarMedicao = async () => {
     if (!medindo) return
@@ -97,6 +114,11 @@ export default function Cronograma({ perfil, goto }) {
           acao={
             <div className="row-flex" style={{ flexWrap: 'wrap' }}>
               {!faltaItens && <BotaoRelatorio />}
+              {podeEditar && !faltaItens && (
+                <button className="btn btn-secondary" onClick={vincularAutomaticamente} disabled={vinculando}>
+                  <Icon name="obra" size={16} /> {vinculando ? 'Vinculando…' : 'Vincular serviços'}
+                </button>
+              )}
               {podeEditar && (
                 <>
                   <button className="btn btn-secondary" onClick={() => setImportando(true)}>
@@ -110,6 +132,8 @@ export default function Cronograma({ perfil, goto }) {
             </div>
           }
         />
+
+        {resultadoVinculo && <div className="alert success">{resultadoVinculo}</div>}
 
         {!podeEditar && (
           <div className="alert info">
@@ -579,6 +603,7 @@ function ImportarCronograma({ aberto, onFechar }) {
     const ok = modo === 'pdf'
       ? await dados.importarCronogramaPDF(validos)
       : await dados.importarCronograma(validos)
+    if (ok) await dados.vincularServicosAutomaticamente()
     setImportando(false)
     if (ok) fechar()
   }
