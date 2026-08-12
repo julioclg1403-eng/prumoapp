@@ -302,6 +302,19 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             </Campo>
           ))}
 
+          {def.statusPessoa && (
+            <Campo label="Situação" dica="Inativo some das listas de escolha (diário, planejamento…), mas o histórico dele continua intacto.">
+              <Segmentos
+                valor={editando?.ativo === false ? 'inativo' : 'ativo'}
+                onChange={(v) => setEditando((x) => ({ ...x, ativo: v !== 'inativo' }))}
+                opcoes={[
+                  { valor: 'ativo', rotulo: 'Ativo' },
+                  { valor: 'inativo', rotulo: 'Inativo' },
+                ]}
+              />
+            </Campo>
+          )}
+
           {tipo === 'servicos' && (
             <Campo
               label="Etapas do cronograma"
