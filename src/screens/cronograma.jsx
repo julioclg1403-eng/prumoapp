@@ -172,7 +172,7 @@ export default function Cronograma({ perfil, goto }) {
             {itens.map((item) => (
               <ItemCronograma
                 key={item.id} item={item} hoje={hoje} podeEditar={podeEditar}
-                diasReais={diasRealizadosEtapa(item.id, dados.servicosCronograma, dados.planejamento, dados.diarios)}
+                diasReais={diasRealizadosEtapa(item, dados.servicosCronograma, dados.planejamento, dados.diarios, dados.locais)}
                 servicosLigados={dados.servicosCronograma.filter((v) => v.schedule_item_id === item.id)}
                 servicos={dados.servicos}
                 onEditar={() => abrirEdicao(item)}
@@ -320,7 +320,7 @@ export default function Cronograma({ perfil, goto }) {
       {/* ── Dias realizados ── */}
       <Sheet aberto={Boolean(verCalendario)} titulo={verCalendario?.descricao || ''} onFechar={() => setVerCalendario(null)}>
         {verCalendario && (() => {
-          const diasRealizados = diasRealizadosEtapa(verCalendario.id, dados.servicosCronograma, dados.planejamento, dados.diarios)
+          const diasRealizados = diasRealizadosEtapa(verCalendario, dados.servicosCronograma, dados.planejamento, dados.diarios, dados.locais)
           const diasSemDiario = new Set(diasSemDiarioEtapa(verCalendario, dados.diarios, hoje))
           return (
             <div className="stack-2">

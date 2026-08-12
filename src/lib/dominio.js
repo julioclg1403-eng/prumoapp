@@ -688,20 +688,50 @@ export function pontosDaCurvaS(itens, hoje = hojeISO(), maxPontos = 24) {
   return { pontos, hoje: curvaFisica(comData, hoje).percentualReal, inicio, fim }
 }
 
+/* A parte depois do nome-base é o local ("Serviço - Local -
+   Sublocal"), sem o hífen que separa e sem o ponto final que o PDF
+   às vezes deixa em siglas ("GERAL."). É contra isso que a etapa
+   casa com o cadastro de Locais, pra distinguir duas etapas do MESMO
+   serviço em locais diferentes (ex.: "CALÇADA E CIRCULAÇÃO" na
+   Frente Adm e no Pátio Central). */
+export function localDaEtapa(etapaDescricao) {
+  const base = nomeBaseDaEtapa(etapaDescricao)
+  return String(etapaDescricao || '').slice(base.length).replace(/^[\s-]+/, '').replace(/[.\s]+$/, '')
+}
+
 /* A etapa do cronograma não lança diário sozinha — ela empresta os
    dias de execução dos serviços do Planejamento que o Julio ligar a
    ela (schedule_item_services). Um dia "realizado" é um dia em que
    ALGUM serviço ligado teve status diferente de "não iniciada" no
    diário daquela data. Sem vínculo cadastrado, devolve lista vazia
-   — não confunde "sem dado" com "não fez nada". */
-export function diasRealizadosEtapa(etapaId, vinculos, planejamento, diarios) {
+   — não confunde "sem dado" com "não fez nada".
+
+   Um serviço pode estar ligado a várias etapas do MESMO nome em
+   locais diferentes (ex.: "CALÇADA E CIRCULAÇÃO" repete em três
+   frentes) — sem checar o local, a etapa da Frente Adm acendia como
+   "realizada" só porque a do Pátio Central rodou naquele dia. Quando
+   o local da etapa bate com um cadastrado, só conta atividade
+   planejada NESSE local; sem bater com nenhum (etapa sem o padrão
+   "Serviço - Local", ou local ainda não cadastrado), cai pro
+   comportamento antigo — olha qualquer local, pra não esconder dado
+   por um cadastro incompleto. */
+export function diasRealizadosEtapa(etapa, vinculos, planejamento, diarios, locais) {
+  const etapaId = etapa?.id
   const servicoIds = new Set(
     (vinculos || []).filter((v) => v.schedule_item_id === etapaId).map((v) => v.service_id),
   )
   if (servicoIds.size === 0) return []
 
+  const localEtapa = normalizarParaCasar(localDaEtapa(etapa?.descricao))
+  const localId = localEtapa
+    ? (locais || []).find((l) => normalizarParaCasar(l.nome) === localEtapa)?.id
+    : undefined
+
   const plannedIds = new Set(
-    (planejamento || []).filter((p) => servicoIds.has(p.service_id)).map((p) => p.id),
+    (planejamento || [])
+      .filter((p) => servicoIds.has(p.service_id))
+      .filter((p) => !localId || p.location_id === localId)
+      .map((p) => p.id),
   )
   if (plannedIds.size === 0) return []
 
