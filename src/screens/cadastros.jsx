@@ -11,7 +11,7 @@
 
 import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle } from '../components'
 
 /* Um lugar só descrevendo cada cadastro. Acrescentar um cadastro
    novo é acrescentar uma entrada aqui, não uma tela nova. */
@@ -290,6 +290,36 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
               )}
             </Campo>
           ))}
+
+          {tipo === 'servicos' && (
+            <Campo
+              label="Etapas do cronograma"
+              dica={
+                editando?.id
+                  ? 'Liga este serviço às etapas que ele compõe — é dali que sai a data real de execução de cada etapa, direto do que o diário registrar.'
+                  : 'Salve o serviço primeiro; depois abra editar de novo pra ligar às etapas do cronograma.'
+              }
+            >
+              {editando?.id ? (
+                <div className="row-wrap">
+                  {dados.cronograma.map((etapa) => (
+                    <ChipToggle
+                      key={etapa.id}
+                      ativo={dados.servicosCronograma.some(
+                        (v) => v.service_id === editando.id && v.schedule_item_id === etapa.id,
+                      )}
+                      onClick={() => dados.alternarVinculoServicoEtapa(editando.id, etapa.id)}
+                    >
+                      {etapa.descricao}
+                    </ChipToggle>
+                  ))}
+                  {dados.cronograma.length === 0 && <div className="t-caption">Nenhuma etapa cadastrada no cronograma ainda.</div>}
+                </div>
+              ) : (
+                <div className="t-caption">—</div>
+              )}
+            </Campo>
+          )}
         </div>
       </Sheet>
 

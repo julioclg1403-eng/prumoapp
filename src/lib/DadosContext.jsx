@@ -1326,6 +1326,37 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar],
   )
 
+  /* Mesmo vínculo de cima, mas editado do lado do serviço: liga ou
+     desliga UMA etapa por vez, em vez de trocar o conjunto inteiro —
+     faz sentido aqui porque quem edita o serviço enxerga uma etapa de
+     cada vez (um Selecionavel/ChipToggle por linha do cronograma), não
+     um conjunto pra salvar de uma vez como do lado da etapa. */
+  const alternarVinculoServicoEtapa = useCallback(
+    async (servicoId, etapaId) => {
+      const existente = tudo?.servicosCronograma.find(
+        (v) => v.service_id === servicoId && v.schedule_item_id === etapaId,
+      )
+      if (existente) {
+        const r = await supabase.from('schedule_item_services').delete().eq('id', existente.id)
+        if (r.error) { checar(r, 'desligar a etapa do serviço'); return }
+        setTudo((t) => t && ({
+          ...t, servicosCronograma: t.servicosCronograma.filter((v) => v.id !== existente.id),
+        }))
+        return
+      }
+      const { organization_id, worksite_id } = escopo()
+      const inserido = checar(
+        await supabase.from('schedule_item_services')
+          .insert({ organization_id, worksite_id, schedule_item_id: etapaId, service_id: servicoId })
+          .select('*').single(),
+        'ligar a etapa ao serviço',
+      )
+      if (!inserido) return
+      setTudo((t) => t && ({ ...t, servicosCronograma: [...t.servicosCronograma, inserido] }))
+    },
+    [tudo, escopo, checar],
+  )
+
   // ── Lembretes ──────────────────────────────────────────────
   /* Sempre para quem cria (BRIEFING seção 6: "sem recorrência na v1",
      e aqui sem terceiro também — o mesmo recorte que a Edge Function
@@ -1661,7 +1692,7 @@ export function DadosProvider({ perfil, children }) {
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
-      medirCronograma, removerItemCronograma, definirServicosDaEtapa,
+      medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
     }),
     [
@@ -1685,7 +1716,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
-      medirCronograma, removerItemCronograma, definirServicosDaEtapa,
+      medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
     ],
   )
