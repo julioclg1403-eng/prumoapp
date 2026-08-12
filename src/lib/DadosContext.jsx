@@ -1191,6 +1191,8 @@ export function DadosProvider({ perfil, children }) {
         data_fim: item.data_fim,
         peso: Number(item.peso),
         ordem: item.ordem ?? 0,
+        inicio_real: item.inicio_real || null,
+        fim_real: item.fim_real || null,
       }
       if (item.id) linha.id = item.id
 

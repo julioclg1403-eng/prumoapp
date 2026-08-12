@@ -883,7 +883,8 @@ export function CalendarioMes({ mes, onMudarMes, hoje, obterMarca, onClicarDia }
                   style={{
                     fontSize: 10, fontWeight: 700, textAlign: 'center', padding: '3px 2px', borderRadius: 5,
                     color: '#fff', textTransform: 'uppercase', letterSpacing: '0.02em', overflow: 'hidden',
-                    background: marca.tom === 'success' ? 'var(--success)' : 'var(--info)',
+                    background: marca.tom === 'success' ? 'var(--success)'
+                      : marca.tom === 'danger' ? 'var(--danger)' : 'var(--info)',
                   }}
                 >
                   <span className="calendario-dia-semana-curto">✓</span>

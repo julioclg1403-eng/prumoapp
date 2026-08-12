@@ -715,6 +715,42 @@ export function diasRealizadosEtapa(etapaId, vinculos, planejamento, diarios) {
   return [...dias].sort()
 }
 
+/* O "Real" que aparece no card prefere a data digitada à mão — pra
+   quando o cálculo automático (diasRealizadosEtapa) erra ou não tem
+   como saber, porque a etapa não tem serviço ligado ou o diário do
+   período não foi bem preenchido. Sem nada manual, cai pro intervalo
+   calculado a partir do diário; sem nenhum dos dois, não tem "Real"
+   pra mostrar. */
+export function intervaloRealEtapa(item, diasReais) {
+  if (item?.inicio_real || item?.fim_real) {
+    const inicio = item.inicio_real || item.fim_real
+    const fim = item.fim_real || item.inicio_real
+    return { inicio, fim, manual: true }
+  }
+  if (!diasReais?.length) return null
+  return { inicio: diasReais[0], fim: diasReais[diasReais.length - 1], manual: false, dias: diasReais.length }
+}
+
+/* Dia dentro da janela real (manual, se o Julio digitou; senão a
+   prevista) em que nem existe diário lançado — diferente de "não
+   trabalhou nisso", que é um dia com diário mas sem menção aos
+   serviços da etapa. Aqui não dá nem pra saber o que aconteceu,
+   porque o diário do dia nunca foi lançado. Só olha até hoje: dia
+   futuro ainda não tem diário pra cobrar. */
+export function diasSemDiarioEtapa(item, diarios, hoje = hojeISO()) {
+  const inicio = item?.inicio_real || item?.data_inicio
+  const fimBase = item?.fim_real || item?.data_fim
+  if (!inicio || !fimBase) return []
+  const fim = fimBase < hoje ? fimBase : hoje
+  if (fim < inicio) return []
+  const lancados = new Set((diarios || []).map((d) => d.data))
+  const dias = []
+  for (let d = inicio; d <= fim; d = somarDias(d, 1)) {
+    if (!lancados.has(d)) dias.push(d)
+  }
+  return dias
+}
+
 /* O PDF operacional do Julio nomeia a etapa como "Serviço - Local -
    Sublocal" (ex.: "PINTURA FINAL - BLOCO VENDAS - DECORADO"), e o
    nome do serviço no Planejamento é só a primeira parte ("PINTURA

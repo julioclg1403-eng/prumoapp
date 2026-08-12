@@ -18,7 +18,7 @@ import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, plural,
   situacaoCronograma, progressoEsperado, curvaFisica, ordenarCronograma,
-  paraISOdeTextoBR, paraNumeroBR, diasRealizadosEtapa,
+  paraISOdeTextoBR, paraNumeroBR, diasRealizadosEtapa, intervaloRealEtapa, diasSemDiarioEtapa,
 } from '../lib/dominio'
 import { parseCSV } from '../lib/csv'
 import {
@@ -53,6 +53,7 @@ export default function Cronograma({ perfil, goto }) {
   const salvar = async () => {
     if (!editando?.descricao?.trim() || !editando?.data_inicio || !editando?.data_fim) return
     if (editando.data_fim < editando.data_inicio) return
+    if (editando.inicio_real && editando.fim_real && editando.fim_real < editando.inicio_real) return
     setSalvando(true)
     const salvo = await dados.salvarItemCronograma({
       ...(editando.id ? { id: editando.id } : {}),
@@ -60,6 +61,8 @@ export default function Cronograma({ perfil, goto }) {
       data_inicio: editando.data_inicio,
       data_fim: editando.data_fim,
       peso: editando.peso,
+      inicio_real: editando.inicio_real || null,
+      fim_real: editando.fim_real || null,
     })
     if (salvo) await dados.definirServicosDaEtapa(salvo.id, editando.servico_ids || [])
     setSalvando(false)
@@ -200,6 +203,7 @@ export default function Cronograma({ perfil, goto }) {
               disabled={
                 salvando || !editando?.descricao?.trim() || !editando?.data_inicio
                 || !editando?.data_fim || editando.data_fim < editando.data_inicio
+                || Boolean(editando.inicio_real && editando.fim_real && editando.fim_real < editando.inicio_real)
               }
             >
               {salvando ? 'Salvando…' : 'Salvar'}
@@ -231,6 +235,26 @@ export default function Cronograma({ perfil, goto }) {
           </div>
           {editando?.data_fim && editando?.data_inicio && editando.data_fim < editando.data_inicio && (
             <div className="alert danger">O fim não pode vir antes do início.</div>
+          )}
+          <div className="row-flex">
+            <Campo
+              label="Início real (manual)"
+              dica="Só preenche se o cálculo automático pelo diário estiver errado ou faltando. Deixa em branco pra continuar usando o diário."
+            >
+              <input
+                className="ipt" type="date" value={editando?.inicio_real || ''}
+                onChange={(e) => setEditando((p) => ({ ...p, inicio_real: e.target.value }))}
+              />
+            </Campo>
+            <Campo label="Fim real (manual)">
+              <input
+                className="ipt" type="date" value={editando?.fim_real || ''}
+                onChange={(e) => setEditando((p) => ({ ...p, fim_real: e.target.value }))}
+              />
+            </Campo>
+          </div>
+          {editando?.inicio_real && editando?.fim_real && editando.fim_real < editando.inicio_real && (
+            <div className="alert danger">O fim real não pode vir antes do início real.</div>
           )}
           <Campo label="Peso" dica="O quanto esta etapa pesa em relação às outras, para o cálculo do avanço geral. Pode deixar 1 se todas pesarem igual.">
             <input
@@ -295,25 +319,31 @@ export default function Cronograma({ perfil, goto }) {
 
       {/* ── Dias realizados ── */}
       <Sheet aberto={Boolean(verCalendario)} titulo={verCalendario?.descricao || ''} onFechar={() => setVerCalendario(null)}>
-        {verCalendario && (
-          <div className="stack-2">
-            <div className="t-caption">
-              Dias em que o diário registrou trabalho nos serviços ligados a esta etapa. Toque num dia
-              marcado pra abrir o diário daquele dia.
+        {verCalendario && (() => {
+          const diasRealizados = diasRealizadosEtapa(verCalendario.id, dados.servicosCronograma, dados.planejamento, dados.diarios)
+          const diasSemDiario = new Set(diasSemDiarioEtapa(verCalendario, dados.diarios, hoje))
+          return (
+            <div className="stack-2">
+              <div className="t-caption">
+                Verde: o diário registrou trabalho nos serviços ligados a esta etapa. Vermelho: o diário
+                daquele dia nem foi lançado, então não dá pra saber o que aconteceu. Toque num dia
+                marcado pra abrir o diário daquele dia.
+              </div>
+              <CalendarioMes
+                mes={mesCalendario} onMudarMes={setMesCalendario} hoje={hoje}
+                obterMarca={(iso) => {
+                  if (diasRealizados.includes(iso)) return { rotulo: 'Realizado', tom: 'success' }
+                  if (diasSemDiario.has(iso)) return { rotulo: 'Sem diário', tom: 'danger' }
+                  return null
+                }}
+                onClicarDia={(iso) => {
+                  const diario = dados.diarios.find((d) => d.data === iso && d.worksite_id === dados.obra.id)
+                  if (diario) goto?.('diario', { data: iso, id: diario.id })
+                }}
+              />
             </div>
-            <CalendarioMes
-              mes={mesCalendario} onMudarMes={setMesCalendario} hoje={hoje}
-              obterMarca={(iso) => {
-                const dias = diasRealizadosEtapa(verCalendario.id, dados.servicosCronograma, dados.planejamento, dados.diarios)
-                return dias.includes(iso) ? { rotulo: 'Realizado', tom: 'success' } : null
-              }}
-              onClicarDia={(iso) => {
-                const diario = dados.diarios.find((d) => d.data === iso && d.worksite_id === dados.obra.id)
-                if (diario) goto?.('diario', { data: iso, id: diario.id })
-              }}
-            />
-          </div>
-        )}
+          )
+        })()}
       </Sheet>
 
       <Confirmar
@@ -415,6 +445,7 @@ function ItemCronograma({
   const situacao = situacaoCronograma(item, hoje)
   const esperado = progressoEsperado(item, hoje)
   const real = Number(item.percentual || 0)
+  const realInfo = intervaloRealEtapa(item, diasReais)
 
   return (
     <div className="card-flat" style={{ borderLeft: `3px solid var(--${
@@ -427,10 +458,10 @@ function ItemCronograma({
             Previsto: {formatarData(item.data_inicio)} a {formatarData(item.data_fim)} · peso {item.peso}
             {item.responsavel ? ` · ${item.responsavel}` : ''}
           </div>
-          {diasReais.length > 0 && (
+          {realInfo && (
             <button className="t-caption" onClick={onVerCalendario} style={{ color: 'var(--success)', fontWeight: 600, marginTop: 2, textAlign: 'left' }}>
-              Real: {formatarDataCurta(diasReais[0])} a {formatarDataCurta(diasReais[diasReais.length - 1])}
-              {' '}({plural(diasReais.length, 'dia', 'dias')}) →
+              Real: {formatarDataCurta(realInfo.inicio)} a {formatarDataCurta(realInfo.fim)}
+              {' '}{realInfo.manual ? '(digitado à mão)' : `(${plural(realInfo.dias, 'dia', 'dias')})`} →
             </button>
           )}
           {podeEditar && servicosLigados.length === 0 && (
