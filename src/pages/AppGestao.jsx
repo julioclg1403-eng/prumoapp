@@ -143,7 +143,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'efetivo':    corpo = <Efetivo goto={goto} perfil={perfil} params={rota.params} />; break
     case 'pendencias': corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
     case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
-    case 'cronograma': corpo = <Cronograma perfil={perfil} />; break
+    case 'cronograma': corpo = <Cronograma perfil={perfil} goto={goto} />; break
     case 'requisicoes': corpo = <Requisicoes goto={goto} perfil={perfil} />; break
     case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break

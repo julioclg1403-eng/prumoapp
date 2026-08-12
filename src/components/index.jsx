@@ -7,6 +7,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { linksTemporarios, baixarFoto } from '../lib/fotos'
 import { linksTemporariosAnexos } from '../lib/anexos'
 import { transcrever } from '../lib/audio'
+import { gradeDoMes, somarMeses, rotuloMes } from '../lib/dominio'
 
 /* ── Ícones (SVG na mão, sem biblioteca) ─────────────────── */
 
@@ -97,8 +98,8 @@ export function Topbar({ titulo, sub, onVoltar, direita }) {
 
 export function PageHeader({ titulo, sub, acao }) {
   return (
-    <div className="row-between" style={{ marginBottom: 16, alignItems: 'flex-start' }}>
-      <div className="grow">
+    <div className="row-between" style={{ marginBottom: 16, alignItems: 'flex-start', flexWrap: 'wrap', rowGap: 10 }}>
+      <div className="grow" style={{ minWidth: 180 }}>
         <h1 className="t-display">{titulo}</h1>
         {sub && <div className="t-caption" style={{ marginTop: 2 }}>{sub}</div>}
       </div>
@@ -810,6 +811,90 @@ export function ChipToggle({ ativo, onClick, children }) {
     >
       {children}
     </button>
+  )
+}
+
+const DIAS_SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']
+
+/* Grade de mês, nascida na aba Diários e reaproveitada onde mais
+   precisar de "veja o mês inteiro e o que aconteceu em cada dia"
+   (ex.: dias realizados de uma etapa do Cronograma). `obterMarca(iso)`
+   devolve `{ rotulo, tom }` pra pintar o dia, ou null pra deixar em
+   branco — a tela dona dos dados decide o que conta como marca, este
+   componente só desenha. */
+export function CalendarioMes({ mes, onMudarMes, hoje, obterMarca, onClicarDia }) {
+  const grade = gradeDoMes(mes)
+
+  return (
+    <div className="card-flat" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="row-between" style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+        <button className="btn btn-secondary btn-sm" onClick={() => onMudarMes(hoje.slice(0, 7))}>Hoje</button>
+        <div className="row-flex" style={{ gap: 4 }}>
+          <button className="btn btn-ghost btn-sm" aria-label="Mês anterior" onClick={() => onMudarMes(somarMeses(mes, -1))}>
+            <Icon name="voltar" size={16} />
+          </button>
+          <div className="t-strong" style={{ fontSize: 14, minWidth: 140, textAlign: 'center' }}>{rotuloMes(mes)}</div>
+          <button className="btn btn-ghost btn-sm" aria-label="Próximo mês" onClick={() => onMudarMes(somarMeses(mes, 1))}>
+            <Icon name="avancar" size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
+        {DIAS_SEMANA.map((n) => (
+          <div key={n} style={{ padding: '8px 4px', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
+            <span className="calendario-dia-semana-curto">{n.slice(0, 3)}</span>
+            <span className="calendario-dia-semana-longo">{n}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+        {grade.map((c) => {
+          const marca = c.doMes ? obterMarca(c.iso) : null
+          const ehHoje = c.iso === hoje
+          const clicavel = c.doMes && Boolean(onClicarDia)
+          return (
+            <button
+              key={c.iso}
+              onClick={() => clicavel && onClicarDia(c.iso)}
+              disabled={!clicavel}
+              style={{
+                aspectRatio: '1', minHeight: 64, border: '1px solid var(--border)', borderRight: 0, borderBottom: 0,
+                background: 'var(--surface)', cursor: clicavel ? 'pointer' : 'default',
+                display: 'flex', flexDirection: 'column', alignItems: 'stretch', boxSizing: 'border-box',
+                width: '100%', minWidth: 0,
+                padding: 6, fontFamily: 'var(--font)', textAlign: 'left', position: 'relative',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13, fontWeight: ehHoje ? 700 : 500,
+                  color: !c.doMes ? 'var(--text-3)' : ehHoje ? 'var(--primary)' : 'var(--text)',
+                  width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 999, border: ehHoje ? '1.5px solid var(--primary)' : 'none',
+                }}
+              >
+                {c.dia}
+              </span>
+              <span className="grow" />
+              {marca && (
+                <span
+                  style={{
+                    fontSize: 10, fontWeight: 700, textAlign: 'center', padding: '3px 2px', borderRadius: 5,
+                    color: '#fff', textTransform: 'uppercase', letterSpacing: '0.02em', overflow: 'hidden',
+                    background: marca.tom === 'success' ? 'var(--success)' : 'var(--info)',
+                  }}
+                >
+                  <span className="calendario-dia-semana-curto">✓</span>
+                  <span className="calendario-dia-semana-longo">{marca.rotulo}</span>
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

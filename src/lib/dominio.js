@@ -73,6 +73,36 @@ export function nomeDiaSemana(iso) {
   return deISO(iso).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
 }
 
+/* ── Calendário de mês ───────────────────────────────────────
+   Usado por qualquer tela que precise de uma grade tipo calendário
+   (Diários, e o "dias realizados" do Cronograma). `mesISO` é só
+   "AAAA-MM", sem dia — o mês corrente escolhido na tela. */
+
+/* Sempre 6 semanas (42 dias), começando no domingo da semana do
+   dia 1 — o que faz o grid ficar retangular e previsível mês a mês. */
+export function gradeDoMes(mesISO) {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const primeiro = new Date(ano, mes - 1, 1)
+  const inicio = new Date(ano, mes - 1, 1 - primeiro.getDay())
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(inicio)
+    d.setDate(inicio.getDate() + i)
+    return { iso: paraISO(d), dia: d.getDate(), doMes: d.getMonth() === mes - 1 }
+  })
+}
+
+export function somarMeses(mesISO, n) {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const d = new Date(ano, mes - 1 + n, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+export function rotuloMes(mesISO) {
+  const [ano, m] = mesISO.split('-').map(Number)
+  const texto = new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+
 /* Diferente de formatarData: aqui a HORA importa (é um instante,
    não um dia de calendário -- ver o comentário grande acima sobre
    deISO). Usada em lembrete, onde "amanhã" sem hora não diz nada. */
@@ -656,6 +686,33 @@ export function pontosDaCurvaS(itens, hoje = hojeISO(), maxPontos = 24) {
   }
 
   return { pontos, hoje: curvaFisica(comData, hoje).percentualReal, inicio, fim }
+}
+
+/* A etapa do cronograma não lança diário sozinha — ela empresta os
+   dias de execução dos serviços do Planejamento que o Julio ligar a
+   ela (schedule_item_services). Um dia "realizado" é um dia em que
+   ALGUM serviço ligado teve status diferente de "não iniciada" no
+   diário daquela data. Sem vínculo cadastrado, devolve lista vazia
+   — não confunde "sem dado" com "não fez nada". */
+export function diasRealizadosEtapa(etapaId, vinculos, planejamento, diarios) {
+  const servicoIds = new Set(
+    (vinculos || []).filter((v) => v.schedule_item_id === etapaId).map((v) => v.service_id),
+  )
+  if (servicoIds.size === 0) return []
+
+  const plannedIds = new Set(
+    (planejamento || []).filter((p) => servicoIds.has(p.service_id)).map((p) => p.id),
+  )
+  if (plannedIds.size === 0) return []
+
+  const dias = new Set()
+  ;(diarios || []).forEach((d) => {
+    const teveExecucao = (d.atividades || []).some(
+      (a) => plannedIds.has(a.planned_id) && a.status !== 'nao_iniciada',
+    )
+    if (teveExecucao) dias.add(d.data)
+  })
+  return [...dias].sort()
 }
 
 /* Aceita tanto "31/12/2026" (o formato que sai do Excel em

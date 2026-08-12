@@ -16,17 +16,17 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, plural,
+  hojeISO, formatarData, formatarDataCurta, plural,
   situacaoCronograma, progressoEsperado, curvaFisica, ordenarCronograma,
-  paraISOdeTextoBR, paraNumeroBR,
+  paraISOdeTextoBR, paraNumeroBR, diasRealizadosEtapa,
 } from '../lib/dominio'
 import { parseCSV } from '../lib/csv'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, Segmentos,
-  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio, ChipToggle, CalendarioMes,
 } from '../components'
 
-export default function Cronograma({ perfil }) {
+export default function Cronograma({ perfil, goto }) {
   const dados = useDados()
   const hoje = hojeISO()
   const podeEditar = perfil.role !== 'campo'
@@ -36,27 +36,35 @@ export default function Cronograma({ perfil }) {
   const [removendo, setRemovendo] = useState(null)
   const [importando, setImportando] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [verCalendario, setVerCalendario] = useState(null)
+  const [mesCalendario, setMesCalendario] = useState(hoje.slice(0, 7))
 
   const itens = useMemo(() => ordenarCronograma(dados.cronograma), [dados.cronograma])
   const curva = useMemo(() => curvaFisica(itens, hoje), [itens, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrirNovo = () => setEditando({ descricao: '', data_inicio: hoje, data_fim: hoje, peso: '1' })
-  const abrirEdicao = (item) => setEditando({ ...item, peso: String(item.peso) })
+  const abrirNovo = () => setEditando({ descricao: '', data_inicio: hoje, data_fim: hoje, peso: '1', servico_ids: [] })
+  const abrirEdicao = (item) => setEditando({
+    ...item, peso: String(item.peso),
+    servico_ids: dados.servicosCronograma.filter((v) => v.schedule_item_id === item.id).map((v) => v.service_id),
+  })
 
   const salvar = async () => {
     if (!editando?.descricao?.trim() || !editando?.data_inicio || !editando?.data_fim) return
     if (editando.data_fim < editando.data_inicio) return
     setSalvando(true)
-    const ok = await dados.salvarItemCronograma({
+    const salvo = await dados.salvarItemCronograma({
       ...(editando.id ? { id: editando.id } : {}),
       descricao: editando.descricao,
       data_inicio: editando.data_inicio,
       data_fim: editando.data_fim,
       peso: editando.peso,
     })
+    if (salvo) await dados.definirServicosDaEtapa(salvo.id, editando.servico_ids || [])
     setSalvando(false)
-    if (ok) setEditando(null)
+    if (salvo) setEditando(null)
   }
+
+  const abrirCalendario = (item) => { setVerCalendario(item); setMesCalendario(hoje.slice(0, 7)) }
 
   const salvarMedicao = async () => {
     if (!medindo) return
@@ -87,7 +95,7 @@ export default function Cronograma({ perfil }) {
           titulo="Cronograma físico"
           sub={plural(itens.length, 'etapa cadastrada', 'etapas cadastradas')}
           acao={
-            <div className="row-flex">
+            <div className="row-flex" style={{ flexWrap: 'wrap' }}>
               {!faltaItens && <BotaoRelatorio />}
               {podeEditar && (
                 <>
@@ -134,9 +142,11 @@ export default function Cronograma({ perfil }) {
             {itens.map((item) => (
               <ItemCronograma
                 key={item.id} item={item} hoje={hoje} podeEditar={podeEditar}
+                diasReais={diasRealizadosEtapa(item.id, dados.servicosCronograma, dados.planejamento, dados.diarios)}
                 onEditar={() => abrirEdicao(item)}
                 onMedir={() => setMedindo({ id: item.id, percentual: String(item.percentual) })}
                 onRemover={() => setRemovendo(item)}
+                onVerCalendario={() => abrirCalendario(item)}
               />
             ))}
           </div>
@@ -195,6 +205,29 @@ export default function Cronograma({ perfil }) {
               onChange={(e) => setEditando((p) => ({ ...p, peso: e.target.value }))}
             />
           </Campo>
+          <Campo
+            label="Serviços do Planejamento"
+            dica="Liga esta etapa aos serviços lançados no diário — é dali que vem a data real de execução, do primeiro ao último dia."
+          >
+            <div className="row-wrap">
+              {dados.servicos.filter((s) => s.ativo !== false).map((s) => (
+                <ChipToggle
+                  key={s.id}
+                  ativo={(editando?.servico_ids || []).includes(s.id)}
+                  onClick={() => setEditando((p) => {
+                    const atual = p.servico_ids || []
+                    return {
+                      ...p,
+                      servico_ids: atual.includes(s.id) ? atual.filter((x) => x !== s.id) : [...atual, s.id],
+                    }
+                  })}
+                >
+                  {s.nome}
+                </ChipToggle>
+              ))}
+              {dados.servicos.length === 0 && <div className="t-caption">Nenhum serviço cadastrado ainda.</div>}
+            </div>
+          </Campo>
         </div>
       </Sheet>
 
@@ -224,6 +257,29 @@ export default function Cronograma({ perfil }) {
             />
           </Campo>
         </div>
+      </Sheet>
+
+      {/* ── Dias realizados ── */}
+      <Sheet aberto={Boolean(verCalendario)} titulo={verCalendario?.descricao || ''} onFechar={() => setVerCalendario(null)}>
+        {verCalendario && (
+          <div className="stack-2">
+            <div className="t-caption">
+              Dias em que o diário registrou trabalho nos serviços ligados a esta etapa. Toque num dia
+              marcado pra abrir o diário daquele dia.
+            </div>
+            <CalendarioMes
+              mes={mesCalendario} onMudarMes={setMesCalendario} hoje={hoje}
+              obterMarca={(iso) => {
+                const dias = diasRealizadosEtapa(verCalendario.id, dados.servicosCronograma, dados.planejamento, dados.diarios)
+                return dias.includes(iso) ? { rotulo: 'Realizado', tom: 'success' } : null
+              }}
+              onClicarDia={(iso) => {
+                const diario = dados.diarios.find((d) => d.data === iso && d.worksite_id === dados.obra.id)
+                if (diario) goto?.('diario', { data: iso, id: diario.id })
+              }}
+            />
+          </div>
+        )}
       </Sheet>
 
       <Confirmar
@@ -318,7 +374,7 @@ function BarraDupla({ real, previsto }) {
 
 /* ── Um item da lista ─────────────────────────────────────── */
 
-function ItemCronograma({ item, hoje, podeEditar, onEditar, onMedir, onRemover }) {
+function ItemCronograma({ item, hoje, podeEditar, diasReais, onEditar, onMedir, onRemover, onVerCalendario }) {
   const situacao = situacaoCronograma(item, hoje)
   const esperado = progressoEsperado(item, hoje)
   const real = Number(item.percentual || 0)
@@ -331,9 +387,15 @@ function ItemCronograma({ item, hoje, podeEditar, onEditar, onMedir, onRemover }
         <div className="grow">
           <div className="t-strong">{item.descricao}</div>
           <div className="t-caption">
-            {formatarData(item.data_inicio)} a {formatarData(item.data_fim)} · peso {item.peso}
+            Previsto: {formatarData(item.data_inicio)} a {formatarData(item.data_fim)} · peso {item.peso}
             {item.responsavel ? ` · ${item.responsavel}` : ''}
           </div>
+          {diasReais.length > 0 && (
+            <button className="t-caption" onClick={onVerCalendario} style={{ color: 'var(--success)', fontWeight: 600, marginTop: 2, textAlign: 'left' }}>
+              Real: {formatarDataCurta(diasReais[0])} a {formatarDataCurta(diasReais[diasReais.length - 1])}
+              {' '}({plural(diasReais.length, 'dia', 'dias')}) →
+            </button>
+          )}
         </div>
         <Chip tom={situacao.tom}>{situacao.rotulo}</Chip>
       </div>
@@ -346,17 +408,22 @@ function ItemCronograma({ item, hoje, podeEditar, onEditar, onMedir, onRemover }
         <span className="t-caption">Previsto: {esperado}%</span>
       </div>
 
-      {podeEditar && (
-        <div className="row-flex" style={{ marginTop: 10 }}>
-          <button className="btn btn-secondary btn-sm" onClick={onMedir}>Medir</button>
-          <button className="btn btn-ghost btn-sm" onClick={onEditar} aria-label="Editar">
-            <Icon name="editar" size={14} />
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={onRemover} aria-label="Remover">
-            <Icon name="x" size={14} />
-          </button>
-        </div>
-      )}
+      <div className="row-flex" style={{ marginTop: 10 }}>
+        <button className="btn btn-secondary btn-sm" onClick={onVerCalendario}>
+          <Icon name="planejamento" size={14} /> Calendário
+        </button>
+        {podeEditar && (
+          <>
+            <button className="btn btn-secondary btn-sm" onClick={onMedir}>Medir</button>
+            <button className="btn btn-ghost btn-sm" onClick={onEditar} aria-label="Editar">
+              <Icon name="editar" size={14} />
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={onRemover} aria-label="Remover">
+              <Icon name="x" size={14} />
+            </button>
+          </>
+        )}
+      </div>
     </div>
   )
 }

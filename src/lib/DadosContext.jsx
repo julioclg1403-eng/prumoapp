@@ -162,6 +162,7 @@ export function DadosProvider({ perfil, children }) {
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
+      servicosCronograma,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -187,12 +188,14 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('project_stages').select('*').order('ordem'),
       supabase.from('project_discipline_statuses').select('*').order('ordem'),
       supabase.from('project_notes').select(SELECT_APONTAMENTO).order('created_at', { ascending: false }),
+      supabase.from('schedule_item_services').select('*'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
-      disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos].find((r) => r.error)
+      disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
+      servicosCronograma].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -242,6 +245,7 @@ export function DadosProvider({ perfil, children }) {
       etapasProjeto: etapasProjeto.data || [],
       statusDisciplinaProjeto: statusDisciplinaProjeto.data || [],
       apontamentos: (apontamentos.data || []).map(normalizarApontamento),
+      servicosCronograma: servicosCronograma.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -310,6 +314,7 @@ export function DadosProvider({ perfil, children }) {
       etapasProjeto: filtrar(tudo.etapasProjeto),
       statusDisciplinaProjeto: filtrar(tudo.statusDisciplinaProjeto),
       apontamentos: filtrar(tudo.apontamentos),
+      servicosCronograma: filtrar(tudo.servicosCronograma),
     }
   }, [tudo, obraId])
 
@@ -1288,6 +1293,39 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  /* Liga uma etapa do cronograma aos serviços do Planejamento que a
+     compõem — é dali que os "dias realizados" (dominio.diasRealizadosEtapa)
+     saem, sem duplicar nada do diário. Troca o conjunto inteiro (apaga
+     e reinsere), igual às presenças do diário: mais simples e seguro
+     que reconciliar item a item numa lista pequena. */
+  const definirServicosDaEtapa = useCallback(
+    async (etapaId, servicoIds) => {
+      const { organization_id, worksite_id } = escopo()
+      const apagou = await supabase.from('schedule_item_services').delete().eq('schedule_item_id', etapaId)
+      if (apagou.error) { checar(apagou, 'atualizar os serviços da etapa'); return null }
+
+      let inseridos = []
+      if (servicoIds.length) {
+        inseridos = checar(
+          await supabase.from('schedule_item_services').insert(
+            servicoIds.map((service_id) => ({ organization_id, worksite_id, schedule_item_id: etapaId, service_id })),
+          ).select('*'),
+          'salvar os serviços da etapa',
+        ) || []
+      }
+
+      setTudo((t) => t && ({
+        ...t,
+        servicosCronograma: [
+          ...t.servicosCronograma.filter((v) => v.schedule_item_id !== etapaId),
+          ...inseridos,
+        ],
+      }))
+      return inseridos
+    },
+    [escopo, checar],
+  )
+
   // ── Lembretes ──────────────────────────────────────────────
   /* Sempre para quem cria (BRIEFING seção 6: "sem recorrência na v1",
      e aqui sem terceiro também — o mesmo recorte que a Edge Function
@@ -1623,7 +1661,7 @@ export function DadosProvider({ perfil, children }) {
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
-      medirCronograma, removerItemCronograma,
+      medirCronograma, removerItemCronograma, definirServicosDaEtapa,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
     }),
     [
@@ -1647,7 +1685,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
-      medirCronograma, removerItemCronograma,
+      medirCronograma, removerItemCronograma, definirServicosDaEtapa,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
     ],
   )
