@@ -167,10 +167,13 @@ export default function Cronograma({ perfil, goto }) {
               <ItemCronograma
                 key={item.id} item={item} hoje={hoje} podeEditar={podeEditar}
                 diasReais={diasRealizadosEtapa(item.id, dados.servicosCronograma, dados.planejamento, dados.diarios)}
+                servicosLigados={dados.servicosCronograma.filter((v) => v.schedule_item_id === item.id)}
+                servicos={dados.servicos}
                 onEditar={() => abrirEdicao(item)}
                 onMedir={() => setMedindo({ id: item.id, percentual: String(item.percentual) })}
                 onRemover={() => setRemovendo(item)}
                 onVerCalendario={() => abrirCalendario(item)}
+                onVincularServico={(servicoId) => dados.alternarVinculoServicoEtapa(servicoId, item.id)}
               />
             ))}
           </div>
@@ -398,7 +401,10 @@ function BarraDupla({ real, previsto }) {
 
 /* ── Um item da lista ─────────────────────────────────────── */
 
-function ItemCronograma({ item, hoje, podeEditar, diasReais, onEditar, onMedir, onRemover, onVerCalendario }) {
+function ItemCronograma({
+  item, hoje, podeEditar, diasReais, servicosLigados, servicos,
+  onEditar, onMedir, onRemover, onVerCalendario, onVincularServico,
+}) {
   const situacao = situacaoCronograma(item, hoje)
   const esperado = progressoEsperado(item, hoje)
   const real = Number(item.percentual || 0)
@@ -419,6 +425,20 @@ function ItemCronograma({ item, hoje, podeEditar, diasReais, onEditar, onMedir, 
               Real: {formatarDataCurta(diasReais[0])} a {formatarDataCurta(diasReais[diasReais.length - 1])}
               {' '}({plural(diasReais.length, 'dia', 'dias')}) →
             </button>
+          )}
+          {podeEditar && servicosLigados.length === 0 && (
+            <div className="row-flex" style={{ marginTop: 6, gap: 6 }}>
+              <Icon name="alerta" size={13} style={{ color: 'var(--danger)', flex: 'none' }} />
+              <select
+                className="sel" style={{ height: 30, fontSize: 12 }}
+                value="" onChange={(e) => e.target.value && onVincularServico(e.target.value)}
+              >
+                <option value="">Sem serviço — vincular manualmente…</option>
+                {servicos.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
         <Chip tom={situacao.tom}>{situacao.rotulo}</Chip>
