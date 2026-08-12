@@ -723,7 +723,7 @@ export function diasRealizadosEtapa(etapaId, vinculos, planejamento, diarios) {
    espaço ou hífen (não deixa "Reboco" casar com "Reboco externo e
    fachada" por acaso — precisa ser a etapa inteira, não uma palavra
    solta dentro dela). */
-function normalizarParaCasar(s) {
+export function normalizarParaCasar(s) {
   return String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
 }
 
@@ -733,6 +733,15 @@ export function servicoCorrespondeEtapa(servicoNome, etapaDescricao) {
   if (!s || !e) return false
   if (e === s) return true
   return e.startsWith(s) && /^[\s-]/.test(e.slice(s.length))
+}
+
+/* Quando a etapa não casa com nenhum serviço já cadastrado, a primeira
+   parte do nome ("Serviço" antes do " - Local") é o nome do serviço
+   que falta criar — assim toda etapa do cronograma vira um serviço
+   selecionável no Planejamento, mesmo sem cadastro prévio. */
+export function nomeBaseDaEtapa(etapaDescricao) {
+  const partes = String(etapaDescricao || '').split(' - ')
+  return (partes[0] || '').trim()
 }
 
 /* Aceita tanto "31/12/2026" (o formato que sai do Excel em

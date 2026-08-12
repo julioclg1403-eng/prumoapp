@@ -19,7 +19,7 @@
 
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { hojeISO, servicoCorrespondeEtapa } from './dominio'
+import { hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar } from './dominio'
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
@@ -1363,7 +1363,14 @@ export function DadosProvider({ perfil, children }) {
      sob pedido (botão em Cronograma) quanto sozinha, logo depois de
      um import de PDF (cronograma ou planejamento), pra ficar
      sincronizado sem passo manual nenhum daí pra frente. Só CRIA
-     vínculo que falta; nunca desfaz o que já existe. */
+     vínculo que falta; nunca desfaz o que já existe.
+
+     Etapa que não casa com NENHUM serviço já cadastrado (comum: PDF do
+     cronograma tem trades — SPDA, CFTV, irrigação etc. — que o
+     Planejamento nunca cadastrou) ganha um serviço novo, criado a
+     partir do nome-base da própria etapa (dominio.nomeBaseDaEtapa),
+     pra toda etapa do cronograma virar opção selecionável no
+     Planejamento sem passo manual nenhum. */
   const vincularServicosAutomaticamente = useCallback(
     async () => {
       /* Busca direto no banco, não do estado local (`tudo`) — chamada
@@ -1377,29 +1384,67 @@ export function DadosProvider({ perfil, children }) {
         supabase.from('schedule_item_services').select('schedule_item_id, service_id').eq('worksite_id', worksite_id),
       ])
       const falhou = [etapasR, servicosR, vinculosR].find((r) => r.error)
-      if (falhou) { checar(falhou, 'vincular serviços automaticamente'); return [] }
+      if (falhou) { checar(falhou, 'vincular serviços automaticamente'); return { vinculos: [], servicosCriados: 0 } }
 
+      const etapas = etapasR.data || []
+      const servicos = servicosR.data || []
       const existentes = new Set(
         (vinculosR.data || []).map((v) => `${v.schedule_item_id}:${v.service_id}`),
       )
-      const novos = []
-      ;(etapasR.data || []).forEach((etapa) => {
-        ;(servicosR.data || []).forEach((servico) => {
-          const chave = `${etapa.id}:${servico.id}`
-          if (!existentes.has(chave) && servicoCorrespondeEtapa(servico.nome, etapa.descricao)) {
-            existentes.add(chave) // evita duplicar se dois "servicos" quase iguais casarem os dois
-            novos.push({ organization_id, worksite_id, schedule_item_id: etapa.id, service_id: servico.id })
-          }
-        })
+      const novosVinculos = []
+      const etapasLigadas = new Set((vinculosR.data || []).map((v) => v.schedule_item_id))
+
+      etapas.forEach((etapa) => {
+        const achou = servicos.find((servico) => servicoCorrespondeEtapa(servico.nome, etapa.descricao))
+        if (!achou) return
+        const chave = `${etapa.id}:${achou.id}`
+        if (existentes.has(chave)) return
+        existentes.add(chave)
+        etapasLigadas.add(etapa.id)
+        novosVinculos.push({ organization_id, worksite_id, schedule_item_id: etapa.id, service_id: achou.id })
       })
-      if (!novos.length) return []
+
+      // Agrupa quem sobrou sem serviço pelo nome-base, pra não criar um serviço repetido por local (ex.: "IRRIGAÇÃO" em dois pátios vira um serviço só)
+      const grupos = new Map()
+      etapas.forEach((etapa) => {
+        if (etapasLigadas.has(etapa.id)) return
+        const nomeBase = nomeBaseDaEtapa(etapa.descricao)
+        if (!nomeBase) return
+        const chaveGrupo = normalizarParaCasar(nomeBase)
+        if (!grupos.has(chaveGrupo)) grupos.set(chaveGrupo, { nome: nomeBase, etapas: [] })
+        grupos.get(chaveGrupo).etapas.push(etapa)
+      })
+
+      let servicosCriados = []
+      if (grupos.size) {
+        servicosCriados = checar(
+          await supabase.from('services').insert(
+            Array.from(grupos.values()).map((g) => ({ organization_id, worksite_id, nome: g.nome })),
+          ).select('*'),
+          'criar serviços a partir do cronograma',
+        ) || []
+        const servicoPorNome = new Map(servicosCriados.map((s) => [s.nome, s]))
+        grupos.forEach((grupo) => {
+          const servicoCriado = servicoPorNome.get(grupo.nome)
+          if (!servicoCriado) return
+          grupo.etapas.forEach((etapa) => {
+            novosVinculos.push({ organization_id, worksite_id, schedule_item_id: etapa.id, service_id: servicoCriado.id })
+          })
+        })
+      }
+
+      if (!novosVinculos.length) return { vinculos: [], servicosCriados: servicosCriados.length }
       const inseridos = checar(
-        await supabase.from('schedule_item_services').insert(novos).select('*'),
+        await supabase.from('schedule_item_services').insert(novosVinculos).select('*'),
         'vincular serviços automaticamente',
       )
-      if (!inseridos) return []
-      setTudo((t) => t && ({ ...t, servicosCronograma: [...t.servicosCronograma, ...inseridos] }))
-      return inseridos
+      if (!inseridos) return { vinculos: [], servicosCriados: servicosCriados.length }
+      setTudo((t) => t && ({
+        ...t,
+        servicos: servicosCriados.length ? [...t.servicos, ...servicosCriados] : t.servicos,
+        servicosCronograma: [...t.servicosCronograma, ...inseridos],
+      }))
+      return { vinculos: inseridos, servicosCriados: servicosCriados.length }
     },
     [escopo, checar],
   )

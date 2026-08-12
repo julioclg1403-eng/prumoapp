@@ -73,11 +73,14 @@ export default function Cronograma({ perfil, goto }) {
      uma a uma tomaria o tempo que essa automação existe pra economizar. */
   const vincularAutomaticamente = async () => {
     setVinculando(true)
-    const criados = await dados.vincularServicosAutomaticamente()
+    const { vinculos, servicosCriados } = await dados.vincularServicosAutomaticamente()
     setVinculando(false)
+    const partes = []
+    if (vinculos.length) partes.push(plural(vinculos.length, 'vínculo criado', 'vínculos criados'))
+    if (servicosCriados) partes.push(plural(servicosCriados, 'serviço novo', 'serviços novos'))
     setResultadoVinculo(
-      criados.length
-        ? `${plural(criados.length, 'vínculo criado', 'vínculos criados')} automaticamente, pelo nome da etapa.`
+      partes.length
+        ? `${partes.join(' e ')}, casando pelo nome da etapa.`
         : 'Nenhum vínculo novo — o que casava pelo nome já estava ligado.',
     )
     setTimeout(() => setResultadoVinculo(''), 6000)
