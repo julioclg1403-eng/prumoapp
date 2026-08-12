@@ -717,6 +717,20 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  const excluirPendencia = useCallback(
+    async (id) => {
+      const r = await supabase.from('issues').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a pendência'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não pode excluir pendências. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, pendencias: t.pendencias.filter((p) => p.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   // ── Segurança ──────────────────────────────────────────────
   const salvarOcorrenciaSeguranca = useCallback(
     async (o) => {
@@ -1625,7 +1639,7 @@ export function DadosProvider({ perfil, children }) {
       const r = await supabase.from('material_requests').delete().eq('id', id).select('id')
       if (r.error) { checar(r, 'excluir o pedido'); return false }
       if (!r.data || r.data.length === 0) {
-        avisarErro('Só o autor pode excluir um rascunho, e só antes de enviar.')
+        avisarErro('Seu perfil não tem permissão para excluir este pedido.')
         return false
       }
       setTudo((t) => t && ({ ...t, requisicoes: t.requisicoes.filter((x) => x.id !== id) }))
@@ -1772,7 +1786,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
-      salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
+      salvarPendencia, salvarPendenciasEmLote, alternarPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
@@ -1795,7 +1809,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
-      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia,
+      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,

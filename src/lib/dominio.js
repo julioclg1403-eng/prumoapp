@@ -572,7 +572,10 @@ export function acoesDaRequisicao(req, perfil) {
     podeDespachar: gestao && req.status === 'comprada',
     podeReceber: ['comprada', 'em_transito'].includes(req.status),
     podeCancelar: (req.status === 'rascunho' && autor) || (gestao && req.status !== 'recebida'),
-    podeExcluir: req.status === 'rascunho' && autor,
+    /* O banco (policy req_delete) já libera a gestão excluir
+       QUALQUER pedido, não só rascunho próprio — só a tela estava
+       atrás disso, então o botão nunca aparecia pra gestão. */
+    podeExcluir: (req.status === 'rascunho' && autor) || gestao,
   }
 }
 

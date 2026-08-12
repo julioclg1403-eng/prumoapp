@@ -319,8 +319,10 @@ export default function Requisicao({ id, novo, voltar, perfil }) {
         onDespachar={async () => { await dados.moverRequisicao(req.id, 'em_transito'); mostrarRecado('Pedido em trânsito.') }}
         onReceber={abrirRecebimento}
         onExcluir={() => setConfirmar({
-          titulo: 'Excluir este rascunho?',
-          texto: 'Ele ainda não foi enviado, então ninguém mais o viu. Isso não tem volta.',
+          titulo: 'Excluir este pedido?',
+          texto: req.status === 'rascunho'
+            ? 'Ele ainda não foi enviado, então ninguém mais o viu. Isso não tem volta.'
+            : 'O pedido some da lista de todo mundo, junto com os itens e o histórico dele. Isso não tem volta.',
           rotuloOk: 'Excluir', perigo: true,
           onOk: async () => { setConfirmar(null); const ok = await dados.excluirRequisicao(req.id); if (ok) voltar() },
         })}
@@ -618,15 +620,19 @@ function BarraDeAcoes({
       }}
     >
       <div className="row-flex" style={{ maxWidth: 1180, margin: '0 auto', flexWrap: 'wrap' }}>
+        {/* Fora dos blocos por status — antes só aparecia com o pedido em
+           rascunho, mesmo quando acoes.podeExcluir liberava a gestão a
+           excluir em qualquer etapa (o cálculo mudou, mas o botão ficava
+           preso dentro do bloco errado). */}
+        {!criando && acoes.podeExcluir && (
+          <button className="btn btn-ghost btn-sm" onClick={onExcluir}>Excluir</button>
+        )}
         {(criando || req?.status === 'rascunho') && (
           <>
             <button className="btn btn-secondary" onClick={onSalvarRascunho} disabled={salvando}>
               {salvando ? 'Salvando…' : 'Salvar rascunho'}
             </button>
             <div className="grow" />
-            {acoes.podeExcluir && (
-              <button className="btn btn-ghost btn-sm" onClick={onExcluir}>Excluir</button>
-            )}
             <button className="btn btn-primary" onClick={onEnviar} disabled={salvando}>
               Enviar <Icon name="avancar" size={18} />
             </button>

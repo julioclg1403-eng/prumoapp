@@ -28,6 +28,7 @@ function normalizarComparar(s) {
 export default function Pendencias({ perfil, params = {} }) {
   const dados = useDados()
   const hoje = hojeISO()
+  const podeExcluir = perfil.role !== 'campo'
   const [categoria, setCategoria] = useState('geral')
   const [filtro, setFiltro] = useState('abertas')
   const [editando, setEditando] = useState(null)
@@ -133,6 +134,15 @@ export default function Pendencias({ perfil, params = {} }) {
     } else {
       dados.alternarPendencia(p.id)
     }
+  }
+
+  const pedirExcluir = (p) => {
+    setConfirmar({
+      titulo: 'Excluir pendência?',
+      texto: `«${p.titulo}» sai da lista pra sempre, junto com fotos e resolução registradas. Isso não tem volta.`,
+      rotuloOk: 'Excluir', perigo: true,
+      onOk: async () => { setConfirmar(null); await dados.excluirPendencia(p.id) },
+    })
   }
 
   return (
@@ -260,6 +270,15 @@ export default function Pendencias({ perfil, params = {} }) {
                       >
                         <Icon name="editar" size={16} />
                       </button>
+                      {podeExcluir && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => pedirExcluir(p)}
+                          aria-label="Excluir"
+                        >
+                          <Icon name="x" size={16} />
+                        </button>
+                      )}
                     </div>
 
                     {resolvida && p.resolucao && (
@@ -379,6 +398,7 @@ export default function Pendencias({ perfil, params = {} }) {
         titulo={confirmar?.titulo}
         texto={confirmar?.texto}
         rotuloOk={confirmar?.rotuloOk}
+        perigo={confirmar?.perigo}
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
