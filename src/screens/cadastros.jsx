@@ -34,6 +34,10 @@ const TIPOS = {
   colaboradores: {
     rotulo: 'Colaboradores',
     singular: 'colaborador',
+    /* Time de obra: "ativo/inativo" é como o Julio pensa desligamento,
+       não "arquivado" — mesmo mecanismo (campo `ativo`) dos outros
+       cadastros, só o vocabulário na tela muda pra esse tipo. */
+    statusPessoa: true,
     campos: [
       { nome: 'nome', rotulo: 'Nome', obrigatorio: true },
       { nome: 'funcao', rotulo: 'Função', placeholder: 'Pedreiro, servente, eletricista…' },
@@ -119,8 +123,9 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
   const def = TIPOS[tipo]
   const todos = dados[tipo] || []
-  const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
+  const ativos = todos.filter((x) => x.ativo !== false).length
   const arquivados = todos.filter((x) => x.ativo === false).length
+  const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
 
   const abrirNovo = () => setEditando({})
 
@@ -133,14 +138,19 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
     if (ok) setEditando(null)
   }
 
+  const rotuloArquivar = def.statusPessoa ? 'Inativar' : 'Arquivar'
+  const rotuloReativar = def.statusPessoa ? 'Ativar' : 'Reativar'
+  const rotuloArquivado = def.statusPessoa ? 'Inativo' : 'Arquivado'
+  const rotuloArquivados = def.statusPessoa ? 'Inativos' : 'Arquivados'
+
   const pedirArquivar = (item) => {
     const arquivando = item.ativo !== false
     setConfirmar({
-      titulo: arquivando ? `Arquivar ${def.singular}?` : `Reativar ${def.singular}?`,
+      titulo: arquivando ? `${rotuloArquivar} ${def.singular}?` : `${rotuloReativar} ${def.singular}?`,
       texto: arquivando
         ? `«${item.nome}» deixa de aparecer nas listas de escolha, mas continua nos registros antigos. Nada é apagado.`
         : `«${item.nome}» volta a aparecer nas listas de escolha.`,
-      rotuloOk: arquivando ? 'Arquivar' : 'Reativar',
+      rotuloOk: arquivando ? rotuloArquivar : rotuloReativar,
       perigo: arquivando,
       onOk: async () => { setConfirmar(null); await dados.arquivarCadastro(tipo, item.id) },
     })
@@ -186,22 +196,23 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           />
 
           {arquivados > 0 && (
-            <button
-              className={`btn btn-sm ${mostrarArquivados ? 'btn-dark' : 'btn-ghost'}`}
-              style={{ alignSelf: 'flex-start' }}
-              onClick={() => setMostrarArquivados((v) => !v)}
-            >
-              {mostrarArquivados ? 'Ver ativos' : `Ver arquivados (${arquivados})`}
-            </button>
+            <Segmentos
+              valor={mostrarArquivados ? 'arquivados' : 'ativos'}
+              onChange={(v) => setMostrarArquivados(v === 'arquivados')}
+              opcoes={[
+                { valor: 'ativos', rotulo: 'Ativos', contador: ativos },
+                { valor: 'arquivados', rotulo: rotuloArquivados, contador: arquivados },
+              ]}
+            />
           )}
 
           {lista.length === 0 ? (
             <div className="card-flat">
               <Vazio
-                titulo={mostrarArquivados ? 'Nenhum arquivado' : `Nenhum${def.feminino ? 'a' : ''} ${def.singular} cadastrad${def.feminino ? 'a' : 'o'}`}
+                titulo={mostrarArquivados ? `Nenhum ${rotuloArquivado.toLowerCase()}` : `Nenhum${def.feminino ? 'a' : ''} ${def.singular} cadastrad${def.feminino ? 'a' : 'o'}`}
                 texto={
                   mostrarArquivados
-                    ? 'Nada foi arquivado neste cadastro.'
+                    ? `Nenhum${def.feminino ? 'a' : ''} ${def.singular} foi ${def.statusPessoa ? 'inativad' : 'arquivad'}${def.feminino ? 'a' : 'o'} ainda.`
                     : `Cadastre ${def.feminino ? 'a primeira' : 'o primeiro'} ${def.singular} para começar a usar.`
                 }
                 acao={!mostrarArquivados && <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar</button>}
@@ -217,7 +228,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
                   direita={
                     <div className="row-flex" style={{ gap: 4 }}>
                       {item.provisorio && !item.revisado && <Chip tom="info">Provisório</Chip>}
-                      {item.ativo === false && <Chip>Arquivado</Chip>}
+                      {item.ativo === false && <Chip>{rotuloArquivado}</Chip>}
                       {podeEditar && (
                         <>
                           <button
@@ -230,7 +241,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
                           <button
                             className="btn btn-ghost btn-sm"
                             onClick={() => pedirArquivar(item)}
-                            aria-label={item.ativo === false ? 'Reativar' : 'Arquivar'}
+                            aria-label={item.ativo === false ? rotuloReativar : rotuloArquivar}
                           >
                             <Icon name={item.ativo === false ? 'check' : 'x'} size={16} />
                           </button>
