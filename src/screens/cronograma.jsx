@@ -174,6 +174,10 @@ export default function Cronograma({ perfil, goto }) {
                 onRemover={() => setRemovendo(item)}
                 onVerCalendario={() => abrirCalendario(item)}
                 onVincularServico={(servicoId) => dados.alternarVinculoServicoEtapa(servicoId, item.id)}
+                onCriarEVincularServico={async (nome) => {
+                  const criado = await dados.salvarCadastro('servicos', { nome })
+                  if (criado) await dados.alternarVinculoServicoEtapa(criado.id, item.id)
+                }}
               />
             ))}
           </div>
@@ -403,7 +407,7 @@ function BarraDupla({ real, previsto }) {
 
 function ItemCronograma({
   item, hoje, podeEditar, diasReais, servicosLigados, servicos,
-  onEditar, onMedir, onRemover, onVerCalendario, onVincularServico,
+  onEditar, onMedir, onRemover, onVerCalendario, onVincularServico, onCriarEVincularServico,
 }) {
   const situacao = situacaoCronograma(item, hoje)
   const esperado = progressoEsperado(item, hoje)
@@ -427,18 +431,7 @@ function ItemCronograma({
             </button>
           )}
           {podeEditar && servicosLigados.length === 0 && (
-            <div className="row-flex" style={{ marginTop: 6, gap: 6 }}>
-              <Icon name="alerta" size={13} style={{ color: 'var(--danger)', flex: 'none' }} />
-              <select
-                className="sel" style={{ height: 30, fontSize: 12 }}
-                value="" onChange={(e) => e.target.value && onVincularServico(e.target.value)}
-              >
-                <option value="">Sem serviço — vincular manualmente…</option>
-                {servicos.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nome}</option>
-                ))}
-              </select>
-            </div>
+            <VincularServicoInline servicos={servicos} onVincular={onVincularServico} onCriarEVincular={onCriarEVincularServico} />
           )}
         </div>
         <Chip tom={situacao.tom}>{situacao.rotulo}</Chip>
@@ -468,6 +461,61 @@ function ItemCronograma({
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/* Etapa sem nenhum serviço ligado: ou o Julio escolhe um que já
+   existe, ou — quando nenhum serve, porque a etapa do cronograma não
+   tem par no Planejamento ainda — cria o serviço na hora, aqui
+   mesmo. Criar já deixa o serviço pronto pra aparecer no Planejamento
+   e no Diário sozinho: os dois já leem a mesma lista de serviços, não
+   existe passo a mais em nenhum dos dois. */
+function VincularServicoInline({ servicos, onVincular, onCriarEVincular }) {
+  const [criando, setCriando] = useState(false)
+  const [nome, setNome] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  if (criando) {
+    const criar = async () => {
+      if (!nome.trim()) return
+      setSalvando(true)
+      await onCriarEVincular(nome.trim())
+      setSalvando(false)
+    }
+    return (
+      <div className="row-flex" style={{ marginTop: 6, gap: 6 }}>
+        <input
+          className="ipt grow" style={{ height: 30, fontSize: 12 }}
+          autoFocus value={nome} onChange={(e) => setNome(e.target.value)}
+          placeholder="Nome do novo serviço"
+          onKeyDown={(e) => { if (e.key === 'Enter') criar() }}
+        />
+        <button className="btn btn-primary btn-sm" style={{ height: 30 }} onClick={criar} disabled={salvando || !nome.trim()}>
+          {salvando ? '…' : 'Criar'}
+        </button>
+        <button className="btn btn-ghost btn-sm" style={{ height: 30 }} onClick={() => setCriando(false)} aria-label="Cancelar">
+          <Icon name="x" size={13} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="row-flex" style={{ marginTop: 6, gap: 6 }}>
+      <Icon name="alerta" size={13} style={{ color: 'var(--danger)', flex: 'none' }} />
+      <select
+        className="sel grow" style={{ height: 30, fontSize: 12 }}
+        value="" onChange={(e) => e.target.value && onVincular(e.target.value)}
+      >
+        <option value="">Sem serviço — vincular manualmente…</option>
+        {servicos.map((s) => (
+          <option key={s.id} value={s.id}>{s.nome}</option>
+        ))}
+      </select>
+      <button className="btn btn-ghost btn-sm" style={{ height: 30, flex: 'none' }} onClick={() => setCriando(true)}>
+        Novo
+      </button>
     </div>
   )
 }
