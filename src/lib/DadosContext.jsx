@@ -1087,6 +1087,15 @@ export function DadosProvider({ perfil, children }) {
   )
 
   // ── Cadastros auxiliares ──────────────────────────────────
+  /* `tudo` já carrega o cadastro de TODAS as obras da organização —
+     `daObra` só filtra pela obra atual na hora de expor pra tela. Pra
+     importar de outra obra não precisa buscar nada novo no banco, só
+     olhar o que já está na memória filtrado por outro worksite_id. */
+  const cadastroDeOutraObra = useCallback(
+    (tipo, worksiteId) => (tudo?.[tipo] || []).filter((x) => x.worksite_id === worksiteId && x.ativo !== false),
+    [tudo],
+  )
+
   const salvarCadastro = useCallback(
     async (tipo, item) => {
       const tabela = TABELA[tipo]
@@ -1796,7 +1805,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
-      salvarCadastro, arquivarCadastro,
+      salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
@@ -1819,7 +1828,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
-      salvarCadastro, arquivarCadastro,
+      salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,

@@ -9,9 +9,13 @@
    deixa de aparecer nas listas de escolha, e só isso.
    ============================================================ */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle } from '../components'
+import { normalizarParaCasar } from '../lib/dominio'
+import {
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle,
+  Selecionavel,
+} from '../components'
 
 /* Um lugar só descrevendo cada cadastro. Acrescentar um cadastro
    novo é acrescentar uma entrada aqui, não uma tela nova. */
@@ -113,6 +117,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [mostrarArquivados, setMostrarArquivados] = useState(false)
+  const [importando, setImportando] = useState(false)
 
   /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
      gravação barrada pela permissão não dá erro, simplesmente não
@@ -172,9 +177,16 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           titulo="Cadastros"
           sub="Alimentam o diário, o efetivo e as pendências"
           acao={
-            <button className="btn btn-primary" onClick={abrirNovo}>
-              <Icon name="mais_sinal" size={18} /> Novo
-            </button>
+            <div className="row-flex" style={{ flexWrap: 'wrap' }}>
+              {podeEditar && dados.obras.length > 1 && (
+                <button className="btn btn-secondary" onClick={() => setImportando(true)}>
+                  <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar de outra obra
+                </button>
+              )}
+              <button className="btn btn-primary" onClick={abrirNovo}>
+                <Icon name="mais_sinal" size={18} /> Novo
+              </button>
+            </div>
           }
         />
 
@@ -356,6 +368,182 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
+
+      <ImportarDeOutraObra
+        aberto={importando}
+        onFechar={() => setImportando(false)}
+        dados={dados}
+        tipo={tipo}
+        def={def}
+      />
     </>
+  )
+}
+
+/* ── Importar de outra obra ───────────────────────────────
+   Não busca nada novo no banco: `tudo` (dominio interno do
+   DadosContext) já carrega o cadastro de toda a organização, então
+   "outra obra" é só olhar o mesmo dado com outro worksite_id
+   (dados.cadastroDeOutraObra). Item cujo nome já bate com algo já
+   cadastrado nesta obra fica travado pra não duplicar. Campo do tipo
+   "ref" (hoje só colaborador → empresa) resolve pelo nome: acha a
+   empresa já cadastrada aqui com o mesmo nome, ou cria uma nova —
+   nunca aponta pra empresa que pertence só à obra de origem. */
+function ImportarDeOutraObra({ aberto, onFechar, dados, tipo, def }) {
+  const outrasObras = dados.obras.filter((o) => o.id !== dados.obra.id)
+  const [obraOrigemId, setObraOrigemId] = useState('')
+  const [selecionados, setSelecionados] = useState(new Set())
+  const [importandoAgora, setImportandoAgora] = useState(false)
+  const [resultado, setResultado] = useState('')
+
+  const fechar = () => {
+    setObraOrigemId(''); setSelecionados(new Set()); setResultado(''); onFechar()
+  }
+
+  const existentesNormalizados = useMemo(
+    () => new Set((dados[tipo] || []).map((x) => normalizarParaCasar(x.nome))),
+    [dados, tipo],
+  )
+
+  const itensOrigem = useMemo(
+    () => (obraOrigemId ? dados.cadastroDeOutraObra(tipo, obraOrigemId) : []),
+    [dados, tipo, obraOrigemId],
+  )
+
+  /* def.sub() espera um `dados` com as listas de referência (ex.:
+     colaborador → empresa) da MESMA obra do item. Sem isso, o nome
+     da empresa da obra de origem nunca bate com `dados.empresas`
+     (que é desta obra) e a linha mostra "—" à toa. */
+  const dadosOrigem = useMemo(() => {
+    if (!obraOrigemId) return dados
+    const refs = {}
+    def.campos.filter((c) => c.tipoCampo === 'ref').forEach((c) => {
+      refs[c.ref] = dados.cadastroDeOutraObra(c.ref, obraOrigemId)
+    })
+    return { ...dados, ...refs }
+  }, [dados, def, obraOrigemId])
+
+  const disponiveis = itensOrigem.filter((item) => !existentesNormalizados.has(normalizarParaCasar(item.nome)))
+  const jaExistemCount = itensOrigem.length - disponiveis.length
+
+  const alternar = (id) => {
+    setSelecionados((s) => {
+      const novo = new Set(s)
+      if (novo.has(id)) novo.delete(id); else novo.add(id)
+      return novo
+    })
+  }
+
+  const confirmarImportacao = async () => {
+    setImportandoAgora(true)
+    /* Cache local do que já existe (ou acabou de ser criado) em cada
+       cadastro-referência desta obra, pra dois itens que citam a
+       mesma empresa nova não criarem ela duas vezes no mesmo lote —
+       `dados` só atualiza no próximo render, não durante este loop. */
+    const cacheRefs = {}
+    def.campos.filter((c) => c.tipoCampo === 'ref').forEach((c) => {
+      cacheRefs[c.ref] = {}
+      ;(dados[c.ref] || []).forEach((r) => { cacheRefs[c.ref][normalizarParaCasar(r.nome)] = r.id })
+    })
+
+    let criados = 0
+    for (const item of itensOrigem.filter((i) => selecionados.has(i.id))) {
+      const novoItem = {}
+      def.campos.forEach((c) => {
+        if (c.tipoCampo !== 'ref') novoItem[c.nome] = item[c.nome] ?? ''
+      })
+      for (const c of def.campos.filter((cc) => cc.tipoCampo === 'ref')) {
+        const valorOrigem = item[c.nome]
+        if (!valorOrigem) { novoItem[c.nome] = ''; continue }
+        const refOrigem = dados.cadastroDeOutraObra(c.ref, obraOrigemId).find((r) => r.id === valorOrigem)
+        if (!refOrigem) { novoItem[c.nome] = ''; continue }
+        const chave = normalizarParaCasar(refOrigem.nome)
+        if (cacheRefs[c.ref][chave]) {
+          novoItem[c.nome] = cacheRefs[c.ref][chave]
+        } else {
+          const criadoRef = await dados.salvarCadastro(c.ref, { nome: refOrigem.nome })
+          if (criadoRef) { cacheRefs[c.ref][chave] = criadoRef.id; novoItem[c.nome] = criadoRef.id }
+        }
+      }
+      const salvo = await dados.salvarCadastro(tipo, novoItem)
+      if (salvo) criados += 1
+    }
+    setImportandoAgora(false)
+    setResultado(`${criados} de ${selecionados.size} importado${criados === 1 ? '' : 's'}.`)
+    setSelecionados(new Set())
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo={`Importar ${def.rotulo.toLowerCase()} de outra obra`} onFechar={fechar}>
+      <div className="stack-2">
+        <Campo label="Obra de origem">
+          <select
+            className="sel" value={obraOrigemId}
+            onChange={(e) => { setObraOrigemId(e.target.value); setSelecionados(new Set()); setResultado('') }}
+          >
+            <option value="">Escolha a obra</option>
+            {outrasObras.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+          </select>
+        </Campo>
+
+        {resultado && <div className="alert success">{resultado}</div>}
+
+        {obraOrigemId && !resultado && (
+          itensOrigem.length === 0 ? (
+            <div className="t-caption">Essa obra não tem nenhum{def.feminino ? 'a' : ''} {def.singular} ativ{def.feminino ? 'a' : 'o'} cadastrad{def.feminino ? 'a' : 'o'}.</div>
+          ) : (
+            <>
+              <div className="row-between" style={{ alignItems: 'center' }}>
+                <div className="t-caption">
+                  {disponiveis.length} pra importar
+                  {jaExistemCount > 0 && ` · ${jaExistemCount} já ${jaExistemCount === 1 ? 'existe' : 'existem'} nesta obra`}
+                </div>
+                {disponiveis.length > 0 && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setSelecionados(new Set(
+                      selecionados.size === disponiveis.length ? [] : disponiveis.map((i) => i.id),
+                    ))}
+                  >
+                    {selecionados.size === disponiveis.length ? 'Limpar seleção' : 'Selecionar todos'}
+                  </button>
+                )}
+              </div>
+
+              <div className="stack-1">
+                {itensOrigem.map((item) => {
+                  const jaExiste = existentesNormalizados.has(normalizarParaCasar(item.nome))
+                  return (
+                    <Selecionavel
+                      key={item.id}
+                      marcado={selecionados.has(item.id)}
+                      onToggle={() => !jaExiste && alternar(item.id)}
+                      titulo={item.nome}
+                      sub={jaExiste ? 'Já existe nesta obra' : def.sub(item, dadosOrigem)}
+                      direita={jaExiste ? <Chip>Já existe</Chip> : null}
+                    />
+                  )
+                })}
+              </div>
+            </>
+          )
+        )}
+      </div>
+
+      {obraOrigemId && !resultado && itensOrigem.length > 0 && (
+        <div className="row-flex" style={{ marginTop: 16 }}>
+          <button className="btn btn-secondary grow" onClick={fechar}>Cancelar</button>
+          <button
+            className="btn btn-primary grow" onClick={confirmarImportacao}
+            disabled={importandoAgora || selecionados.size === 0}
+          >
+            {importandoAgora ? 'Importando…' : `Importar ${selecionados.size || ''}`}
+          </button>
+        </div>
+      )}
+      {resultado && (
+        <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={fechar}>Fechar</button>
+      )}
+    </Sheet>
   )
 }
