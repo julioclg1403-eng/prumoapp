@@ -21,7 +21,6 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
-import Cronograma from '../screens/cronograma'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
@@ -44,7 +43,7 @@ export default function AppGestao({ perfil, onSair }) {
     setPilha((p) => (p.length > 1 ? p.slice(0, -1) : p))
   }, [])
 
-  const irParaAba = (chave) => setPilha([{ screen: chave, params: {} }])
+  const irParaAba = (chave, params = {}) => setPilha([{ screen: chave, params }])
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
@@ -57,9 +56,7 @@ export default function AppGestao({ perfil, onSair }) {
     { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
     { chave: 'diarios', rotulo: 'Diários', icone: 'diario' },
     { chave: 'planejamento', rotulo: 'Planejamento', icone: 'planejamento',
-      desc: 'A semana da obra e o fechamento' },
-    { chave: 'cronograma', rotulo: 'Cronograma', icone: 'cronograma',
-      desc: 'Avanço físico da obra, etapa a etapa' },
+      desc: 'A semana da obra, o fechamento e o avanço físico por etapa' },
     { chave: 'efetivo', rotulo: 'Efetivo', icone: 'efetivo', badge: revisoes,
       desc: 'Consolidado das presenças e revisão de cadastros' },
     { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias', badge: cont.atrasadas },
@@ -142,8 +139,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'diario':     corpo = <DiarioEditor {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'efetivo':    corpo = <Efetivo goto={goto} perfil={perfil} params={rota.params} />; break
     case 'pendencias': corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
-    case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
-    case 'cronograma': corpo = <Cronograma perfil={perfil} goto={goto} />; break
+    case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} params={rota.params} />; break
     case 'requisicoes': corpo = <Requisicoes goto={goto} perfil={perfil} />; break
     case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break

@@ -22,7 +22,10 @@ registerSW({
   immediate: true,
   onRegisteredSW(swUrl, registration) {
     if (!registration) return
-    const conferir = () => registration.update()
+    /* No canteiro o sinal cai — falha de rede aqui não pode virar
+       erro não tratado no console à toa; só tenta de novo no
+       próximo ciclo. */
+    const conferir = () => registration.update().catch(() => {})
     setInterval(conferir, 5 * 60 * 1000)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') conferir()

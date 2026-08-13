@@ -21,7 +21,6 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
-import Cronograma from '../screens/cronograma'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
@@ -52,7 +51,7 @@ export default function AppCampo({ perfil, onSair }) {
 
   /* Trocar de aba zera a pilha — é o comportamento que as pessoas
      esperam de uma barra inferior. */
-  const irParaAba = (chave) => setPilha([{ screen: chave, params: {} }])
+  const irParaAba = (chave, params = {}) => setPilha([{ screen: chave, params }])
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
 
@@ -63,8 +62,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'diario':       corpo = <DiarioEditor {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'efetivo':      corpo = <Efetivo goto={goto} perfil={perfil} />; break
     case 'pendencias':   corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
-    case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} />; break
-    case 'cronograma':   corpo = <Cronograma perfil={perfil} goto={goto} />; break
+    case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} params={rota.params} />; break
     case 'requisicoes':  corpo = <Requisicoes goto={goto} perfil={perfil} />; break
     case 'requisicao':   corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
@@ -94,9 +92,6 @@ export default function AppCampo({ perfil, onSair }) {
         ))}
         <button onClick={() => irParaAba('planejamento')} aria-current={rota.screen === 'planejamento' ? 'true' : undefined}>
           <Icon name="planejamento" size={19} /> Planejamento
-        </button>
-        <button onClick={() => irParaAba('cronograma')} aria-current={rota.screen === 'cronograma' ? 'true' : undefined}>
-          <Icon name="cronograma" size={19} /> Cronograma
         </button>
         <button onClick={() => irParaAba('requisicoes')} aria-current={rota.screen === 'requisicoes' ? 'true' : undefined}>
           <Icon name="pedidos" size={19} /> Pedidos
@@ -188,8 +183,7 @@ function Mais({ goto, perfil, onSair }) {
   const { obra, org } = useDados()
   const itens = [
     { chave: 'requisicoes', rotulo: 'Pedidos de material', desc: 'Pedir material e conferir o que está chegando', icone: 'pedidos' },
-    { chave: 'planejamento', rotulo: 'Planejamento', desc: 'O que está previsto para a semana', icone: 'planejamento' },
-    { chave: 'cronograma', rotulo: 'Cronograma', desc: 'O avanço físico da obra, etapa a etapa', icone: 'cronograma' },
+    { chave: 'planejamento', rotulo: 'Planejamento', desc: 'A semana da obra e o avanço físico por etapa', icone: 'planejamento' },
     { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
     { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
     { chave: 'equipamentos', rotulo: 'Equipamentos', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },

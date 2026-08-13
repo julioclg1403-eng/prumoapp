@@ -185,7 +185,6 @@ export const ROTULO_VISIBILIDADE_APONTAMENTO = { rascunho: 'Rascunho', publicado
 export const MODULOS_RESTRINGIVEIS = [
   { chave: 'diarios', rotulo: 'Diários' },
   { chave: 'planejamento', rotulo: 'Planejamento' },
-  { chave: 'cronograma', rotulo: 'Cronograma' },
   { chave: 'efetivo', rotulo: 'Efetivo' },
   { chave: 'pendencias', rotulo: 'Pendências' },
   { chave: 'requisicoes', rotulo: 'Pedidos' },

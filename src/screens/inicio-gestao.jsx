@@ -241,7 +241,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               <div className="card">
                 <div className="row-between" style={{ marginBottom: 4 }}>
                   <div className="t-micro">Curva S — cronograma físico</div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('cronograma')}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'mensal' })}>
                     Abrir <Icon name="avancar" size={14} />
                   </button>
                 </div>

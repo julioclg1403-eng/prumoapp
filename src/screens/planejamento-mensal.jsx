@@ -26,7 +26,7 @@ import {
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio, ChipToggle, CalendarioMes,
 } from '../components'
 
-export default function Cronograma({ perfil, goto }) {
+export default function PlanejamentoMensal({ perfil, goto }) {
   const dados = useDados()
   const hoje = hojeISO()
   const podeEditar = perfil.role !== 'campo'
@@ -101,18 +101,6 @@ export default function Cronograma({ perfil, goto }) {
 
   return (
     <>
-      <div className="topbar">
-        <div className="grow">
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Cronograma</div>
-          <div className="sub">Avanço físico da obra</div>
-        </div>
-        {podeEditar && (
-          <button onClick={abrirNovo} aria-label="Nova etapa">
-            <Icon name="mais_sinal" size={22} />
-          </button>
-        )}
-      </div>
-
       <div className="page stack-2">
         <PageHeader
           titulo="Cronograma físico"
