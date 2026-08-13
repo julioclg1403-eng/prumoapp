@@ -19,6 +19,7 @@ import {
   hojeISO, formatarData, formatarDataCurta, plural,
   situacaoCronograma, progressoEsperado, curvaFisica, ordenarCronograma,
   paraISOdeTextoBR, paraNumeroBR, diasRealizadosEtapa, intervaloRealEtapa, diasSemDiarioEtapa,
+  somarMeses, somarDias, rotuloMes,
 } from '../lib/dominio'
 import { parseCSV } from '../lib/csv'
 import {
@@ -40,9 +41,25 @@ export default function PlanejamentoMensal({ perfil, goto }) {
   const [mesCalendario, setMesCalendario] = useState(hoje.slice(0, 7))
   const [vinculando, setVinculando] = useState(false)
   const [resultadoVinculo, setResultadoVinculo] = useState('')
+  const [mes, setMes] = useState(() => hoje.slice(0, 7))
 
   const itens = useMemo(() => ordenarCronograma(dados.cronograma), [dados.cronograma])
   const curva = useMemo(() => curvaFisica(itens, hoje), [itens, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* "Mês" aqui é uma janela de navegação, não um dado próprio da
+     etapa (ela não "pertence" a um mês — dura semanas, às vezes
+     atravessa dois ou três). Uma etapa entra no mês navegado se o
+     período dela CRUZA esse mês, do mesmo jeito que o relatório
+     operacional mensal do Julio lista "o que está rolando esse mês",
+     não só o que começa nele. O avanço físico geral (curva/
+     ResumoCurva) continua olhando a obra inteira — não faz sentido
+     zerar um indicador cumulativo a cada mês navegado. */
+  const inicioMes = `${mes}-01`
+  const fimMes = somarDias(somarMeses(mes, 1), -1)
+  const itensDoMes = useMemo(
+    () => itens.filter((i) => i.data_inicio <= fimMes && i.data_fim >= inicioMes),
+    [itens, inicioMes, fimMes],
+  )
 
   const abrirNovo = () => setEditando({ descricao: '', data_inicio: hoje, data_fim: hoje, peso: '1', servico_ids: [] })
   const abrirEdicao = (item) => setEditando({
@@ -103,8 +120,9 @@ export default function PlanejamentoMensal({ perfil, goto }) {
     <>
       <div className="page stack-2">
         <PageHeader
-          titulo="Cronograma físico"
-          sub={plural(itens.length, 'etapa cadastrada', 'etapas cadastradas')}
+          titulo="Planejamento mensal"
+          sub={plural(itensDoMes.length, 'etapa', 'etapas')
+            + ` cruzando ${rotuloMes(mes).toLowerCase()}`}
           acao={
             <div className="row-flex" style={{ flexWrap: 'wrap' }}>
               {!faltaItens && <BotaoRelatorio />}
@@ -116,7 +134,7 @@ export default function PlanejamentoMensal({ perfil, goto }) {
               {podeEditar && (
                 <>
                   <button className="btn btn-secondary" onClick={() => setImportando(true)}>
-                    <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar
+                    <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar PDF mensal
                   </button>
                   <button className="btn btn-primary" onClick={abrirNovo}>
                     <Icon name="mais_sinal" size={18} /> Nova etapa
@@ -133,6 +151,25 @@ export default function PlanejamentoMensal({ perfil, goto }) {
           <div className="alert info">
             Você está vendo o cronograma da obra. Quem cadastra as etapas e mede o avanço é a
             gestão.
+          </div>
+        )}
+
+        {!faltaItens && (
+          <div className="row-between" style={{ flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setMes(hoje.slice(0, 7))}>
+              Este mês
+            </button>
+            <div className="row-flex" style={{ gap: 4 }}>
+              <button className="btn btn-ghost btn-sm" aria-label="Mês anterior" onClick={() => setMes(somarMeses(mes, -1))}>
+                <Icon name="voltar" size={16} />
+              </button>
+              <div className="t-strong" style={{ fontSize: 14, minWidth: 140, textAlign: 'center' }}>
+                {rotuloMes(mes)}
+              </div>
+              <button className="btn btn-ghost btn-sm" aria-label="Próximo mês" onClick={() => setMes(somarMeses(mes, 1))}>
+                <Icon name="avancar" size={16} />
+              </button>
+            </div>
           </div>
         )}
 
@@ -155,9 +192,19 @@ export default function PlanejamentoMensal({ perfil, goto }) {
               )}
             />
           </div>
+        ) : itensDoMes.length === 0 ? (
+          <div className="card-flat">
+            <Vazio
+              titulo="Nenhuma etapa neste mês"
+              texto={`Nenhuma etapa cadastrada cruza ${rotuloMes(mes).toLowerCase()}. Troque o mês ou importe o relatório desse período.`}
+              acao={
+                <button className="btn btn-secondary" onClick={() => setImportando(true)}>Importar PDF mensal</button>
+              }
+            />
+          </div>
         ) : (
           <div className="stack-1">
-            {itens.map((item) => (
+            {itensDoMes.map((item) => (
               <ItemCronograma
                 key={item.id} item={item} hoje={hoje} podeEditar={podeEditar}
                 diasReais={diasRealizadosEtapa(item, dados.servicosCronograma, dados.planejamento, dados.diarios, dados.locais)}
@@ -346,7 +393,7 @@ export default function PlanejamentoMensal({ perfil, goto }) {
       <ImportarCronograma aberto={importando} onFechar={() => setImportando(false)} />
 
       <RelatorioFolha
-        titulo="Cronograma físico" sub={plural(itens.length, 'etapa', 'etapas')}
+        titulo="Planejamento mensal" sub={plural(itens.length, 'etapa', 'etapas')}
         obra={dados.obra.nome} org={dados.org.nome}
       >
         <SecaoRelatorio titulo="Avanço físico da obra">
