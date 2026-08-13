@@ -867,3 +867,30 @@ export function iniciais(nome) {
 export function plural(n, singular, pluralForma) {
   return `${n} ${n === 1 ? singular : pluralForma}`
 }
+
+/* ── Controle de estoque (Almoxarifado) ───────────────────────
+   Modelado em cima da planilha que o almoxarife já usa: uma aba de
+   entrada (o que chegou), uma de saída (o que foi consumido) e uma
+   de saldo — só que aqui o saldo nunca é gravado. É sempre entrada
+   menos saída, calculado na hora, do mesmo jeito que o SUMIF da
+   planilha fazia. Guardar um "saldo atual" seria abrir uma segunda
+   fonte de verdade que pode desalinhar do histórico. */
+export function saldoEstoque(materiais, entradas, saidas) {
+  return (materiais || []).map((m) => {
+    const entradasDoMaterial = (entradas || []).filter((e) => e.material_id === m.id)
+    const saidasDoMaterial = (saidas || []).filter((s) => s.material_id === m.id)
+    const quantidadeEntrada = entradasDoMaterial.reduce((s, e) => s + Number(e.quantidade || 0), 0)
+    const quantidadeSaida = saidasDoMaterial.reduce((s, e) => s + Number(e.quantidade || 0), 0)
+    const custoTotal = entradasDoMaterial.reduce((s, e) => s + Number(e.valor_total || 0), 0)
+    const saldo = quantidadeEntrada - quantidadeSaida
+    return {
+      material: m,
+      quantidadeEntrada,
+      quantidadeSaida,
+      saldo,
+      custoTotal,
+      custoMedio: quantidadeEntrada > 0 ? custoTotal / quantidadeEntrada : 0,
+      abaixoDoMinimo: m.estoque_minimo != null && m.estoque_minimo !== '' && saldo < Number(m.estoque_minimo),
+    }
+  })
+}

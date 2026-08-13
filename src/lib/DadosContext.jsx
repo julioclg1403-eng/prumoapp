@@ -37,6 +37,7 @@ const TABELA = {
   servicos: 'services',
   tiposOcorrencia: 'occurrence_types',
   equipamentos: 'equipment',
+  materiaisEstoque: 'stock_materials',
   disciplinasProjeto: 'project_disciplines',
   categoriasProjeto: 'project_categories',
   etapasProjeto: 'project_stages',
@@ -163,7 +164,7 @@ export function DadosProvider({ perfil, children }) {
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
-      servicosCronograma,
+      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -190,13 +191,16 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('project_discipline_statuses').select('*').order('ordem'),
       supabase.from('project_notes').select(SELECT_APONTAMENTO).order('created_at', { ascending: false }),
       supabase.from('schedule_item_services').select('*'),
+      supabase.from('stock_materials').select('*').order('nome'),
+      supabase.from('stock_entries').select('*').order('data', { ascending: false }),
+      supabase.from('stock_exits').select('*').order('data', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
-      servicosCronograma].find((r) => r.error)
+      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -247,6 +251,9 @@ export function DadosProvider({ perfil, children }) {
       statusDisciplinaProjeto: statusDisciplinaProjeto.data || [],
       apontamentos: (apontamentos.data || []).map(normalizarApontamento),
       servicosCronograma: servicosCronograma.data || [],
+      materiaisEstoque: materiaisEstoque.data || [],
+      entradasEstoque: entradasEstoque.data || [],
+      saidasEstoque: saidasEstoque.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -316,6 +323,9 @@ export function DadosProvider({ perfil, children }) {
       statusDisciplinaProjeto: filtrar(tudo.statusDisciplinaProjeto),
       apontamentos: filtrar(tudo.apontamentos),
       servicosCronograma: filtrar(tudo.servicosCronograma),
+      materiaisEstoque: filtrar(tudo.materiaisEstoque),
+      entradasEstoque: filtrar(tudo.entradasEstoque),
+      saidasEstoque: filtrar(tudo.saidasEstoque),
     }
   }, [tudo, obraId])
 
@@ -1183,6 +1193,98 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar, avisarErro],
   )
 
+  // ── Controle de estoque (Almoxarifado) ─────────────────────
+  /* Material em si é um cadastro comum — reaproveita salvarCadastro/
+     arquivarCadastro (tipo 'materiaisEstoque') como qualquer outro.
+     Só entrada e saída, que são lançamento (não cadastro com
+     ativo/inativo), ganham função própria aqui. */
+  const salvarEntradaEstoque = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        material_id: item.material_id,
+        data: item.data,
+        fornecedor: item.fornecedor || null,
+        nota_fiscal: item.nota_fiscal || null,
+        data_nota: item.data_nota || null,
+        quantidade: Number(item.quantidade),
+        valor_total: item.valor_total === '' || item.valor_total == null ? null : Number(item.valor_total),
+        autor_id: perfil.id,
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('stock_entries').upsert(linha).select('*').single(),
+        'salvar a entrada de estoque',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        entradasEstoque: t.entradasEstoque.some((e) => e.id === salvo.id)
+          ? t.entradasEstoque.map((e) => (e.id === salvo.id ? salvo : e))
+          : [salvo, ...t.entradasEstoque],
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirEntradaEstoque = useCallback(
+    async (id) => {
+      const r = await supabase.from('stock_entries').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a entrada de estoque'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, entradasEstoque: t.entradasEstoque.filter((e) => e.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
+  const salvarSaidaEstoque = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        material_id: item.material_id,
+        data: item.data,
+        quantidade: Number(item.quantidade),
+        destino: item.destino || null,
+        autor_id: perfil.id,
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('stock_exits').upsert(linha).select('*').single(),
+        'salvar a saída de estoque',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        saidasEstoque: t.saidasEstoque.some((s) => s.id === salvo.id)
+          ? t.saidasEstoque.map((s) => (s.id === salvo.id ? salvo : s))
+          : [salvo, ...t.saidasEstoque],
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirSaidaEstoque = useCallback(
+    async (id) => {
+      const r = await supabase.from('stock_exits').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a saída de estoque'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, saidasEstoque: t.saidasEstoque.filter((s) => s.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   // ── Planejamento ──────────────────────────────────────────
   const salvarPlanejado = useCallback(
     async (item) => {
@@ -1845,6 +1947,7 @@ export function DadosProvider({ perfil, children }) {
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
+      salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
@@ -1868,6 +1971,7 @@ export function DadosProvider({ perfil, children }) {
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
+      salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
