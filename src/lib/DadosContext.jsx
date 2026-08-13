@@ -164,7 +164,7 @@ export function DadosProvider({ perfil, children }) {
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
-      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque,
+      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -194,13 +194,14 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('stock_materials').select('*').order('nome'),
       supabase.from('stock_entries').select('*').order('data', { ascending: false }),
       supabase.from('stock_exits').select('*').order('data', { ascending: false }),
+      supabase.from('meal_records').select('*').order('data', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
-      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque].find((r) => r.error)
+      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -254,6 +255,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEstoque: materiaisEstoque.data || [],
       entradasEstoque: entradasEstoque.data || [],
       saidasEstoque: saidasEstoque.data || [],
+      refeicoes: refeicoes.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -326,6 +328,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEstoque: filtrar(tudo.materiaisEstoque),
       entradasEstoque: filtrar(tudo.entradasEstoque),
       saidasEstoque: filtrar(tudo.saidasEstoque),
+      refeicoes: filtrar(tudo.refeicoes),
     }
   }, [tudo, obraId])
 
@@ -1285,6 +1288,49 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Controle de refeições (Almoxarifado) ───────────────────
+  const salvarRefeicao = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        company_id: item.company_id,
+        data: item.data,
+        quantidade: Number(item.quantidade),
+        fornecedor: item.fornecedor || null,
+        autor_id: perfil.id,
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('meal_records').upsert(linha).select('*').single(),
+        'salvar o lançamento de refeição',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        refeicoes: t.refeicoes.some((r) => r.id === salvo.id)
+          ? t.refeicoes.map((r) => (r.id === salvo.id ? salvo : r))
+          : [salvo, ...t.refeicoes],
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirRefeicao = useCallback(
+    async (id) => {
+      const r = await supabase.from('meal_records').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir o lançamento de refeição'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, refeicoes: t.refeicoes.filter((r) => r.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   // ── Planejamento ──────────────────────────────────────────
   const salvarPlanejado = useCallback(
     async (item) => {
@@ -1948,6 +1994,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
+      salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
@@ -1972,6 +2019,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
+      salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,

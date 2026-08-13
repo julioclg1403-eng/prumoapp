@@ -894,3 +894,31 @@ export function saldoEstoque(materiais, entradas, saidas) {
     }
   })
 }
+
+/* ── Controle de refeições (Almoxarifado) ─────────────────────
+   As duas planilhas do Julio (terceirizado e próprio) são a MESMA
+   coisa — data × empresa × quantidade — só que a de terceirizado
+   tem uma coluna por empresa e a de próprio só uma, porque só
+   tem uma equipe própria na obra. É exatamente a distinção que
+   `empresas.tipo` ('propria'/'empreiteira') já guarda no cadastro,
+   então não vira um campo novo: agrupa pelo tipo da empresa do
+   lançamento, do mesmo jeito que as duas planilhas já vinham
+   separadas, mas numa fonte só. */
+export function resumoRefeicoesDoMes(registros, empresas, mes) {
+  const doMes = (registros || []).filter((r) => r.data.slice(0, 7) === mes)
+  const porEmpresa = new Map()
+  doMes.forEach((r) => {
+    porEmpresa.set(r.company_id, (porEmpresa.get(r.company_id) || 0) + Number(r.quantidade || 0))
+  })
+  const linhas = Array.from(porEmpresa.entries()).map(([companyId, total]) => {
+    const empresa = (empresas || []).find((e) => e.id === companyId)
+    return { companyId, nome: empresa?.nome || 'Empresa removida', tipo: empresa?.tipo || 'empreiteira', total }
+  }).sort((a, b) => b.total - a.total)
+  return {
+    registros: doMes,
+    linhas,
+    proprias: linhas.filter((l) => l.tipo === 'propria'),
+    terceirizadas: linhas.filter((l) => l.tipo !== 'propria'),
+    totalGeral: linhas.reduce((s, l) => s + l.total, 0),
+  }
+}
