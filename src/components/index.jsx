@@ -398,7 +398,37 @@ export function BotaoRelatorio({ onClick }) {
   )
 }
 
+/* Só existe UMA forma de "salvar" este relatório: o diálogo de
+   impressão do navegador, que sugere como nome de arquivo o que
+   estiver em document.title na hora — daí sempre virar "Prumo.pdf",
+   igual pra Cronograma, Pendências, Diário etc. Troca o título só
+   durante a impressão (beforeprint/afterprint, que disparam não
+   importa o gatilho — botão "Relatório" ou Ctrl+P) pro nome sugerido
+   já vir com o módulo e a data, sem precisar caçar rastreabilidade
+   depois numa pasta cheia de "Prumo (1).pdf". */
+function nomeDeArquivoRelatorio(partes) {
+  return partes.filter(Boolean).join(' - ')
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .replace(/[\\/:*?"<>|]/g, '')
+}
+
 export function RelatorioFolha({ titulo, sub, obra, org, children }) {
+  useEffect(() => {
+    const tituloOriginal = document.title
+    const hoje = new Date()
+    const dataISO = [hoje.getFullYear(), String(hoje.getMonth() + 1).padStart(2, '0'), String(hoje.getDate()).padStart(2, '0')].join('-')
+    const nomeArquivo = nomeDeArquivoRelatorio([titulo, obra, dataISO])
+    const aoImprimir = () => { document.title = nomeArquivo || tituloOriginal }
+    const aoFechar = () => { document.title = tituloOriginal }
+    window.addEventListener('beforeprint', aoImprimir)
+    window.addEventListener('afterprint', aoFechar)
+    return () => {
+      window.removeEventListener('beforeprint', aoImprimir)
+      window.removeEventListener('afterprint', aoFechar)
+      document.title = tituloOriginal
+    }
+  }, [titulo, obra])
+
   return (
     <div className="relatorio">
       <div className="relatorio-cabecalho">
