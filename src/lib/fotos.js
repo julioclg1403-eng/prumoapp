@@ -276,6 +276,11 @@ export const enviarFotoAdvertencia = (p) => enviarFotoGenerica({
 })
 export const apagarFotoAdvertencia = (foto) => apagarFotoGenerica('warning_photos', foto)
 
+export const enviarFotoEquipamento = (p) => enviarFotoGenerica({
+  ...p, tabela: 'equipment_photos', colunaId: 'equipment_id', idValor: p.equipmentId, pasta: 'equipamentos',
+})
+export const apagarFotoEquipamento = (foto) => apagarFotoGenerica('equipment_photos', foto)
+
 /* ── Exibição ───────────────────────────────────────────────── */
 
 /* O balde é privado, então não existe endereço fixo para a imagem:

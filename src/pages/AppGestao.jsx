@@ -66,7 +66,7 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Todas as fotos da obra, por dia' },
     { chave: 'lembretes', rotulo: 'Lembretes', icone: 'lembrete', badge: lembretesAtrasados,
       desc: 'O que você marcou pra não esquecer' },
-    { chave: 'equipamentos', rotulo: 'Equipamentos', icone: 'equipamento',
+    { chave: 'equipamentos', rotulo: 'Almoxarifado', icone: 'equipamento',
       desc: 'Máquinas e ferramentas, e onde cada uma está' },
     { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
       desc: 'Ocorrências e advertências da obra' },

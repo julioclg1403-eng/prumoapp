@@ -103,7 +103,7 @@ export default function AppCampo({ perfil, onSair }) {
           <Icon name="lembrete" size={19} /> Lembretes
         </button>
         <button onClick={() => irParaAba('equipamentos')} aria-current={rota.screen === 'equipamentos' ? 'true' : undefined}>
-          <Icon name="equipamento" size={19} /> Equipamentos
+          <Icon name="equipamento" size={19} /> Almoxarifado
         </button>
         <button onClick={() => irParaAba('seguranca')} aria-current={rota.screen === 'seguranca' ? 'true' : undefined}>
           <Icon name="alerta" size={19} /> Segurança
@@ -186,7 +186,7 @@ function Mais({ goto, perfil, onSair }) {
     { chave: 'planejamento', rotulo: 'Planejamento', desc: 'A semana da obra e o avanço físico por etapa', icone: 'planejamento' },
     { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
     { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
-    { chave: 'equipamentos', rotulo: 'Equipamentos', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
+    { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
     { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
     { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
   ]

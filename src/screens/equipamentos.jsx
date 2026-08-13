@@ -12,7 +12,10 @@
 import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { STATUS_EQUIPAMENTO, ROTULO_STATUS_EQUIPAMENTO, TOM_STATUS_EQUIPAMENTO } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio } from '../components'
+import {
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio,
+  CampoFotos, VisorFoto, useLinksDeFotos,
+} from '../components'
 
 export default function Equipamentos({ voltar, perfil }) {
   const dados = useDados()
@@ -20,8 +23,11 @@ export default function Equipamentos({ voltar, perfil }) {
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [enviandoFoto, setEnviandoFoto] = useState(0)
+  const [fotoAberta, setFotoAberta] = useState(null)
 
   const podeEditar = perfil?.role !== 'campo'
+  const links = useLinksDeFotos(editando?.fotos)
 
   const todos = dados.equipamentos || []
   const ativos = todos.filter((e) => e.ativo !== false)
@@ -30,7 +36,7 @@ export default function Equipamentos({ voltar, perfil }) {
     : filtro === 'todos' ? ativos
       : ativos.filter((e) => e.status === filtro)
 
-  const abrirNovo = () => setEditando({ status: 'disponivel' })
+  const abrirNovo = () => setEditando({ status: 'disponivel', fotos: [] })
 
   const salvar = async () => {
     if (!editando?.nome?.trim()) return
@@ -44,6 +50,45 @@ export default function Equipamentos({ voltar, perfil }) {
     })
     setSalvando(false)
     if (ok) setEditando(null)
+  }
+
+  /* A foto precisa de um equipamento que já exista no banco, pra se
+     pendurar nele. Se ainda está cadastrando um novo e já quer
+     fotografar, salva primeiro — mesma saída que Pendências e o
+     Diário usam, pelo mesmo motivo. */
+  const garantirSalvo = async () => {
+    if (editando.id) return editando
+    if (!editando.nome?.trim()) return null
+    const salvo = await dados.salvarCadastro('equipamentos', {
+      ...editando,
+      nome: editando.nome.trim(),
+      tipo: (editando.tipo || '').trim() || null,
+      observacao: (editando.observacao || '').trim() || null,
+      responsavel_id: editando.responsavel_id || null,
+    })
+    if (salvo) setEditando(salvo)
+    return salvo
+  }
+
+  const enviarFotosEquipamento = async (arquivos) => {
+    setEnviandoFoto((n) => n + arquivos.length)
+    try {
+      const base = await garantirSalvo()
+      if (!base) return
+      const novas = []
+      for (const arquivo of arquivos) {
+        const f = await dados.adicionarFotoEquipamento(base.id, arquivo)
+        if (f) novas.push(f)
+      }
+      if (novas.length) setEditando((p) => ({ ...p, fotos: [...(p.fotos || []), ...novas] }))
+    } finally {
+      setEnviandoFoto((n) => Math.max(0, n - arquivos.length))
+    }
+  }
+
+  const removerFotoEquipamento = async (foto) => {
+    const ok = await dados.removerFotoEquipamento(foto)
+    if (ok) setEditando((p) => ({ ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }))
   }
 
   const pedirArquivar = (item) => {
@@ -64,7 +109,7 @@ export default function Equipamentos({ voltar, perfil }) {
       <div className="topbar">
         {voltar && <button onClick={voltar} aria-label="Voltar"><Icon name="voltar" size={22} /></button>}
         <div className="grow">
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Equipamentos</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Almoxarifado</div>
           <div className="sub">{dados.obra.nome}</div>
         </div>
         {podeEditar && (
@@ -74,7 +119,7 @@ export default function Equipamentos({ voltar, perfil }) {
 
       <div className="page">
         <PageHeader
-          titulo="Equipamentos"
+          titulo="Almoxarifado"
           sub="Máquinas e ferramentas da obra, e onde cada uma está"
           acao={podeEditar && (
             <button className="btn btn-primary" onClick={abrirNovo}>
@@ -219,8 +264,31 @@ export default function Equipamentos({ voltar, perfil }) {
               placeholder="Estado, particularidade, o que for útil saber."
             />
           </Campo>
+          <Campo label="Fotos">
+            <CampoFotos
+              fotos={editando?.fotos || []}
+              links={links}
+              enviando={enviandoFoto}
+              onAdicionar={enviarFotosEquipamento}
+              onRemover={removerFotoEquipamento}
+              onAbrir={setFotoAberta}
+            />
+          </Campo>
         </div>
       </Sheet>
+
+      <VisorFoto
+        foto={fotoAberta}
+        fotos={editando?.fotos || []}
+        links={links}
+        onFechar={() => setFotoAberta(null)}
+        onIr={(delta) => {
+          const lista2 = editando?.fotos || []
+          const i = lista2.findIndex((f) => f.id === fotoAberta.id)
+          const prox = lista2[(i + delta + lista2.length) % lista2.length]
+          if (prox) setFotoAberta(prox)
+        }}
+      />
 
       <Confirmar
         aberto={Boolean(confirmar)}

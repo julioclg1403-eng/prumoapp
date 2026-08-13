@@ -23,6 +23,7 @@ import { hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar 
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
+  enviarFotoEquipamento, apagarFotoEquipamento,
 } from './fotos'
 import { enviarAnexoApontamento, apagarAnexoApontamento } from './anexos'
 
@@ -180,7 +181,7 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('schedule_items').select('*').order('data_inicio'),
       supabase.from('reminders').select('*').order('disparar_em'),
       supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false }),
-      supabase.from('equipment').select('*').order('nome'),
+      supabase.from('equipment').select('*, fotos:equipment_photos(*)').order('nome'),
       supabase.from('safety_occurrences').select('*, fotos:safety_occurrence_photos(*)').order('data', { ascending: false }),
       supabase.from('warnings').select('*, fotos:warning_photos(*)').order('data', { ascending: false }),
       supabase.from('project_disciplines').select('*').order('ordem'),
@@ -237,7 +238,7 @@ export function DadosProvider({ perfil, children }) {
       cronograma: cronograma.data || [],
       lembretes: lembretes.data || [],
       contatosWhatsapp: contatosWhatsapp.data || [],
-      equipamentos: equipamentos.data || [],
+      equipamentos: (equipamentos.data || []).map((e) => ({ ...e, fotos: e.fotos || [] })),
       ocorrenciasSeguranca: (ocorrenciasSeguranca.data || []).map((o) => ({ ...o, fotos: o.fotos || [] })),
       advertencias: (advertencias.data || []).map((a) => ({ ...a, fotos: a.fotos || [] })),
       disciplinasProjeto: disciplinasProjeto.data || [],
@@ -870,6 +871,36 @@ export function DadosProvider({ perfil, children }) {
     [avisarErro],
   )
 
+  const adicionarFotoEquipamento = useCallback(
+    async (equipmentId, arquivo) => {
+      const { foto, erro } = await enviarFotoEquipamento({
+        arquivo, organizationId: perfil.organization_id, obraId: obraId, equipmentId, autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      setTudo((t) => t && ({
+        ...t,
+        equipamentos: t.equipamentos.map((e) =>
+          e.id === equipmentId ? { ...e, fotos: [...(e.fotos || []), foto] } : e),
+      }))
+      return foto
+    },
+    [perfil, obraId, avisarErro],
+  )
+
+  const removerFotoEquipamento = useCallback(
+    async (foto) => {
+      const { erro } = await apagarFotoEquipamento(foto)
+      if (erro) { avisarErro(erro); return false }
+      setTudo((t) => t && ({
+        ...t,
+        equipamentos: t.equipamentos.map((e) =>
+          e.id === foto.equipment_id ? { ...e, fotos: (e.fotos || []).filter((f) => f.id !== foto.id) } : e),
+      }))
+      return true
+    },
+    [avisarErro],
+  )
+
   const excluirAdvertencia = useCallback(
     async (id) => {
       const r = await supabase.from('warnings').delete().eq('id', id).select('id')
@@ -1101,7 +1132,10 @@ export function DadosProvider({ perfil, children }) {
       const tabela = TABELA[tipo]
       if (!tabela) return null
       const { organization_id, worksite_id } = escopo()
-      const { criado_em, created_at, ...limpo } = item // eslint-disable-line no-unused-vars
+      /* `fotos` (só existe em equipamentos, embutida na consulta
+         inicial) não é coluna da tabela — mandar ela no upsert
+         quebraria a gravação. */
+      const { criado_em, created_at, fotos, ...limpo } = item // eslint-disable-line no-unused-vars
       const linha = { ...limpo, organization_id, worksite_id }
 
       const salvo = checar(
@@ -1109,7 +1143,12 @@ export function DadosProvider({ perfil, children }) {
         `salvar o cadastro`,
       )
       if (!salvo) return null
-      const comData = tipo === 'colaboradores' ? { ...salvo, criado_em: salvo.created_at } : salvo
+      /* upsert também não devolve `fotos` (é de outra tabela) —
+         preserva o que já estava carregado, senão a tela perde as
+         miniaturas que já apareciam. */
+      const comData = tipo === 'colaboradores'
+        ? { ...salvo, criado_em: salvo.created_at }
+        : fotos !== undefined ? { ...salvo, fotos } : salvo
       setTudo((t) => t && ({
         ...t,
         [tipo]: t[tipo].some((x) => x.id === comData.id)
@@ -1800,7 +1839,7 @@ export function DadosProvider({ perfil, children }) {
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
-      adicionarFotoAdvertencia, removerFotoAdvertencia,
+      adicionarFotoAdvertencia, removerFotoAdvertencia, adicionarFotoEquipamento, removerFotoEquipamento,
       salvarApontamento, mudarStatusApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
@@ -1823,7 +1862,7 @@ export function DadosProvider({ perfil, children }) {
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
-      adicionarFotoAdvertencia, removerFotoAdvertencia,
+      adicionarFotoAdvertencia, removerFotoAdvertencia, adicionarFotoEquipamento, removerFotoEquipamento,
       salvarApontamento, mudarStatusApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
