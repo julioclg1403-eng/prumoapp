@@ -118,6 +118,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const [salvando, setSalvando] = useState(false)
   const [mostrarArquivados, setMostrarArquivados] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [agruparPorFuncao, setAgruparPorFuncao] = useState(false)
 
   /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
      gravação barrada pela permissão não dá erro, simplesmente não
@@ -131,6 +132,29 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const ativos = todos.filter((x) => x.ativo !== false).length
   const arquivados = todos.filter((x) => x.ativo === false).length
   const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
+
+  /* Só faz sentido pra colaborador — os outros cadastros não têm
+     função. Colaborador sem função cadastrada vai pro fim, num grupo
+     à parte, em vez de sumir ou quebrar a ordenação. Agrupa pela
+     função normalizada (sem acento/caixa) porque o cadastro real tem
+     a mesma função digitada de jeitos diferentes — "Pedreiro" e
+     "PEDREIRO" são o mesmo grupo, com o rótulo da primeira grafia
+     encontrada. */
+  const gruposPorFuncao = useMemo(() => {
+    if (tipo !== 'colaboradores' || !agruparPorFuncao) return null
+    const grupos = new Map()
+    lista.forEach((item) => {
+      const funcao = (item.funcao || '').trim()
+      const chave = funcao ? normalizarParaCasar(funcao) : ''
+      if (!grupos.has(chave)) grupos.set(chave, { rotulo: funcao || 'Sem função', itens: [] })
+      grupos.get(chave).itens.push(item)
+    })
+    return Array.from(grupos.values()).sort((a, b) => {
+      if (a.rotulo === 'Sem função') return 1
+      if (b.rotulo === 'Sem função') return -1
+      return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
+    })
+  }, [tipo, agruparPorFuncao, lista])
 
   const abrirNovo = () => setEditando({})
 
@@ -160,6 +184,37 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
       onOk: async () => { setConfirmar(null); await dados.arquivarCadastro(tipo, item.id) },
     })
   }
+
+  const ItemDoCadastro = ({ item }) => (
+    <ItemLista
+      titulo={item.nome}
+      sub={def.sub(item, dados)}
+      direita={
+        <div className="row-flex" style={{ gap: 4 }}>
+          {item.provisorio && !item.revisado && <Chip tom="info">Provisório</Chip>}
+          {item.ativo === false && <Chip>{rotuloArquivado}</Chip>}
+          {podeEditar && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setEditando({ ...item })}
+                aria-label="Editar"
+              >
+                <Icon name="editar" size={16} />
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => pedirArquivar(item)}
+                aria-label={item.ativo === false ? rotuloReativar : rotuloArquivar}
+              >
+                <Icon name={item.ativo === false ? 'check' : 'x'} size={16} />
+              </button>
+            </>
+          )}
+        </div>
+      }
+    />
+  )
 
   return (
     <>
@@ -218,6 +273,17 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             />
           )}
 
+          {tipo === 'colaboradores' && (
+            <Segmentos
+              valor={agruparPorFuncao ? 'funcao' : 'nome'}
+              onChange={(v) => setAgruparPorFuncao(v === 'funcao')}
+              opcoes={[
+                { valor: 'nome', rotulo: 'Por nome' },
+                { valor: 'funcao', rotulo: 'Por função' },
+              ]}
+            />
+          )}
+
           {lista.length === 0 ? (
             <div className="card-flat">
               <Vazio
@@ -230,39 +296,20 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
                 acao={!mostrarArquivados && <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar</button>}
               />
             </div>
+          ) : gruposPorFuncao ? (
+            <div className="stack-3">
+              {gruposPorFuncao.map(({ rotulo, itens }) => (
+                <div key={rotulo} className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
+                  </div>
+                  {itens.map((item) => <ItemDoCadastro key={item.id} item={item} />)}
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="stack-1">
-              {lista.map((item) => (
-                <ItemLista
-                  key={item.id}
-                  titulo={item.nome}
-                  sub={def.sub(item, dados)}
-                  direita={
-                    <div className="row-flex" style={{ gap: 4 }}>
-                      {item.provisorio && !item.revisado && <Chip tom="info">Provisório</Chip>}
-                      {item.ativo === false && <Chip>{rotuloArquivado}</Chip>}
-                      {podeEditar && (
-                        <>
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => setEditando({ ...item })}
-                            aria-label="Editar"
-                          >
-                            <Icon name="editar" size={16} />
-                          </button>
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => pedirArquivar(item)}
-                            aria-label={item.ativo === false ? rotuloReativar : rotuloArquivar}
-                          >
-                            <Icon name={item.ativo === false ? 'check' : 'x'} size={16} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  }
-                />
-              ))}
+              {lista.map((item) => <ItemDoCadastro key={item.id} item={item} />)}
             </div>
           )}
         </div>
