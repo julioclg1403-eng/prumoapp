@@ -17,7 +17,7 @@ import {
   CampoFotos, VisorFoto, useLinksDeFotos,
 } from '../components'
 
-export default function Equipamentos({ voltar, perfil }) {
+export default function AlmoxarifadoEquipamentos({ perfil }) {
   const dados = useDados()
   const [filtro, setFiltro] = useState('todos')
   const [editando, setEditando] = useState(null)
@@ -106,20 +106,9 @@ export default function Equipamentos({ voltar, perfil }) {
 
   return (
     <>
-      <div className="topbar">
-        {voltar && <button onClick={voltar} aria-label="Voltar"><Icon name="voltar" size={22} /></button>}
-        <div className="grow">
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Almoxarifado</div>
-          <div className="sub">{dados.obra.nome}</div>
-        </div>
-        {podeEditar && (
-          <button onClick={abrirNovo} aria-label="Novo equipamento"><Icon name="mais_sinal" size={22} /></button>
-        )}
-      </div>
-
       <div className="page">
         <PageHeader
-          titulo="Almoxarifado"
+          titulo="Equipamentos"
           sub="Máquinas e ferramentas da obra, e onde cada uma está"
           acao={podeEditar && (
             <button className="btn btn-primary" onClick={abrirNovo}>

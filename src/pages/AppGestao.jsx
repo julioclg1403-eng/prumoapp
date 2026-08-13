@@ -24,7 +24,7 @@ import Planejamento from '../screens/planejamento'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
-import Equipamentos from '../screens/equipamentos'
+import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
 import Usuarios from '../screens/usuarios'
@@ -144,7 +144,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':  corpo = <Lembretes perfil={perfil} />; break
-    case 'equipamentos': corpo = <Equipamentos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'equipamentos': corpo = <Almoxarifado voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break

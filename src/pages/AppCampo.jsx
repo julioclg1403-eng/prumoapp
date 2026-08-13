@@ -24,7 +24,7 @@ import Planejamento from '../screens/planejamento'
 import Requisicoes from '../screens/requisicoes'
 import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
-import Equipamentos from '../screens/equipamentos'
+import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 
 const ABAS = [
@@ -67,7 +67,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'requisicao':   corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
-    case 'equipamentos': corpo = <Equipamentos voltar={voltar} perfil={perfil} />; break
+    case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} />; break
     case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'mais':         corpo = <Mais goto={goto} perfil={perfil} onSair={onSair} />; break
