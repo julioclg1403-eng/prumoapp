@@ -196,6 +196,16 @@ export const MODULOS_RESTRINGIVEIS = [
   { chave: 'cadastros', rotulo: 'Cadastros' },
 ]
 
+/* Mesma regra em todo lugar que decide se um módulo aparece: admin
+   sempre vê; sem `modulos_permitidos` definido, sem restrição
+   nenhuma; senão, só quem tem a chave na lista liberada. Projetos já
+   foi admin-only "de verdade" (papel, não módulo) — agora segue essa
+   mesma regra como qualquer outro módulo, tela e banco (RLS
+   `private.tem_modulo`) concordando. */
+export function moduloPermitido(perfil, chave) {
+  return perfil.role === 'admin' || !perfil.modulos_permitidos || perfil.modulos_permitidos.includes(chave)
+}
+
 /* ── Pendências ──────────────────────────────────────────────
    "Em aberto" INCLUI as atrasadas. Esta mesma função alimenta a
    tela, o contador do menu e o resumo do início — é isso que

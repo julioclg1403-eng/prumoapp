@@ -11,7 +11,7 @@
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { normalizarParaCasar } from '../lib/dominio'
+import { normalizarParaCasar, moduloPermitido } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle,
   Selecionavel,
@@ -105,10 +105,11 @@ const TIPOS = {
 
 export default function Cadastros({ voltar, perfil, params = {} }) {
   const dados = useDados()
-  /* Os cadastros de Projetos (soAdmin) só aparecem pra quem é admin —
-     módulo admin-only, o banco também recusa a leitura pros outros. */
+  /* Os cadastros de Projetos (soAdmin) só aparecem pra quem tem o
+     módulo Projetos liberado — mesma regra de moduloPermitido que o
+     resto do app, banco (RLS `tem_modulo`) concordando. */
   const TIPOS_VISIVEIS = Object.fromEntries(
-    Object.entries(TIPOS).filter(([, d]) => !d.soAdmin || perfil?.role === 'admin'),
+    Object.entries(TIPOS).filter(([, d]) => !d.soAdmin || moduloPermitido(perfil, 'projetos')),
   )
   const [tipo, setTipo] = useState(
     params.tipo && TIPOS_VISIVEIS[params.tipo] ? params.tipo : 'empresas',

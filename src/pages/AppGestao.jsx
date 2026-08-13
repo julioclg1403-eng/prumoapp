@@ -72,15 +72,15 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Ocorrências e advertências da obra' },
     { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
       desc: 'Empresas, colaboradores, locais e serviços' },
-    /* Projetos e Usuários são admin-only por natureza, não por essa
-       lista de módulos restringíveis — o banco também exige admin
-       pra ler/gravar o que é de Projetos. */
+    { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
+      desc: 'Apontamentos entre projeto e obra, por disciplina' },
+    /* Usuários é admin-only por papel, não por módulo liberável —
+       só quem já é admin cria/edita acesso de outra pessoa. Projetos
+       já foi assim também; agora segue a mesma lista de módulos
+       restringíveis que todo o resto (banco, RLS `tem_modulo`,
+       concorda). */
     ...(perfil.role === 'admin'
-      ? [
-        { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
-          desc: 'Apontamentos entre projeto e obra, por disciplina' },
-        { chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' },
-      ]
+      ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' }]
       : []),
   ].filter((i) => (
     /* "Início" e "Usuários" nunca são restringíveis por essa lista —
@@ -110,10 +110,11 @@ export default function AppGestao({ perfil, onSair }) {
      do módulo que as abre. */
   const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes' }
   const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
-  /* Usuários e Projetos são admin-only de verdade (o banco também
-     exige admin pra Projetos) — não passam pela lista de módulos
-     restringíveis, viram "sim" só pra quem é admin. */
-  const ADMIN_ONLY = ['usuarios', 'projetos']
+  /* Usuários é admin-only de verdade — não passa pela lista de
+     módulos restringíveis, vira "sim" só pra quem é admin. Projetos
+     não está mais aqui: segue a mesma regra dos outros módulos
+     (bloco de baixo). */
+  const ADMIN_ONLY = ['usuarios']
   const semRestricao = perfil.role === 'admin' || !perfil.modulos_permitidos
   const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || (
     ADMIN_ONLY.includes(chaveDoModulo)

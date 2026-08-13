@@ -11,7 +11,7 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro, SeletorObra } from '../components'
 import { useDados } from '../lib/DadosContext'
-import { contarPendencias, pendenciasGerais } from '../lib/dominio'
+import { contarPendencias, pendenciasGerais, moduloPermitido } from '../lib/dominio'
 
 import InicioCampo from '../screens/inicio-campo'
 import Diarios from '../screens/diarios'
@@ -26,14 +26,29 @@ import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
 import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
+import Projetos from '../screens/projetos'
 
-const ABAS = [
+/* Mesma lista/filtro do AppGestao (dominio.moduloPermitido): admin
+   sempre vê tudo, sem modulos_permitidos definido não tem restrição,
+   senão só o que foi liberado em Usuários. Antes o Campo não filtrava
+   nada — Projetos, por exemplo, nem existia aqui, então liberar em
+   Usuários não tinha efeito nenhum pra quem era 'campo'. */
+const TODOS_ITENS = [
   { chave: 'inicio', rotulo: 'Início', icone: 'inicio' },
   { chave: 'diarios', rotulo: 'Diário', icone: 'diario' },
   { chave: 'efetivo', rotulo: 'Efetivo', icone: 'efetivo' },
   { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias' },
-  { chave: 'mais', rotulo: 'Mais', icone: 'mais' },
+  { chave: 'planejamento', rotulo: 'Planejamento', desc: 'A semana da obra e o avanço físico por etapa', icone: 'planejamento' },
+  { chave: 'requisicoes', rotulo: 'Pedidos', desc: 'Pedir material e conferir o que está chegando', icone: 'pedidos' },
+  { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
+  { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
+  { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
+  { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
+  { chave: 'projetos', rotulo: 'Projetos', desc: 'Apontamentos entre projeto e obra, por disciplina', icone: 'projeto' },
+  { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
 ]
+
+const CHAVES_FIXAS = ['inicio', 'diarios', 'efetivo', 'pendencias']
 
 export default function AppCampo({ perfil, onSair }) {
   const desktop = useDesktop()
@@ -55,8 +70,33 @@ export default function AppCampo({ perfil, onSair }) {
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
 
+  const itens = TODOS_ITENS.filter((i) => i.chave === 'inicio' || moduloPermitido(perfil, i.chave))
+  const abasCelular = [
+    ...CHAVES_FIXAS.map((c) => itens.find((i) => i.chave === c)).filter(Boolean),
+    { chave: 'mais', rotulo: 'Mais', icone: 'mais' },
+  ]
+  const noMais = itens.filter((i) => !CHAVES_FIXAS.includes(i.chave))
+
+  /* Um atalho do Início ou um link salvo não passa pela lista de
+     itens acima, então chega direto no `goto` — segunda trava, além
+     do menu escondido. */
+  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes' }
+  const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
+  const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || moduloPermitido(perfil, chaveDoModulo)
+
   let corpo
-  switch (rota.screen) {
+  if (!permitido) {
+    corpo = (
+      <div className="page">
+        <div className="empty" style={{ paddingTop: 80 }}>
+          Você não tem acesso a este módulo.
+          <div style={{ marginTop: 16 }}>
+            <button className="btn btn-primary" onClick={() => irParaAba('inicio')}>Voltar ao início</button>
+          </div>
+        </div>
+      </div>
+    )
+  } else switch (rota.screen) {
     case 'inicio':       corpo = <InicioCampo goto={goto} irParaAba={irParaAba} perfil={perfil} />; break
     case 'diarios':      corpo = <Diarios goto={goto} perfil={perfil} />; break
     case 'diario':       corpo = <DiarioEditor {...rota.params} voltar={voltar} perfil={perfil} />; break
@@ -69,8 +109,9 @@ export default function AppCampo({ perfil, onSair }) {
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} />; break
     case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} />; break
+    case 'projetos':     corpo = <Projetos goto={goto} voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
-    case 'mais':         corpo = <Mais goto={goto} perfil={perfil} onSair={onSair} />; break
+    case 'mais':         corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break
     default:             corpo = <InicioCampo goto={goto} irParaAba={irParaAba} perfil={perfil} />
   }
 
@@ -78,39 +119,18 @@ export default function AppCampo({ perfil, onSair }) {
     <div className="app" data-desktop={desktop ? '1' : '0'}>
       <nav className="sidebar" aria-label="Menu">
         <MarcaLateral obra={dados.obra.nome} />
-        {ABAS.filter((a) => a.chave !== 'mais').map((a) => (
+        {itens.map((i) => (
           <button
-            key={a.chave} onClick={() => irParaAba(a.chave)}
-            aria-current={rota.screen === a.chave ? 'true' : undefined}
+            key={i.chave} onClick={() => irParaAba(i.chave)}
+            aria-current={rota.screen === i.chave ? 'true' : undefined}
           >
-            <Icon name={a.icone} size={19} />
-            {a.rotulo}
-            {a.chave === 'pendencias' && cont.atrasadas > 0 && (
+            <Icon name={i.icone} size={19} />
+            {i.rotulo}
+            {i.chave === 'pendencias' && cont.atrasadas > 0 && (
               <span className="badge">{cont.atrasadas}</span>
             )}
           </button>
         ))}
-        <button onClick={() => irParaAba('planejamento')} aria-current={rota.screen === 'planejamento' ? 'true' : undefined}>
-          <Icon name="planejamento" size={19} /> Planejamento
-        </button>
-        <button onClick={() => irParaAba('requisicoes')} aria-current={rota.screen === 'requisicoes' ? 'true' : undefined}>
-          <Icon name="pedidos" size={19} /> Pedidos
-        </button>
-        <button onClick={() => irParaAba('galeria')} aria-current={rota.screen === 'galeria' ? 'true' : undefined}>
-          <Icon name="galeria" size={19} /> Galeria
-        </button>
-        <button onClick={() => irParaAba('lembretes')} aria-current={rota.screen === 'lembretes' ? 'true' : undefined}>
-          <Icon name="lembrete" size={19} /> Lembretes
-        </button>
-        <button onClick={() => irParaAba('equipamentos')} aria-current={rota.screen === 'equipamentos' ? 'true' : undefined}>
-          <Icon name="equipamento" size={19} /> Almoxarifado
-        </button>
-        <button onClick={() => irParaAba('seguranca')} aria-current={rota.screen === 'seguranca' ? 'true' : undefined}>
-          <Icon name="alerta" size={19} /> Segurança
-        </button>
-        <button onClick={() => irParaAba('cadastros')} aria-current={rota.screen === 'cadastros' ? 'true' : undefined}>
-          <Icon name="cadastros" size={19} /> Cadastros
-        </button>
         <div style={{ marginTop: 'auto' }}>
           <RodapeLateral perfil={perfil} onSair={onSair} />
         </div>
@@ -121,7 +141,7 @@ export default function AppCampo({ perfil, onSair }) {
       <BarraErro mensagem={dados.erro} />
 
       <nav className="bottom-nav" aria-label="Navegação principal">
-        {ABAS.map((a) => (
+        {abasCelular.map((a) => (
           <button
             key={a.chave} onClick={() => irParaAba(a.chave)}
             aria-current={rota.screen === a.chave ? 'true' : undefined}
@@ -179,17 +199,8 @@ export function RodapeLateral({ perfil, onSair }) {
 
 /* ── Aba "Mais": o que não coube na barra inferior ───────── */
 
-function Mais({ goto, perfil, onSair }) {
+function Mais({ itens, irParaAba, perfil, onSair }) {
   const { obra, org } = useDados()
-  const itens = [
-    { chave: 'requisicoes', rotulo: 'Pedidos de material', desc: 'Pedir material e conferir o que está chegando', icone: 'pedidos' },
-    { chave: 'planejamento', rotulo: 'Planejamento', desc: 'A semana da obra e o avanço físico por etapa', icone: 'planejamento' },
-    { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
-    { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
-    { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
-    { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
-    { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
-  ]
   return (
     <>
       <div className="topbar">
@@ -200,7 +211,7 @@ function Mais({ goto, perfil, onSair }) {
       </div>
       <div className="page stack-2">
         {itens.map((i) => (
-          <button key={i.chave} className="card-tap" onClick={() => goto(i.chave)}>
+          <button key={i.chave} className="card-tap" onClick={() => irParaAba(i.chave)}>
             <div className="row-flex">
               <Icon name={i.icone} size={22} style={{ color: 'var(--primary)' }} />
               <div className="grow">
