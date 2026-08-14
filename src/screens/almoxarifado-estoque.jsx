@@ -14,10 +14,28 @@
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarDataCurta, plural, saldoEstoque } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
 } from '../components'
+
+/* Baixa CSV no mesmo layout de colunas da planilha do almoxarife
+   (abas Estoque/Entrada/Saida) — pra continuar abrindo no Excel dele
+   sem precisar remontar nada na mão. Ponto e vírgula e BOM: é o que
+   faz o Excel em português abrir com colunas separadas e acentos
+   certos (mesmo truque do CSV do Planejamento). */
+function baixarCSV(nomeArquivo, cabecalho, linhas) {
+  const csv = [cabecalho, ...linhas]
+    .map((l) => l.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';'))
+    .join('\r\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo
+  document.body.appendChild(a); a.click(); a.remove()
+  URL.revokeObjectURL(url)
+}
 
 export default function AlmoxarifadoEstoque({ perfil }) {
   const dados = useDados()
@@ -103,6 +121,36 @@ export default function AlmoxarifadoEstoque({ perfil }) {
     onOk: async () => { setConfirmar(null); await dados.excluirSaidaEstoque(item.id) },
   })
 
+  const baixarPlanilha = () => {
+    const sigla = dados.obra.sigla || 'obra'
+    if (aba === 'saldo') {
+      baixarCSV(
+        `estoque-${sigla}-${hoje}.csv`,
+        ['Material', 'Unidade', 'Quantidade', 'Custo Unitário Médio', 'Custo Total', 'Quantidade de Saída', 'Estoque', 'Estoque regulador'],
+        saldos.map((s) => [
+          s.material.nome, s.material.unidade, s.quantidadeEntrada,
+          s.custoMedio.toFixed(2), s.custoTotal.toFixed(2), s.quantidadeSaida, s.saldo,
+          s.material.estoque_minimo ?? '',
+        ]),
+      )
+    } else if (aba === 'entradas') {
+      baixarCSV(
+        `entrada-${sigla}-${hoje}.csv`,
+        ['Chegou em', 'Material', 'Fornecedor', 'Nº da Nota Fiscal', 'Data da Nota', 'Quantidade'],
+        entradas.map((e) => [
+          formatarData(e.data), nomeMaterial(e.material_id), e.fornecedor || '',
+          e.nota_fiscal || '', formatarData(e.data_nota), e.quantidade,
+        ]),
+      )
+    } else {
+      baixarCSV(
+        `saida-${sigla}-${hoje}.csv`,
+        ['Data', 'Material', 'Quantidade', 'DESTINO'],
+        saidas.map((s) => [formatarData(s.data), nomeMaterial(s.material_id), s.quantidade, s.destino || '']),
+      )
+    }
+  }
+
   const pedirArquivarMaterial = (material) => setConfirmar({
     titulo: 'Arquivar material?',
     texto: `«${material.nome}» deixa de aparecer pra escolher em entrada/saída novas. O histórico continua intacto.`,
@@ -135,6 +183,17 @@ export default function AlmoxarifadoEstoque({ perfil }) {
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
         ]}
       />
+
+      <div className="row-between">
+        <div className="t-caption">
+          {aba === 'saldo' && `${plural(saldosFiltrados.length, 'material', 'materiais')} nesta lista`}
+          {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
+          {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
+          <Icon name="baixar" size={15} /> Baixar planilha
+        </button>
+      </div>
 
       {aba === 'saldo' && (
         <div className="stack-2">
