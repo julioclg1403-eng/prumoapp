@@ -20,7 +20,7 @@ import {
   ROTULO_ATIVIDADE, TOM_ATIVIDADE, situacaoDiario, plural,
 } from '../lib/dominio'
 import {
-  Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista,
+  Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista, Segmentos,
   CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, FotosRelatorio,
 } from '../components'
@@ -480,6 +480,19 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
   const dados = useDados()
   const [equipeDe, setEquipeDe] = useState(null)   // atividade cuja equipe está sendo escolhida
   const [nova, setNova] = useState(null)
+  const [visao, setVisao] = useState('lista')   // 'lista' | 'porLocal'
+  /* Toda frente nasce fechada — ver o dia inteiro aberto de uma vez,
+     com foto e observação de cada uma, é rolagem demais pra achar a
+     frente que importa. Guarda só QUEM está aberto, não o inverso:
+     assim uma frente nova (adicionada ou vinda do planejamento)
+     também nasce fechada, sem precisar listar explicitamente. */
+  const [abertos, setAbertos] = useState(() => new Set())
+  const alternarAberto = (id) =>
+    setAbertos((s) => {
+      const novo = new Set(s)
+      if (novo.has(id)) novo.delete(id); else novo.add(id)
+      return novo
+    })
 
   const presentes = diario.presencas.filter((p) => p.presente)
 
@@ -542,6 +555,44 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
 
   const ativAtual = diario.atividades.find((a) => a.id === equipeDe) || null
 
+  const observacaoMudou = (id, valor) =>
+    alterar({
+      atividades: diario.atividades.map((x) => (x.id === id ? { ...x, observacao: valor } : x)),
+    })
+
+  const renderCard = (a) => {
+    const r = dados.rotuloAtividade(a.planned_id)
+    const equipe = (a.worker_ids || []).map((w) => dados.colaboradorPorId(w)).filter(Boolean)
+    return (
+      <CardFrente
+        key={a.id}
+        a={a} r={r} equipe={equipe}
+        aberto={abertos.has(a.id)}
+        onToggle={() => alternarAberto(a.id)}
+        bloqueado={bloqueado}
+        presentes={presentes}
+        onTrocarStatus={trocarStatus}
+        onEscolherEquipe={setEquipeDe}
+        onObservacao={observacaoMudou}
+        fotos={fotos}
+        dataAtual={diario.data}
+      />
+    )
+  }
+
+  /* Visão "por local": mesma lista, só agrupada — a frente sem local
+     casado (planejamento removido) cai num grupo à parte, em vez de
+     sumir da tela. */
+  const porLocal = useMemo(() => {
+    const mapa = new Map()
+    diario.atividades.forEach((a) => {
+      const chave = dados.rotuloAtividade(a.planned_id).local || 'Sem local'
+      if (!mapa.has(chave)) mapa.set(chave, [])
+      mapa.get(chave).push(a)
+    })
+    return [...mapa.entries()].sort((x, y) => x[0].localeCompare(y[0], 'pt-BR'))
+  }, [diario.atividades, dados])
+
   return (
     <div className="stack-3">
       <div className="row-between">
@@ -584,88 +635,36 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
           />
         </div>
       ) : (
-        <div className="stack-2">
-          {diario.atividades.map((a) => {
-            const r = dados.rotuloAtividade(a.planned_id)
-            const equipe = (a.worker_ids || []).map((w) => dados.colaboradorPorId(w)).filter(Boolean)
-            return (
-              <div key={a.id} className="card">
-                <div className="row-between" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
-                  <div className="grow">
-                    <div className="t-strong" style={{ fontSize: 15 }}>{r.servico}</div>
-                    <div className="t-caption" style={{ marginTop: 2 }}>
-                      {r.local} · {r.empresa}
-                    </div>
+        <>
+          <Segmentos
+            valor={visao}
+            onChange={setVisao}
+            opcoes={[
+              { valor: 'lista', rotulo: 'Lista' },
+              { valor: 'porLocal', rotulo: 'Por local' },
+            ]}
+          />
+
+          {visao === 'lista' ? (
+            <div className="stack-2">
+              {diario.atividades.map(renderCard)}
+            </div>
+          ) : (
+            <div className="stack-3">
+              {porLocal.map(([local, itens]) => (
+                <div key={local}>
+                  <div className="row-flex" style={{ gap: 6, marginBottom: 8 }}>
+                    <Icon name="local" size={15} style={{ color: 'var(--text-3)' }} />
+                    <div className="t-micro">{local}</div>
                   </div>
-                  <Chip tom={TOM_ATIVIDADE[a.status]}>{ROTULO_ATIVIDADE[a.status]}</Chip>
+                  <div className="stack-2">
+                    {itens.map(renderCard)}
+                  </div>
                 </div>
-
-                <div className="row-wrap" style={{ marginBottom: 12 }}>
-                  {['nao_iniciada', 'em_andamento', 'concluida'].map((s) => (
-                    <button
-                      key={s}
-                      className={`btn btn-sm ${a.status === s ? 'btn-dark' : 'btn-secondary'}`}
-                      onClick={() => trocarStatus(a, s)}
-                      disabled={bloqueado}
-                      aria-pressed={a.status === s}
-                    >
-                      {ROTULO_ATIVIDADE[s]}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  className="btn btn-secondary btn-block btn-sm"
-                  style={{ justifyContent: 'space-between' }}
-                  onClick={() => setEquipeDe(a.id)}
-                  disabled={bloqueado || presentes.length === 0}
-                >
-                  <span>
-                    {equipe.length === 0 ? 'Quem trabalhou aqui?' : equipe.map((c) => c.nome).join(', ')}
-                  </span>
-                  <span className="t-num" style={{ opacity: 0.7 }}>{equipe.length}</span>
-                </button>
-
-                <TextareaComAudio
-                  style={{ marginTop: 10, minHeight: 60 }}
-                  placeholder="Observação desta frente (opcional)"
-                  value={a.observacao || ''}
-                  disabled={bloqueado}
-                  onChange={(e) =>
-                    alterar({
-                      atividades: diario.atividades.map((x) =>
-                        x.id === a.id ? { ...x, observacao: e.target.value } : x,
-                      ),
-                    })
-                  }
-                />
-
-                {/* Fotos desta frente. A legenda já nasce com serviço,
-                    local e data — foto de obra sem contexto não serve
-                    para nada três meses depois. */}
-                <div style={{ marginTop: 12 }}>
-                  <div className="t-micro" style={{ marginBottom: 8 }}>Fotos desta frente</div>
-                  <CampoFotos
-                    fotos={fotos.lista.filter((f) => f.activity_id === a.id)}
-                    links={fotos.links}
-                    enviando={fotos.enviando[a.planned_id] || 0}
-                    bloqueado={bloqueado}
-                    onAbrir={fotos.abrir}
-                    onRemover={fotos.remover}
-                    onAdicionar={(arquivos) =>
-                      fotos.enviar(arquivos, {
-                        plannedId: a.planned_id,
-                        legenda: legendaAutomatica({
-                          servico: r.servico, local: r.local, data: diario.data,
-                        }),
-                      })
-                    }
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* ── Escolher quem trabalhou na frente ── */}
@@ -754,6 +753,103 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
           </Campo>
         </div>
       </Sheet>
+    </div>
+  )
+}
+
+/* Uma frente, fechada por padrão: o cabeçalho (serviço, local, chip de
+   status) sempre aparece; o resto — status, equipe, observação, fotos
+   — só quando a pessoa toca pra abrir. Com 5, 7 frentes num dia só,
+   tudo aberto de uma vez era rolagem demais pra achar a que importa. */
+function CardFrente({
+  a, r, equipe, aberto, onToggle, bloqueado, presentes,
+  onTrocarStatus, onEscolherEquipe, onObservacao, fotos, dataAtual,
+}) {
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+          gap: 10, background: 'none', border: 'none', padding: 16, textAlign: 'left', cursor: 'pointer',
+          font: 'inherit', color: 'inherit',
+        }}
+        aria-expanded={aberto}
+      >
+        <div className="grow">
+          <div className="t-strong" style={{ fontSize: 15 }}>{r.servico}</div>
+          <div className="t-caption" style={{ marginTop: 2 }}>{r.local} · {r.empresa}</div>
+        </div>
+        <div className="row-flex" style={{ gap: 8, alignItems: 'center', flex: 'none' }}>
+          <Chip tom={TOM_ATIVIDADE[a.status]}>{ROTULO_ATIVIDADE[a.status]}</Chip>
+          <Icon
+            name="avancar" size={16}
+            style={{
+              color: 'var(--text-3)', transition: 'transform .15s',
+              transform: aberto ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          />
+        </div>
+      </button>
+
+      {aberto && (
+        <div style={{ padding: '0 16px 16px' }}>
+          <div className="row-wrap" style={{ marginBottom: 12 }}>
+            {['nao_iniciada', 'em_andamento', 'concluida'].map((s) => (
+              <button
+                key={s}
+                className={`btn btn-sm ${a.status === s ? 'btn-dark' : 'btn-secondary'}`}
+                onClick={() => onTrocarStatus(a, s)}
+                disabled={bloqueado}
+                aria-pressed={a.status === s}
+              >
+                {ROTULO_ATIVIDADE[s]}
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="btn btn-secondary btn-block btn-sm"
+            style={{ justifyContent: 'space-between' }}
+            onClick={() => onEscolherEquipe(a.id)}
+            disabled={bloqueado || presentes.length === 0}
+          >
+            <span>
+              {equipe.length === 0 ? 'Quem trabalhou aqui?' : equipe.map((c) => c.nome).join(', ')}
+            </span>
+            <span className="t-num" style={{ opacity: 0.7 }}>{equipe.length}</span>
+          </button>
+
+          <TextareaComAudio
+            style={{ marginTop: 10, minHeight: 60 }}
+            placeholder="Observação desta frente (opcional)"
+            value={a.observacao || ''}
+            disabled={bloqueado}
+            onChange={(e) => onObservacao(a.id, e.target.value)}
+          />
+
+          {/* Fotos desta frente. A legenda já nasce com serviço, local
+              e data — foto de obra sem contexto não serve para nada
+              três meses depois. */}
+          <div style={{ marginTop: 12 }}>
+            <div className="t-micro" style={{ marginBottom: 8 }}>Fotos desta frente</div>
+            <CampoFotos
+              fotos={fotos.lista.filter((f) => f.activity_id === a.id)}
+              links={fotos.links}
+              enviando={fotos.enviando[a.planned_id] || 0}
+              bloqueado={bloqueado}
+              onAbrir={fotos.abrir}
+              onRemover={fotos.remover}
+              onAdicionar={(arquivos) =>
+                fotos.enviar(arquivos, {
+                  plannedId: a.planned_id,
+                  legenda: legendaAutomatica({ servico: r.servico, local: r.local, data: dataAtual }),
+                })
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
