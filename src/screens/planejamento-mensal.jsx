@@ -42,6 +42,7 @@ export default function PlanejamentoMensal({ perfil, goto }) {
   const [vinculando, setVinculando] = useState(false)
   const [resultadoVinculo, setResultadoVinculo] = useState('')
   const [mes, setMes] = useState(() => hoje.slice(0, 7))
+  const [visao, setVisao] = useState('cartoes')
 
   const itens = useMemo(() => ordenarCronograma(dados.cronograma), [dados.cronograma])
   const curva = useMemo(() => curvaFisica(itens, hoje), [itens, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -175,6 +176,17 @@ export default function PlanejamentoMensal({ perfil, goto }) {
 
         {!faltaItens && <ResumoCurva curva={curva} />}
 
+        {!faltaItens && itensDoMes.length > 0 && (
+          <Segmentos
+            valor={visao}
+            onChange={setVisao}
+            opcoes={[
+              { valor: 'cartoes', rotulo: 'Cartões' },
+              { valor: 'tabela', rotulo: 'Tabela' },
+            ]}
+          />
+        )}
+
         {faltaItens ? (
           <div className="card-flat">
             <Vazio
@@ -202,6 +214,12 @@ export default function PlanejamentoMensal({ perfil, goto }) {
               }
             />
           </div>
+        ) : visao === 'tabela' ? (
+          <TabelaEtapas
+            itens={itensDoMes} dados={dados}
+            onEditar={podeEditar ? abrirEdicao : undefined}
+            onCalendario={abrirCalendario}
+          />
         ) : (
           <div className="stack-1">
             {itensDoMes.map((item) => (
@@ -493,12 +511,23 @@ function ItemCronograma({
             Previsto: {formatarData(item.data_inicio)} a {formatarData(item.data_fim)} · peso {item.peso}
             {item.responsavel ? ` · ${item.responsavel}` : ''}
           </div>
-          {realInfo && (
-            <button className="t-caption" onClick={onVerCalendario} style={{ color: 'var(--success)', fontWeight: 600, marginTop: 2, textAlign: 'left' }}>
-              Real: {formatarDataCurta(realInfo.inicio)} a {formatarDataCurta(realInfo.fim)}
-              {' '}{realInfo.manual ? '(digitado à mão)' : `(${plural(realInfo.dias, 'dia', 'dias')})`} →
-            </button>
-          )}
+          {realInfo && (() => {
+            /* "fim" (calculado OU digitado à mão só no início) não é
+               "terminou" — intervaloRealEtapa cai pro início quando só
+               ele foi digitado, e mostrar isso como intervalo fechado
+               dava a entender que acabou no mesmo dia que começou. Só
+               confia no fim quando a etapa está mesmo concluída (100%
+               medido) — aí sim o fim digitado à mão vale. */
+            const fimConfiavel = situacao.chave === 'concluida'
+            return (
+              <button className="t-caption" onClick={onVerCalendario} style={{ color: 'var(--success)', fontWeight: 600, marginTop: 2, textAlign: 'left' }}>
+                {fimConfiavel
+                  ? `Real: ${formatarDataCurta(realInfo.inicio)} a ${formatarDataCurta(realInfo.fim)}`
+                  : `Real: desde ${formatarDataCurta(realInfo.inicio)}, em andamento`}
+                {' '}{realInfo.manual ? '(digitado à mão)' : `(${plural(realInfo.dias, 'dia', 'dias')})`} →
+              </button>
+            )
+          })()}
           {podeEditar && servicosLigados.length === 0 && (
             <VincularServicoInline servicos={servicos} onVincular={onVincularServico} onCriarEVincular={onCriarEVincularServico} />
           )}
@@ -530,6 +559,69 @@ function ItemCronograma({
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/* ── Tabela: as etapas do mês com a data real de início e fim ──
+   A linha abre a edição (onde dá pra digitar início/fim real à mão);
+   o botão de calendário abre o calendário de dias realizados sem
+   passar pela edição. */
+
+function TabelaEtapas({ itens, dados, onEditar, onCalendario }) {
+  return (
+    <div className="card-flat" style={{ overflowX: 'auto', padding: 0 }}>
+      <table className="tbl" style={{ width: '100%' }}>
+        <thead>
+          <tr>
+            <th>Etapa</th><th>Início previsto</th><th>Fim previsto</th>
+            <th>Início real</th><th>Fim real</th><th>Situação</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {itens.map((item) => {
+            const diasReais = diasRealizadosEtapa(item, dados.servicosCronograma, dados.planejamento, dados.diarios, dados.locais)
+            const realInfo = intervaloRealEtapa(item, diasReais)
+            const s = situacaoCronograma(item, hojeISO())
+            /* O "fim" (calculado OU digitado à mão só no início) não é
+               "terminou" — intervaloRealEtapa cai pro início quando só
+               ele foi digitado, o que dava "fim real" igual ao início
+               numa etapa que nem acabou. Só confia no fim quando a
+               etapa está de fato concluída (100% medido); fora isso,
+               "Em andamento" deixa claro que não acabou. */
+            const fimConfiavel = realInfo && s.chave === 'concluida'
+            return (
+              <tr
+                key={item.id}
+                onClick={onEditar ? () => onEditar(item) : undefined}
+                style={onEditar ? { cursor: 'pointer' } : undefined}
+              >
+                <td>{item.descricao}</td>
+                <td>{formatarDataCurta(item.data_inicio)}</td>
+                <td>{formatarDataCurta(item.data_fim)}</td>
+                <td>
+                  {realInfo ? formatarDataCurta(realInfo.inicio) : '—'}
+                  {realInfo?.manual && <span title="Digitado à mão" style={{ marginLeft: 4, color: 'var(--text-3)' }}>✎</span>}
+                </td>
+                <td>
+                  {fimConfiavel
+                    ? formatarDataCurta(realInfo.fim)
+                    : realInfo ? <span style={{ color: 'var(--info)' }}>Em andamento</span> : '—'}
+                </td>
+                <td><Chip tom={s.tom}>{s.rotulo}</Chip></td>
+                <td>
+                  <button
+                    className="btn btn-ghost btn-sm" aria-label="Calendário"
+                    onClick={(e) => { e.stopPropagation(); onCalendario(item) }}
+                  >
+                    <Icon name="planejamento" size={14} />
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

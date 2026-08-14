@@ -17,11 +17,11 @@ import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, somarDias, formatarData, formatarDataCurta, nomeDiaSemana,
   inicioDaSemana, diasDaSemana, rotuloDaSemana, fecharSemana, SITUACAO_EXECUCAO,
-  plural,
+  agruparPlanejamento, plural,
 } from '../lib/dominio'
 import {
-  Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop,
-  RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+  Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop, Segmentos,
+  RelatorioFolha, SecaoRelatorio, TabelaRelatorio, CalendarioMes,
 } from '../components'
 
 const DIAS = [
@@ -45,6 +45,8 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
   const [salvando, setSalvando] = useState(false)
   const [verFechamento, setVerFechamento] = useState(false)
   const [copiado, setCopiado] = useState('')
+  const [visao, setVisao] = useState('cartoes')
+  const [grupoAberto, setGrupoAberto] = useState(null)
 
   const podeEditar = perfil.role !== 'campo'
   const fim = somarDias(inicio, 6)
@@ -68,6 +70,14 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
     semana.itens.forEach((i) => { (mapa[i.planejada.data] ||= []).push(i) })
     return mapa
   }, [semana, dias]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const grupos = useMemo(
+    () => agruparPlanejamento(
+      filtrado.filter((p) => p.data >= inicio && p.data <= fim),
+      dados.planejamento, dados.diarios, dados.planejamentoOverrides, hoje,
+    ),
+    [filtrado, inicio, fim, dados.planejamento, dados.diarios, dados.planejamentoOverrides, hoje],
+  )
 
   const faltaCadastro = dados.servicos.length === 0 || dados.locais.length === 0
 
@@ -99,6 +109,44 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
       company_id: planejada.company_id || '',
       observacao: planejada.observacao || '',
     })
+
+  /* ── Início/fim real do grupo (edição manual + reabrir) ──── */
+
+  const abrirGrupo = (g) => setGrupoAberto({
+    ...g,
+    inicioEditado: g.inicioReal || '',
+    fimEditado: g.fimReal || '',
+    mesCalendario: (g.inicioReal || g.dias[0] || hoje).slice(0, 7),
+  })
+
+  const salvarOverrideGrupo = async () => {
+    if (!grupoAberto) return
+    setSalvando(true)
+    const ok = await dados.salvarOverridePlanejamento({
+      service_id: grupoAberto.service_id,
+      location_id: grupoAberto.location_id,
+      company_id: grupoAberto.company_id,
+      inicio_real: grupoAberto.inicioEditado || null,
+      fim_real: grupoAberto.fimEditado || null,
+    })
+    setSalvando(false)
+    if (ok) setGrupoAberto(null)
+  }
+
+  /* Reabrir não desfaz o que o gatilho do banco já apagou dos dias
+     futuros — só devolve o diário daquele dia pro modo de edição, pra
+     quem lançou "concluída" sem querer poder corrigir o status. Se
+     precisar replanejar os dias que sumiram, é usar "Nova"/"Planejar
+     em lote" de novo, do mesmo jeito que planejaria qualquer outro. */
+  const reabrirServico = async () => {
+    if (!grupoAberto?.fimReal) return
+    const diario = dados.diarios.find((d) => d.data === grupoAberto.fimReal)
+    if (!diario) return
+    if (diario.status === 'finalizado') await dados.reabrirDiario(diario.id)
+    const data = grupoAberto.fimReal
+    setGrupoAberto(null)
+    goto('diario', { data, id: diario.id })
+  }
 
   const salvarLote = async () => {
     const { service_id, location_id, company_id, observacao, diasMarcados } = emLote
@@ -223,6 +271,17 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
             </div>
           </div>
 
+          {semana.total > 0 && (
+            <Segmentos
+              valor={visao}
+              onChange={setVisao}
+              opcoes={[
+                { valor: 'cartoes', rotulo: 'Cartões' },
+                { valor: 'tabela', rotulo: 'Tabela' },
+              ]}
+            />
+          )}
+
           {copiado && <div className="alert success">{copiado}</div>}
 
           {!podeEditar && (
@@ -270,6 +329,8 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
                 )}
               />
             </div>
+          ) : visao === 'tabela' ? (
+            <TabelaGrupos grupos={grupos} dados={dados} onAbrir={podeEditar ? abrirGrupo : undefined} />
           ) : (
             <div
               style={desktop
@@ -417,6 +478,17 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
         dados={dados}
         dias={dias}
         inicio={inicio}
+      />
+
+      <SheetGrupo
+        grupo={grupoAberto}
+        dados={dados}
+        goto={goto}
+        salvando={salvando}
+        onMudar={setGrupoAberto}
+        onSalvar={salvarOverrideGrupo}
+        onReabrir={reabrirServico}
+        onFechar={() => setGrupoAberto(null)}
       />
 
       <RelatorioFolha
@@ -790,6 +862,121 @@ function ColunaDoDia({ data, hoje, desktop, itens, dados, podeEditar, onNova, on
         </div>
       )}
     </div>
+  )
+}
+
+/* ── Tabela: um serviço, uma linha, do início ao fim real ──
+   Clicável quando `onAbrir` existe (só a gestão edita) — abre o
+   calendário do grupo e o início/fim real pra digitar à mão. */
+
+function TabelaGrupos({ grupos, dados, onAbrir }) {
+  if (!grupos.length) return null
+  return (
+    <div className="card-flat" style={{ overflowX: 'auto', padding: 0 }}>
+      <table className="tbl" style={{ width: '100%' }}>
+        <thead>
+          <tr>
+            <th>Serviço</th><th>Local</th><th>Empresa</th>
+            <th>Início real</th><th>Fim real</th><th>Situação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {grupos.map((g) => (
+            <tr
+              key={g.chave}
+              onClick={onAbrir ? () => onAbrir(g) : undefined}
+              style={onAbrir ? { cursor: 'pointer' } : undefined}
+            >
+              <td>{dados.nomeDe(dados.servicos, g.service_id)}</td>
+              <td>{dados.nomeDe(dados.locais, g.location_id)}</td>
+              <td>{dados.nomeDe(dados.empresas, g.company_id, '—')}</td>
+              <td>
+                {g.inicioReal ? formatarDataCurta(g.inicioReal) : '—'}
+                {g.manual && <span title="Digitado à mão" style={{ marginLeft: 4, color: 'var(--text-3)' }}>✎</span>}
+              </td>
+              <td>{g.fimReal ? formatarDataCurta(g.fimReal) : '—'}</td>
+              <td><Chip tom={g.situacao.tom}>{g.situacao.rotulo}</Chip></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* ── Sheet: início/fim real do grupo, calendário e reabrir ── */
+
+function SheetGrupo({ grupo, dados, goto, salvando, onMudar, onSalvar, onReabrir, onFechar }) {
+  return (
+    <Sheet
+      aberto={Boolean(grupo)}
+      titulo={grupo ? `${dados.nomeDe(dados.servicos, grupo.service_id)} · ${dados.nomeDe(dados.locais, grupo.location_id)}` : ''}
+      onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={onSalvar} disabled={salvando}>
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      }
+    >
+      {grupo && (
+        <div className="stack-2">
+          <div className="t-caption" style={{ lineHeight: 1.5 }}>
+            Verde: o diário registrou trabalho neste serviço. Vermelho: o diário do dia nem foi
+            lançado. Toque num dia marcado pra abrir o diário daquele dia.
+          </div>
+          <CalendarioMes
+            mes={grupo.mesCalendario}
+            onMudarMes={(mes) => onMudar({ ...grupo, mesCalendario: mes })}
+            hoje={hojeISO()}
+            obterMarca={(iso) => {
+              const dia = grupo.historico.find((d) => d.data === iso)
+              if (!dia) return null
+              if (dia.situacao.chave === 'concluida') return { rotulo: 'Concluída', tom: 'success' }
+              if (dia.situacao.chave === 'iniciada') return { rotulo: 'Iniciada', tom: 'info' }
+              if (dia.situacao.chave === 'nao_executada') return { rotulo: 'Não executada', tom: 'danger' }
+              return null
+            }}
+            onClicarDia={(iso) => {
+              const diario = dados.diarios.find((d) => d.data === iso)
+              if (diario) goto?.('diario', { data: iso, id: diario.id })
+            }}
+          />
+
+          {grupo.situacao.chave === 'concluida' && (
+            <div className="alert info">
+              Este serviço está marcado como concluído em {formatarDataCurta(grupo.fimReal)}. Se não
+              tiver terminado de verdade, reabra o diário daquele dia e corrija o status lá.
+              <div style={{ marginTop: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={onReabrir}>
+                  Reabrir serviço
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="row-flex">
+            <Campo label="Início real" dica="Só preenche se o cálculo automático pelo diário estiver errado ou faltando.">
+              <input
+                className="ipt" type="date" value={grupo.inicioEditado}
+                onChange={(e) => onMudar({ ...grupo, inicioEditado: e.target.value })}
+              />
+            </Campo>
+            <Campo label="Fim real">
+              <input
+                className="ipt" type="date" value={grupo.fimEditado}
+                onChange={(e) => onMudar({ ...grupo, fimEditado: e.target.value })}
+              />
+            </Campo>
+          </div>
+          {grupo.inicioEditado && grupo.fimEditado && grupo.fimEditado < grupo.inicioEditado && (
+            <div className="alert danger">O fim não pode vir antes do início.</div>
+          )}
+        </div>
+      )}
+    </Sheet>
   )
 }
 

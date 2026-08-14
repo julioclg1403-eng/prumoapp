@@ -165,6 +165,7 @@ export function DadosProvider({ perfil, children }) {
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
+      planejamentoOverrides,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -195,13 +196,15 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('stock_entries').select('*').order('data', { ascending: false }),
       supabase.from('stock_exits').select('*').order('data', { ascending: false }),
       supabase.from('meal_records').select('*').order('data', { ascending: false }),
+      supabase.from('planned_group_overrides').select('*'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
       tiposOcorrencia, planejamento, diarios, pendencias, materiais, requisicoes, cronograma, lembretes,
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
-      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes].find((r) => r.error)
+      servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
+      planejamentoOverrides].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -256,6 +259,7 @@ export function DadosProvider({ perfil, children }) {
       entradasEstoque: entradasEstoque.data || [],
       saidasEstoque: saidasEstoque.data || [],
       refeicoes: refeicoes.data || [],
+      planejamentoOverrides: planejamentoOverrides.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -329,6 +333,7 @@ export function DadosProvider({ perfil, children }) {
       entradasEstoque: filtrar(tudo.entradasEstoque),
       saidasEstoque: filtrar(tudo.saidasEstoque),
       refeicoes: filtrar(tudo.refeicoes),
+      planejamentoOverrides: filtrar(tudo.planejamentoOverrides),
     }
   }, [tudo, obraId])
 
@@ -469,12 +474,46 @@ export function DadosProvider({ perfil, children }) {
         if (!fresco) return null
         const normalizado = normalizarDiario(fresco)
 
+        // 7. Frente concluída agora: um gatilho no banco já apagou os
+        //    dias futuros da mesma combinação (serviço+local+empresa)
+        //    que ainda não tinham nada lançado — aqui só confere quais
+        //    ids sumiram, pra tela acompanhar sem esperar um recarregar.
+        const idsConcluidos = normalizado.atividades
+          .filter((a) => a.status === 'concluida' && a.planned_id)
+          .map((a) => a.planned_id)
+        const grupos = []
+        if (idsConcluidos.length) {
+          const concluidas = checar(
+            await supabase.from('planned_activities')
+              .select('id, data, service_id, location_id, company_id')
+              .in('id', idsConcluidos),
+            'localizar as frentes concluídas',
+          ) || []
+          for (const p of concluidas) {
+            let q = supabase.from('planned_activities').select('id')
+              .eq('worksite_id', worksite_id)
+              .eq('service_id', p.service_id).eq('location_id', p.location_id)
+              .gt('data', p.data)
+            q = p.company_id ? q.eq('company_id', p.company_id) : q.is('company_id', null)
+            const restantes = checar(await q, 'conferir os dias futuros do mesmo serviço') || []
+            grupos.push({ ...p, restantesSet: new Set(restantes.map((r) => r.id)) })
+          }
+        }
+
         setTudo((t) => t && ({
           ...t,
           diarios: [
             normalizado,
             ...t.diarios.filter((d) => d.id !== reportId),
           ].sort((a, b) => (a.data < b.data ? 1 : -1)),
+          planejamento: grupos.length
+            ? t.planejamento.filter((item) => {
+                const g = grupos.find((x) =>
+                  item.service_id === x.service_id && item.location_id === x.location_id
+                  && (item.company_id || null) === (x.company_id || null) && item.data > x.data)
+                return !g || g.restantesSet.has(item.id)
+              })
+            : t.planejamento,
         }))
         return normalizado
       } finally {
@@ -1390,6 +1429,39 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  /* Início/fim real digitado à mão pro grupo (serviço+local+empresa)
+     do Planejamento Semanal — pro dia que o cálculo automático pelo
+     diário errar ou faltar. `chave` é gerada pelo banco a partir
+     desses três campos, então nunca é enviada daqui; o onConflict usa
+     ela pra decidir entre criar e atualizar. */
+  const salvarOverridePlanejamento = useCallback(
+    async ({ service_id, location_id, company_id, inicio_real, fim_real }) => {
+      const { organization_id, worksite_id } = escopo()
+      const salvo = checar(
+        await supabase.from('planned_group_overrides')
+          .upsert({
+            organization_id, worksite_id, service_id, location_id,
+            company_id: company_id || null,
+            inicio_real: inicio_real || null,
+            fim_real: fim_real || null,
+            atualizado_em: new Date().toISOString(),
+            atualizado_por: perfil.id,
+          }, { onConflict: 'worksite_id,chave' })
+          .select('*').single(),
+        'salvar o início/fim real',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        planejamentoOverrides: t.planejamentoOverrides.some((o) => o.id === salvo.id)
+          ? t.planejamentoOverrides.map((o) => (o.id === salvo.id ? salvo : o))
+          : [...t.planejamentoOverrides, salvo],
+      }))
+      return salvo
+    },
+    [escopo, checar, perfil.id],
+  )
+
   // ── Cronograma físico ─────────────────────────────────────
   const salvarItemCronograma = useCallback(
     async (item) => {
@@ -1995,7 +2067,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado,
+      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
@@ -2020,7 +2092,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, definirPapel,
+      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,

@@ -364,6 +364,7 @@ export const SITUACAO_EXECUCAO = {
   iniciada:       { rotulo: 'Iniciada',       tom: 'info' },
   nao_executada:  { rotulo: 'Não executada',  tom: 'danger' },
   sem_lancamento: { rotulo: 'Sem lançamento', tom: '' },
+  planejada:      { rotulo: 'Planejada',      tom: '' },
 }
 
 export function situacaoExecucao(planejada, diarios) {
@@ -408,6 +409,84 @@ export function fecharSemana(planejamento, diarios, de, ate) {
        justamente nas semanas em que o campo deixou de registrar. */
     percentual: itens.length ? Math.round((concluidas / itens.length) * 100) : 0,
   }
+}
+
+/* A mesma combinação que agruparPlanejamento usa pra juntar os dias
+   — e a mesma regra que a coluna gerada `chave` do banco usa em
+   planned_group_overrides. Repare no mesmo lugar se um dos dois
+   mudar, senão o override para de casar com o grupo. */
+export function chaveGrupoPlanejamento(p) {
+  return `${p.service_id}|${p.location_id}|${p.company_id || ''}`
+}
+
+/* Reúne o planejamento de uma janela (semana ou mês) por serviço +
+   local + empresa: um serviço de vários dias vira UMA linha, não uma
+   por dia. O início/fim real olha para TODA a obra, não só a janela
+   — assim um serviço que começou semana passada continua aparecendo
+   como "iniciado" nas semanas seguintes, não só na que ele começou.
+   Situação do grupo: concluído se qualquer dia (de toda a obra) foi
+   concluído; iniciado se nenhum concluído mas algum começou; não
+   executado se algum dia já passou sem lançamento nenhum feito nele;
+   senão é só planejamento futuro.
+
+   `overrides` é o início/fim digitado à mão em planned_group_overrides
+   — quando existe, substitui o calculado inteiro (não mistura um
+   digitado com um calculado), do mesmo jeito que intervalo_real_etapa
+   faz no Cronograma. `historico` sai junto pra alimentar o calendário
+   do grupo — sem isso a tela teria que refazer essa mesma varredura. */
+export function agruparPlanejamento(planejamentoDaJanela, planejamentoTodos, diarios, overrides = [], hoje = hojeISO()) {
+  const grupos = new Map()
+  planejamentoDaJanela.forEach((p) => {
+    const chave = chaveGrupoPlanejamento(p)
+    if (!grupos.has(chave)) {
+      grupos.set(chave, {
+        chave, service_id: p.service_id, location_id: p.location_id, company_id: p.company_id || null,
+        dias: [],
+      })
+    }
+    grupos.get(chave).dias.push(p.data)
+  })
+
+  const overridePorChave = new Map(
+    (overrides || [])
+      .filter((o) => o.inicio_real || o.fim_real)
+      .map((o) => [chaveGrupoPlanejamento(o), o]),
+  )
+
+  return [...grupos.values()].map((g) => {
+    g.dias.sort()
+
+    const historico = (planejamentoTodos || [])
+      .filter((p) => chaveGrupoPlanejamento(p) === g.chave)
+      .map((p) => ({ data: p.data, situacao: situacaoExecucao(p, diarios) }))
+      .sort((a, b) => (a.data < b.data ? -1 : 1))
+
+    const iniciados = historico.filter((d) => d.situacao.chave === 'iniciada' || d.situacao.chave === 'concluida')
+    const concluidos = historico.filter((d) => d.situacao.chave === 'concluida')
+    const passados = historico.filter((d) => d.data <= hoje)
+
+    const override = overridePorChave.get(g.chave)
+
+    let situacaoGeral
+    if (override) {
+      situacaoGeral = override.fim_real ? 'concluida' : 'iniciada'
+    } else {
+      situacaoGeral = 'planejada'
+      if (concluidos.length) situacaoGeral = 'concluida'
+      else if (iniciados.length) situacaoGeral = 'iniciada'
+      else if (passados.some((d) => d.situacao.chave === 'nao_executada')) situacaoGeral = 'nao_executada'
+      else if (passados.length) situacaoGeral = 'sem_lancamento'
+    }
+
+    return {
+      ...g,
+      historico,
+      inicioReal: override ? (override.inicio_real || override.fim_real) : (iniciados[0]?.data || null),
+      fimReal: override ? (override.fim_real || override.inicio_real) : (concluidos.length ? concluidos[concluidos.length - 1].data : null),
+      manual: Boolean(override),
+      situacao: { chave: situacaoGeral, ...SITUACAO_EXECUCAO[situacaoGeral] },
+    }
+  }).sort((a, b) => (a.dias[0] < b.dias[0] ? -1 : 1))
 }
 
 /* ── Efetivo ─────────────────────────────────────────────────
