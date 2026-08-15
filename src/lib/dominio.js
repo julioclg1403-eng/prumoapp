@@ -202,6 +202,41 @@ export function pendenciasParaAbrirApontamento(apontamento) {
   return faltando
 }
 
+/* ── Histórico do apontamento — vira um log de tudo, não só status ──
+   Cada mutação (DadosContext.jsx) grava sua própria linha com uma
+   descrição pronta. Esta função só cuida da parte que precisa
+   COMPARAR duas versões pra saber o que mudou: os campos digitados na
+   aba Detalhes. As outras (comentário, anexo, disciplina, status,
+   abrir) já sabem sozinhas o que aconteceu no momento em que
+   acontecem — não precisam de diff. */
+export const ROTULO_TIPO_HISTORICO = {
+  criacao: 'Criação', edicao: 'Edição', status: 'Status', abertura: 'Abertura',
+  comentario: 'Comentário', anexo: 'Anexo', disciplina: 'Disciplina',
+}
+
+const ROTULO_CAMPO_APONTAMENTO = {
+  titulo: 'título', descricao: 'descrição', prioridade: 'prioridade',
+  stage_id: 'etapa de criação', category_ids: 'categorias', location_ids: 'locais', etiquetas: 'etiquetas',
+}
+
+function diferente(a, b) {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    const x = [...(a || [])].sort(); const y = [...(b || [])].sort()
+    return JSON.stringify(x) !== JSON.stringify(y)
+  }
+  return (a || null) !== (b || null)
+}
+
+/* null se nada relevante mudou (upsert idêntico, ex.: reabrir o Sheet
+   e apertar Salvar sem editar nada) — quem chama não grava histórico
+   nesse caso. */
+export function descreverEdicaoApontamento(antes, depois) {
+  if (!antes) return null
+  const mudou = Object.keys(ROTULO_CAMPO_APONTAMENTO).filter((campo) => diferente(antes[campo], depois[campo]))
+  if (!mudou.length) return null
+  return `editou ${mudou.map((c) => ROTULO_CAMPO_APONTAMENTO[c]).join(', ')}`
+}
+
 /* Módulos que dá pra restringir por usuário (tela Usuários). "Início"
    fica de fora de propósito — sem ele não sobra pra onde a pessoa
    cair ao entrar. "Usuários" também fica de fora: é admin-only por

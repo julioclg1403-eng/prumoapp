@@ -19,7 +19,10 @@
 
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar } from './dominio'
+import {
+  hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar,
+  descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO,
+} from './dominio'
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
@@ -110,7 +113,7 @@ const SELECT_APONTAMENTO = `
     anexos:project_note_comment_attachments ( id, caminho, nome_arquivo, tipo_mime, tamanho_bytes, autor_id, created_at )
   ),
   anexos:project_note_attachments ( id, caminho, nome_arquivo, tipo_mime, tamanho_bytes, autor_id, created_at ),
-  historico:project_note_history ( id, autor_id, de_status, para_status, created_at )
+  historico:project_note_history ( id, autor_id, tipo, descricao, de_status, para_status, created_at )
 `
 
 function normalizarApontamento(n) {
@@ -998,10 +1001,29 @@ export function DadosProvider({ perfil, children }) {
     }))
   }, [])
 
+  /* Uma linha de histórico por chamada — todo mutador do apontamento
+     passa por aqui, pra não repetir o insert (e o log de erro) em
+     cada um. Falha aqui NUNCA aborta a operação principal: o dado de
+     verdade já foi salvo antes de chegar nesta função, então um erro
+     no histórico só deixa o rastro incompleto — mostrar um erro pro
+     usuário sobre algo que na prática deu certo seria pior. */
+  const registrarHistoricoApontamento = useCallback(
+    async (noteId, { tipo, descricao, de_status = null, para_status = null }) => {
+      const { organization_id, worksite_id } = escopo()
+      const h = await supabase.from('project_note_history').insert({
+        organization_id, worksite_id, note_id: noteId, autor_id: perfil.id,
+        tipo, descricao, de_status, para_status,
+      })
+      if (h.error) console.error('[Prumo] histórico do apontamento:', h.error)
+    },
+    [escopo, perfil.id],
+  )
+
   const salvarApontamento = useCallback(
     async (item) => {
       const { organization_id, worksite_id } = escopo()
       const ehNovo = !item.id
+      const antes = !ehNovo ? tudo?.apontamentos?.find((x) => x.id === item.id) : null
       const linha = {
         organization_id, worksite_id,
         titulo: item.titulo,
@@ -1023,18 +1045,19 @@ export function DadosProvider({ perfil, children }) {
       if (!salvo) return null
 
       if (ehNovo) {
-        const h = await supabase.from('project_note_history').insert({
-          organization_id, worksite_id, note_id: salvo.id, autor_id: perfil.id,
-          de_status: null, para_status: 'ativo',
+        await registrarHistoricoApontamento(salvo.id, {
+          tipo: 'criacao', descricao: 'criou o apontamento', para_status: 'ativo',
         })
-        if (h.error) console.error('[Prumo] histórico do apontamento:', h.error)
+      } else {
+        const descricao = descreverEdicaoApontamento(antes, linha)
+        if (descricao) await registrarHistoricoApontamento(salvo.id, { tipo: 'edicao', descricao })
       }
 
       const fresco = await relerApontamento(salvo.id)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [escopo, checar, perfil.id, relerApontamento, atualizarApontamentoLocal],
+    [tudo, escopo, checar, perfil.id, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   /* Ativo → Resolvido/Reprovado, ou reaberto de volta a Ativo. Cada
@@ -1044,7 +1067,6 @@ export function DadosProvider({ perfil, children }) {
     async (id, novoStatus) => {
       const atual = tudo?.apontamentos?.find((x) => x.id === id)
       if (!atual) return null
-      const { organization_id, worksite_id } = escopo()
 
       const r = await supabase.from('project_notes')
         .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
@@ -1055,17 +1077,16 @@ export function DadosProvider({ perfil, children }) {
         return null
       }
 
-      const h = await supabase.from('project_note_history').insert({
-        organization_id, worksite_id, note_id: id, autor_id: perfil.id,
-        de_status: atual.status, para_status: novoStatus,
+      await registrarHistoricoApontamento(id, {
+        tipo: 'status', de_status: atual.status, para_status: novoStatus,
+        descricao: `mudou o status para ${ROTULO_STATUS_APONTAMENTO[novoStatus] || novoStatus}`,
       })
-      if (h.error) console.error('[Prumo] histórico do apontamento:', h.error)
 
       const fresco = await relerApontamento(id)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [tudo, escopo, checar, avisarErro, perfil.id, relerApontamento, atualizarApontamentoLocal],
+    [tudo, checar, avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   /* Rascunho → Publicado: "abrir" o apontamento pra valer. Dali pra
@@ -1082,16 +1103,18 @@ export function DadosProvider({ perfil, children }) {
         avisarErro('Seu perfil não tem permissão para isso. Peça à gestão.')
         return null
       }
+      await registrarHistoricoApontamento(id, { tipo: 'abertura', descricao: 'abriu o apontamento (publicou)' })
       const fresco = await relerApontamento(id)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [checar, avisarErro, relerApontamento, atualizarApontamentoLocal],
+    [checar, avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   const salvarDisciplinaApontamento = useCallback(
     async (noteId, linha) => {
       const { organization_id, worksite_id } = escopo()
+      const ehNova = !linha.id
       const registro = {
         organization_id, worksite_id, note_id: noteId,
         discipline_id: linha.discipline_id,
@@ -1105,22 +1128,32 @@ export function DadosProvider({ perfil, children }) {
         'salvar a disciplina do apontamento',
       )
       if (!salvo) return null
+      const nome = tudo?.disciplinasProjeto?.find((d) => d.id === registro.discipline_id)?.nome || 'uma disciplina'
+      await registrarHistoricoApontamento(noteId, {
+        tipo: 'disciplina', descricao: ehNova ? `adicionou a disciplina ${nome}` : `atualizou a disciplina ${nome}`,
+      })
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [escopo, checar, relerApontamento, atualizarApontamentoLocal],
+    [tudo, escopo, checar, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   const removerDisciplinaApontamento = useCallback(
     async (noteId, disciplinaLinhaId) => {
+      const linha = tudo?.apontamentos
+        ?.find((n) => n.id === noteId)?.disciplinas
+        ?.find((d) => d.id === disciplinaLinhaId)
+      const nome = tudo?.disciplinasProjeto?.find((d) => d.id === linha?.discipline_id)?.nome || 'uma disciplina'
+
       const r = await supabase.from('project_note_disciplines').delete().eq('id', disciplinaLinhaId).select('id')
       if (r.error) { checar(r, 'remover a disciplina do apontamento'); return null }
+      await registrarHistoricoApontamento(noteId, { tipo: 'disciplina', descricao: `removeu a disciplina ${nome}` })
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [checar, relerApontamento, atualizarApontamentoLocal],
+    [tudo, checar, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   /* `anexos` é a lista de arquivos já enviados ao storage (ver
@@ -1148,11 +1181,16 @@ export function DadosProvider({ perfil, children }) {
         if (r.error) console.error('[Prumo] anexos do comentário:', r.error)
       }
 
+      await registrarHistoricoApontamento(noteId, {
+        tipo: 'comentario',
+        descricao: anexos.length ? `comentou (${anexos.length} anexo${anexos.length > 1 ? 's' : ''})` : 'comentou',
+      })
+
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [escopo, perfil.id, checar, relerApontamento, atualizarApontamentoLocal],
+    [escopo, perfil.id, checar, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   const apagarComentarioApontamento = useCallback(
@@ -1164,40 +1202,54 @@ export function DadosProvider({ perfil, children }) {
         ?.find((n) => n.id === noteId)?.comentarios
         ?.find((c) => c.id === comentarioId)
       const caminhos = (comentario?.anexos || []).map((a) => a.caminho)
+      const trecho = (comentario?.texto || '').slice(0, 60)
 
       const r = await supabase.from('project_note_comments').delete().eq('id', comentarioId).select('id')
       if (r.error) { checar(r, 'apagar o comentário'); return null }
       if (caminhos.length) await supabase.storage.from('anexos').remove(caminhos)
 
+      await registrarHistoricoApontamento(noteId, {
+        tipo: 'comentario',
+        descricao: trecho
+          ? `apagou um comentário: "${trecho}${comentario.texto.length > 60 ? '…' : ''}"`
+          : 'apagou um comentário',
+      })
+
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [tudo, checar, relerApontamento, atualizarApontamentoLocal],
+    [tudo, checar, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   const adicionarAnexoApontamento = useCallback(
     async (noteId, arquivo) => {
-      const { erro } = await enviarAnexoApontamento({
+      const { anexo, erro } = await enviarAnexoApontamento({
         arquivo, organizationId: perfil.organization_id, obraId, noteId, autorId: perfil.id,
       })
       if (erro) { avisarErro(erro); return null }
+      await registrarHistoricoApontamento(noteId, {
+        tipo: 'anexo', descricao: `anexou "${anexo?.nome_arquivo || arquivo.name}"`,
+      })
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [perfil, obraId, avisarErro, relerApontamento, atualizarApontamentoLocal],
+    [perfil, obraId, avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   const removerAnexoApontamento = useCallback(
     async (noteId, anexo) => {
       const { erro } = await apagarAnexoApontamento(anexo)
       if (erro) { avisarErro(erro); return null }
+      await registrarHistoricoApontamento(noteId, {
+        tipo: 'anexo', descricao: `removeu o anexo "${anexo.nome_arquivo || 'sem nome'}"`,
+      })
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [avisarErro, relerApontamento, atualizarApontamentoLocal],
+    [avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   /* Apagar de verdade, ao contrário do resto do app — diferente de

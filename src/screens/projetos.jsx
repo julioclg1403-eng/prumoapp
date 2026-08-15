@@ -16,7 +16,7 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  formatarData,
+  formatarData, formatarDataHora,
   PRIORIDADES, ROTULO_PRIORIDADE,
   STATUS_APONTAMENTO, ROTULO_STATUS_APONTAMENTO, TOM_STATUS_APONTAMENTO,
   VISIBILIDADE_APONTAMENTO, ROTULO_VISIBILIDADE_APONTAMENTO,
@@ -712,18 +712,38 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
 
 /* ── Aba Histórico ────────────────────────────────────────── */
 
+/* Um ícone por tipo de evento — ajuda a escanear o log rápido sem
+   ler cada linha. */
+const ICONE_TIPO_HISTORICO = {
+  criacao: 'mais_sinal', edicao: 'editar', status: 'check', abertura: 'check',
+  comentario: 'comentario', anexo: 'anexo', disciplina: 'projeto',
+}
+
 function AbaHistorico({ editando, dados }) {
   if (editando.historico.length === 0) return <div className="t-caption">Sem histórico ainda.</div>
   return (
     <div className="stack-1">
       {editando.historico.map((h) => (
-        <div key={h.id} className="row-between" style={{ fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-          <span>
-            {dados.perfilPorId(h.autor_id)?.nome || 'Alguém'}
-            {' '}mudou para <strong>{ROTULO_STATUS_APONTAMENTO[h.para_status] || h.para_status}</strong>
-            {h.de_status && <> (de {ROTULO_STATUS_APONTAMENTO[h.de_status] || h.de_status})</>}
-          </span>
-          <span className="t-caption">{formatarData(h.created_at?.slice(0, 10))}</span>
+        <div
+          key={h.id} className="row-between"
+          style={{ fontSize: 13, padding: '8px 0', borderBottom: '1px solid var(--border)', gap: 10, alignItems: 'flex-start' }}
+        >
+          <div className="row-flex" style={{ gap: 8, alignItems: 'flex-start', minWidth: 0 }}>
+            <Icon
+              name={ICONE_TIPO_HISTORICO[h.tipo] || 'check'} size={14}
+              style={{ flex: 'none', marginTop: 2, color: 'var(--text-3)' }}
+            />
+            <span>
+              <strong>{dados.perfilPorId(h.autor_id)?.nome || 'Alguém'}</strong>{' '}
+              {h.descricao || (
+                <>
+                  mudou o status para <strong>{ROTULO_STATUS_APONTAMENTO[h.para_status] || h.para_status}</strong>
+                  {h.de_status && <> (de {ROTULO_STATUS_APONTAMENTO[h.de_status] || h.de_status})</>}
+                </>
+              )}
+            </span>
+          </div>
+          <span className="t-caption" style={{ flex: 'none' }}>{formatarDataHora(h.created_at)}</span>
         </div>
       ))}
     </div>
