@@ -47,6 +47,7 @@ export default function AlmoxarifadoEstoque({ perfil }) {
   const [novaEntrada, setNovaEntrada] = useState(null)
   const [novaSaida, setNovaSaida] = useState(null)
   const [editandoMaterial, setEditandoMaterial] = useState(null)
+  const [importando, setImportando] = useState(false)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -165,6 +166,9 @@ export default function AlmoxarifadoEstoque({ perfil }) {
         sub={`${plural(materiais.length, 'material', 'materiais')} cadastrado${materiais.length === 1 ? '' : 's'}${abaixoDoMinimo ? ` · ${abaixoDoMinimo} abaixo do mínimo` : ''}`}
         acao={
           <div className="row-flex" style={{ flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary" onClick={() => setImportando(true)}>
+              <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
+            </button>
             <button className="btn btn-secondary" onClick={() => setNovaSaida({ data: hoje, material_id: '', quantidade: '', destino: '' })}>
               <Icon name="baixar" size={16} /> Registrar saída
             </button>
@@ -496,7 +500,152 @@ export default function AlmoxarifadoEstoque({ perfil }) {
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
+
+      <ImportarMateriais
+        aberto={importando}
+        onFechar={() => setImportando(false)}
+        dados={dados}
+        materiaisExistentes={dados.materiaisEstoque || []}
+      />
     </div>
+  )
+}
+
+/* ── Importação do cadastro de materiais ─────────────────────
+   Só o cadastro (nome, unidade, mínimo) — decisão do Julio: começar
+   com o saldo zerado no app e lançar as entradas daqui pra frente,
+   sem herdar quantidade nem histórico da planilha antiga. Material
+   que já existe (mesmo nome) não duplica, só é avisado. */
+function ImportarMateriais({ aberto, onFechar, dados, materiaisExistentes }) {
+  const [lendo, setLendo] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [nomeArquivo, setNomeArquivo] = useState('')
+  const [importandoAgora, setImportandoAgora] = useState(false)
+  const [feito, setFeito] = useState(null)
+
+  const fechar = () => {
+    setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
+  }
+
+  const nomesExistentes = new Set(
+    materiaisExistentes.map((m) => m.nome.trim().toLowerCase()),
+  )
+
+  const onArquivo = async (e) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    e.target.value = ''
+    setNomeArquivo(arquivo.name)
+    setLendo(true)
+    setResultado(null)
+    setFeito(null)
+    try {
+      const { lerPlanilhaEstoque } = await import('../lib/planilhaEstoque')
+      const lido = await lerPlanilhaEstoque(arquivo)
+      const itens = lido.itens.map((i) => ({
+        ...i,
+        jaExiste: nomesExistentes.has(i.nome.trim().toLowerCase()),
+      }))
+      setResultado({ ...lido, itens })
+    } catch (err) {
+      setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  const novos = (resultado?.itens || []).filter((i) => !i.jaExiste)
+
+  const confirmar = async () => {
+    if (!novos.length) return
+    setImportandoAgora(true)
+    let criados = 0
+    for (const item of novos) {
+      const ok = await dados.salvarCadastro('materiaisEstoque', {
+        nome: item.nome, unidade: item.unidade, estoque_minimo: item.estoque_minimo,
+      })
+      if (ok) criados++
+    }
+    setImportandoAgora(false)
+    setFeito({ criados, jaExistiam: (resultado?.itens.length || 0) - novos.length })
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo="Importar materiais da planilha" onFechar={fechar}>
+      <div className="stack-2">
+        {feito ? (
+          <>
+            <div className="alert success">
+              {plural(feito.criados, 'material cadastrado', 'materiais cadastrados')}.
+              {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'material já existia', 'materiais já existiam')} e não foram duplicados.`}
+            </div>
+            <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
+          </>
+        ) : (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              Escolha a planilha de estoque (.xlsx ou .xlsm) — leio a aba "Estoque" e trago o nome, a
+              unidade e o mínimo de cada material. Só o cadastro: quantidade e histórico ficam pra
+              lançar pelo app a partir de agora.
+            </div>
+
+            <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
+              {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xlsx/.xlsm'}
+              <input
+                type="file" accept=".xlsx,.xlsm,.xls" onChange={onArquivo}
+                style={{ display: 'none' }} disabled={lendo}
+              />
+            </label>
+
+            {resultado?.erroGeral && <div className="alert danger">{resultado.erroGeral}</div>}
+
+            {resultado && !resultado.erroGeral && (
+              <>
+                <div className="alert info">
+                  {plural(novos.length, 'material novo', 'materiais novos')} para importar
+                  {resultado.itens.length > novos.length
+                    ? ` · ${plural(resultado.itens.length - novos.length, 'já cadastrado', 'já cadastrados')} (não duplica)`
+                    : ''}.
+                </div>
+
+                <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
+                  {resultado.itens.map((i) => (
+                    <div
+                      key={i.linha}
+                      style={{
+                        fontSize: 12, padding: 8, borderRadius: 8,
+                        border: `1px solid ${i.jaExiste ? 'var(--border)' : 'var(--success)'}`,
+                        background: i.jaExiste ? 'var(--surface-2)' : 'var(--success-tint)',
+                      }}
+                    >
+                      <div className="row-between">
+                        <strong>{i.nome}</strong>
+                        <span style={{ color: i.jaExiste ? 'var(--text-3)' : 'var(--success)', fontWeight: 600 }}>
+                          {i.jaExiste ? 'já cadastrado' : 'novo'}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 2 }}>
+                        {i.unidade}{i.estoque_minimo ? ` · mínimo ${i.estoque_minimo}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="row-flex">
+                  <button className="btn btn-secondary grow" onClick={() => setResultado(null)}>Corrigir</button>
+                  <button
+                    className="btn btn-primary grow" onClick={confirmar}
+                    disabled={!novos.length || importandoAgora}
+                  >
+                    {importandoAgora ? 'Importando…' : `Importar ${plural(novos.length, 'material', 'materiais')}`}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </Sheet>
   )
 }
 
