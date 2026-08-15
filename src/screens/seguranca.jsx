@@ -24,7 +24,6 @@ import {
   CampoFotos, VisorFoto, useLinksDeFotos,
   RelatorioFolha, SecaoRelatorio, FotosRelatorio,
 } from '../components'
-import { imprimirOuGerarPDF } from '../lib/pdfExport'
 
 /* Uma linha rótulo/valor no aviso impresso. */
 function LinhaRelatorio({ rotulo, valor }) {
@@ -88,11 +87,9 @@ function Ocorrencias({ dados, perfil }) {
 
   useEffect(() => {
     if (!imprimindo) return
-    const id = requestAnimationFrame(() => {
-      imprimirOuGerarPDF().then((r) => r.erro && dados.avisarErro(r.erro))
-    })
+    const id = requestAnimationFrame(() => window.print())
     return () => cancelAnimationFrame(id)
-  }, [imprimindo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imprimindo])
 
   const lista = useMemo(
     () => [...dados.ocorrenciasSeguranca].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -392,11 +389,9 @@ function Advertencias({ dados, perfil }) {
 
   useEffect(() => {
     if (!imprimindo) return
-    const id = requestAnimationFrame(() => {
-      imprimirOuGerarPDF().then((r) => r.erro && dados.avisarErro(r.erro))
-    })
+    const id = requestAnimationFrame(() => window.print())
     return () => cancelAnimationFrame(id)
-  }, [imprimindo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [imprimindo])
 
   const lista = useMemo(
     () => [...dados.advertencias].sort((a, b) => (a.data < b.data ? 1 : -1)),

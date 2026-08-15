@@ -8,7 +8,6 @@ import { linksTemporarios, baixarFoto } from '../lib/fotos'
 import { linksTemporariosAnexos } from '../lib/anexos'
 import { transcrever } from '../lib/audio'
 import { gradeDoMes, somarMeses, rotuloMes } from '../lib/dominio'
-import { imprimirOuGerarPDF } from '../lib/pdfExport'
 
 /* ── Ícones (SVG na mão, sem biblioteca) ─────────────────── */
 
@@ -392,24 +391,10 @@ export function Indicador({ rotulo, valor, tom, onClick }) {
    ============================================================ */
 
 export function BotaoRelatorio({ onClick }) {
-  const [gerando, setGerando] = useState(false)
-  const [erro, setErro] = useState('')
-
-  const acionar = async () => {
-    if (onClick) { onClick(); return }
-    setGerando(true); setErro('')
-    const r = await imprimirOuGerarPDF()
-    setGerando(false)
-    if (r.erro) setErro(r.erro)
-  }
-
   return (
-    <div>
-      <button className="btn btn-secondary" onClick={acionar} disabled={gerando}>
-        <Icon name="relatorio" size={17} /> {gerando ? 'Gerando…' : 'Relatório'}
-      </button>
-      {erro && <div className="t-caption" style={{ color: 'var(--danger)', marginTop: 4 }}>{erro}</div>}
-    </div>
+    <button className="btn btn-secondary" onClick={onClick || (() => window.print())}>
+      <Icon name="relatorio" size={17} /> Relatório
+    </button>
   )
 }
 
@@ -428,16 +413,11 @@ function nomeDeArquivoRelatorio(partes) {
 }
 
 export function RelatorioFolha({ titulo, sub, obra, org, children }) {
-  const hoje = new Date()
-  const dataISO = [hoje.getFullYear(), String(hoje.getMonth() + 1).padStart(2, '0'), String(hoje.getDate()).padStart(2, '0')].join('-')
-  const nomeArquivo = nomeDeArquivoRelatorio([titulo, obra, dataISO])
-
-  /* Continua trocando document.title durante a impressão — funciona
-     certinho no window.print() de desktop (e é o que o Ctrl+P físico
-     usa em qualquer plataforma). O caminho do iOS não depende disto:
-     ele lê o nome do atributo data-arquivo abaixo. */
   useEffect(() => {
     const tituloOriginal = document.title
+    const hoje = new Date()
+    const dataISO = [hoje.getFullYear(), String(hoje.getMonth() + 1).padStart(2, '0'), String(hoje.getDate()).padStart(2, '0')].join('-')
+    const nomeArquivo = nomeDeArquivoRelatorio([titulo, obra, dataISO])
     const aoImprimir = () => { document.title = nomeArquivo || tituloOriginal }
     const aoFechar = () => { document.title = tituloOriginal }
     window.addEventListener('beforeprint', aoImprimir)
@@ -447,10 +427,10 @@ export function RelatorioFolha({ titulo, sub, obra, org, children }) {
       window.removeEventListener('afterprint', aoFechar)
       document.title = tituloOriginal
     }
-  }, [nomeArquivo])
+  }, [titulo, obra])
 
   return (
-    <div className="relatorio" data-arquivo={`${nomeArquivo || 'Prumo'}.pdf`}>
+    <div className="relatorio">
       <div className="relatorio-cabecalho">
         <div>
           <div style={{ fontSize: 20, fontWeight: 800 }}>Prumo<span style={{ color: '#EA6E1F' }}>.</span></div>
