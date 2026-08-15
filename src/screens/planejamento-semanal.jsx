@@ -19,6 +19,7 @@ import {
   inicioDaSemana, diasDaSemana, rotuloDaSemana, fecharSemana, SITUACAO_EXECUCAO,
   agruparPlanejamento, plural,
 } from '../lib/dominio'
+import { imprimirOuGerarPDF } from '../lib/pdfExport'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop, Segmentos,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, CalendarioMes,
@@ -258,7 +259,10 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
                 <Icon name="baixar" size={15} /> Baixar
               </button>
               {semana.total > 0 && (
-                <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => imprimirOuGerarPDF().then((r) => r.erro && dados.avisarErro(r.erro))}
+                >
                   <Icon name="relatorio" size={15} /> Relatório
                 </button>
               )}

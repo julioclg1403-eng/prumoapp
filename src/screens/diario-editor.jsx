@@ -25,6 +25,7 @@ import {
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, FotosRelatorio,
 } from '../components'
 import { legendaAutomatica } from '../lib/fotos'
+import { imprimirOuGerarPDF } from '../lib/pdfExport'
 
 const ETAPAS = ['Presenças', 'Frentes de serviço', 'Ocorrências', 'Revisão']
 
@@ -154,7 +155,10 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
           <div className="sub">{formatarDataLonga(diario.data)}</div>
         </div>
         {diario.id && (
-          <button onClick={() => window.print()} aria-label="Relatório do diário">
+          <button
+            onClick={() => imprimirOuGerarPDF().then((r) => r.erro && dados.avisarErro(r.erro))}
+            aria-label="Relatório do diário"
+          >
             <Icon name="relatorio" size={20} />
           </button>
         )}
