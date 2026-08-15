@@ -178,6 +178,30 @@ export const VISIBILIDADE_APONTAMENTO = ['rascunho', 'publicado']
 
 export const ROTULO_VISIBILIDADE_APONTAMENTO = { rascunho: 'Rascunho', publicado: 'Publicado' }
 
+/* "Abrir" o apontamento é a mesma coisa que publicá-lo — rascunho vira
+   publicado. Antes disso, é só um esboço: qualquer um com o módulo
+   liberado edita à vontade. Depois de aberto, o banco (RLS de
+   project_notes) só deixa admin editar ou excluir — isto aqui é só o
+   espelho no front pra esconder os campos e não deixar a pessoa
+   apanhar um erro de permissão sem explicação. Comentário e disciplina
+   NÃO travam: comentário nunca teve edição, e disciplina é o
+   acompanhamento do andamento, que continua rolando depois de aberto. */
+export function apontamentoTravado(apontamento, perfil) {
+  return apontamento?.visibilidade === 'publicado' && perfil?.role !== 'admin'
+}
+
+/* O que falta pra poder abrir — título e descrição preenchidos, e
+   pelo menos uma disciplina vinculada (sem isso não tem o que
+   acompanhar). Categoria, local, etapa e etiquetas continuam
+   opcionais. */
+export function pendenciasParaAbrirApontamento(apontamento) {
+  const faltando = []
+  if (!apontamento?.titulo?.trim()) faltando.push('título')
+  if (!apontamento?.descricao?.trim()) faltando.push('descrição')
+  if (!(apontamento?.disciplinas || []).length) faltando.push('ao menos uma disciplina')
+  return faltando
+}
+
 /* Módulos que dá pra restringir por usuário (tela Usuários). "Início"
    fica de fora de propósito — sem ele não sobra pra onde a pessoa
    cair ao entrar. "Usuários" também fica de fora: é admin-only por

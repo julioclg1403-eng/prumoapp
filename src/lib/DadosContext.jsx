@@ -105,7 +105,10 @@ const SELECT_APONTAMENTO = `
   id, organization_id, worksite_id, numero, titulo, descricao, status, prioridade, visibilidade,
   stage_id, category_ids, location_ids, etiquetas, autor_id, created_at, atualizado_em,
   disciplinas:project_note_disciplines ( id, discipline_id, status_id, prazo, concluido_em ),
-  comentarios:project_note_comments ( id, autor_id, texto, anexo_caminho, anexo_nome, created_at ),
+  comentarios:project_note_comments (
+    id, autor_id, texto, anexo_caminho, anexo_nome, created_at,
+    anexos:project_note_comment_attachments ( id, caminho, nome_arquivo, tipo_mime, tamanho_bytes, autor_id, created_at )
+  ),
   anexos:project_note_attachments ( id, caminho, nome_arquivo, tipo_mime, tamanho_bytes, autor_id, created_at ),
   historico:project_note_history ( id, autor_id, de_status, para_status, created_at )
 `
@@ -114,7 +117,9 @@ function normalizarApontamento(n) {
   return {
     ...n,
     disciplinas: n.disciplinas || [],
-    comentarios: [...(n.comentarios || [])].sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
+    comentarios: [...(n.comentarios || [])]
+      .map((c) => ({ ...c, anexos: c.anexos || [] }))
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
     anexos: n.anexos || [],
     historico: [...(n.historico || [])].sort((a, b) => (a.created_at < b.created_at ? -1 : 1)),
   }
@@ -1063,6 +1068,27 @@ export function DadosProvider({ perfil, children }) {
     [tudo, escopo, checar, avisarErro, perfil.id, relerApontamento, atualizarApontamentoLocal],
   )
 
+  /* Rascunho → Publicado: "abrir" o apontamento pra valer. Dali pra
+     frente só admin edita ou exclui (RLS de project_notes já barra),
+     então zero linhas afetadas aqui quase sempre quer dizer "alguém
+     tentou reabrir sem ser admin", não um erro de rede. */
+  const abrirApontamento = useCallback(
+    async (id) => {
+      const r = await supabase.from('project_notes')
+        .update({ visibilidade: 'publicado', atualizado_em: new Date().toISOString() })
+        .eq('id', id).select('id')
+      if (r.error) { checar(r, 'abrir o apontamento'); return null }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para isso. Peça à gestão.')
+        return null
+      }
+      const fresco = await relerApontamento(id)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [checar, avisarErro, relerApontamento, atualizarApontamentoLocal],
+  )
+
   const salvarDisciplinaApontamento = useCallback(
     async (noteId, linha) => {
       const { organization_id, worksite_id } = escopo()
@@ -1097,18 +1123,31 @@ export function DadosProvider({ perfil, children }) {
     [checar, relerApontamento, atualizarApontamentoLocal],
   )
 
+  /* `anexos` é a lista de arquivos já enviados ao storage (ver
+     enviarAnexoComentario, chamada em loop pela tela) — aqui só grava
+     o comentário e, se houver, as linhas de metadado de cada anexo,
+     todas apontando pro mesmo comment_id. */
   const salvarComentarioApontamento = useCallback(
-    async (noteId, texto, anexo) => {
+    async (noteId, texto, anexos = []) => {
       const { organization_id, worksite_id } = escopo()
-      const linha = {
-        organization_id, worksite_id, note_id: noteId, autor_id: perfil.id, texto,
-        anexo_caminho: anexo?.caminho || null, anexo_nome: anexo?.nome || null,
-      }
+      const linha = { organization_id, worksite_id, note_id: noteId, autor_id: perfil.id, texto }
       const salvo = checar(
         await supabase.from('project_note_comments').insert(linha).select('id').single(),
         'salvar o comentário',
       )
       if (!salvo) return null
+
+      if (anexos.length) {
+        const r = await supabase.from('project_note_comment_attachments').insert(
+          anexos.map((a) => ({
+            organization_id, worksite_id, comment_id: salvo.id,
+            caminho: a.caminho, nome_arquivo: a.nome, tipo_mime: a.tipo,
+            tamanho_bytes: a.tamanho, autor_id: perfil.id,
+          })),
+        )
+        if (r.error) console.error('[Prumo] anexos do comentário:', r.error)
+      }
+
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
@@ -1118,13 +1157,23 @@ export function DadosProvider({ perfil, children }) {
 
   const apagarComentarioApontamento = useCallback(
     async (noteId, comentarioId) => {
+      /* Os metadados dos anexos somem sozinhos (ON DELETE CASCADE em
+         comment_id), mas o arquivo em si no Storage não — sem isto,
+         cada comentário apagado deixava fotos/PDFs órfãos pra trás. */
+      const comentario = tudo?.apontamentos
+        ?.find((n) => n.id === noteId)?.comentarios
+        ?.find((c) => c.id === comentarioId)
+      const caminhos = (comentario?.anexos || []).map((a) => a.caminho)
+
       const r = await supabase.from('project_note_comments').delete().eq('id', comentarioId).select('id')
       if (r.error) { checar(r, 'apagar o comentário'); return null }
+      if (caminhos.length) await supabase.storage.from('anexos').remove(caminhos)
+
       const fresco = await relerApontamento(noteId)
       atualizarApontamentoLocal(fresco)
       return fresco
     },
-    [checar, relerApontamento, atualizarApontamentoLocal],
+    [tudo, checar, relerApontamento, atualizarApontamentoLocal],
   )
 
   const adicionarAnexoApontamento = useCallback(
@@ -2060,7 +2109,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia, adicionarFotoEquipamento, removerFotoEquipamento,
-      salvarApontamento, mudarStatusApontamento, excluirApontamento,
+      salvarApontamento, mudarStatusApontamento, abrirApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
@@ -2085,7 +2134,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia, adicionarFotoEquipamento, removerFotoEquipamento,
-      salvarApontamento, mudarStatusApontamento, excluirApontamento,
+      salvarApontamento, mudarStatusApontamento, abrirApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,

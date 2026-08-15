@@ -4,9 +4,13 @@
    apontamento carrega disciplinas com status/prazo próprios,
    comentários, anexos e um histórico de troca de status.
 
-   Módulo admin-only — não entra na navegação de gestão nem campo.
-   O banco reforça isso: ler/gravar qualquer coisa aqui exige
-   private.eh_admin().
+   Liberável por módulo (dominio.moduloPermitido), não mais
+   admin-only por papel — quem tem "projetos" habilitado lê e edita
+   normalmente. A única trava por papel que sobra é depois que o
+   apontamento é ABERTO (visibilidade publicado): daí só admin edita
+   detalhes/disciplina-de-status-geral, e comentário continua livre
+   pra todo mundo (ver dominio.apontamentoTravado). O banco reforça
+   isso na RLS de project_notes, não é só de fachada na tela.
    ============================================================ */
 
 import { useState, useMemo } from 'react'
@@ -16,6 +20,7 @@ import {
   PRIORIDADES, ROTULO_PRIORIDADE,
   STATUS_APONTAMENTO, ROTULO_STATUS_APONTAMENTO, TOM_STATUS_APONTAMENTO,
   VISIBILIDADE_APONTAMENTO, ROTULO_VISIBILIDADE_APONTAMENTO,
+  apontamentoTravado, pendenciasParaAbrirApontamento,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
@@ -78,9 +83,13 @@ export default function Projetos({ goto, voltar, perfil }) {
     if (salvo) setEditando(null)
   }
 
+  /* Sempre grava o que está no formulário, não só na primeira vez —
+     senão trocar de aba (Detalhes → Disciplinas, por exemplo) sem
+     apertar "Salvar" antes descartava título/descrição/etc. em
+     silêncio: a próxima ação (adicionar disciplina, comentário,
+     anexo) recarregava do banco a versão antiga por cima. */
   const garantirSalvo = async () => {
-    if (editando.id) return editando
-    if (!editando.titulo?.trim()) return null
+    if (!editando.titulo?.trim()) return editando.id ? editando : null
     const salvo = await dados.salvarApontamento({ ...editando, titulo: editando.titulo.trim() })
     if (salvo) setEditando(salvo)
     return salvo
@@ -114,6 +123,14 @@ export default function Projetos({ goto, voltar, perfil }) {
         if (ok) setEditando(null)
       },
     })
+  }
+
+  const travado = editando ? apontamentoTravado(editando, perfil) : false
+  const pendenciasAbrir = editando ? pendenciasParaAbrirApontamento(editando) : []
+
+  const abrir = async () => {
+    const fresco = await dados.abrirApontamento(editando.id)
+    if (fresco) setEditando(fresco)
   }
 
   return (
@@ -223,21 +240,49 @@ export default function Projetos({ goto, voltar, perfil }) {
         onFechar={() => setEditando(null)}
         rodape={
           abaDetalhe === 'detalhes' && (
-            <div className="row-flex">
-              <button className="btn btn-secondary grow" onClick={() => setEditando(null)}>Cancelar</button>
-              <button
-                className="btn btn-primary grow" onClick={salvar}
-                disabled={salvando || !editando?.titulo?.trim()}
-              >
-                {salvando ? 'Salvando…' : 'Salvar'}
-              </button>
-            </div>
+            travado ? (
+              <button className="btn btn-secondary btn-block" onClick={() => setEditando(null)}>Fechar</button>
+            ) : (
+              <div className="stack-1">
+                {editando?.id && editando.visibilidade === 'rascunho' && (
+                  <button
+                    className="btn btn-secondary btn-block" onClick={abrir}
+                    disabled={pendenciasAbrir.length > 0}
+                    title={pendenciasAbrir.length > 0 ? `Falta: ${pendenciasAbrir.join(', ')}` : undefined}
+                  >
+                    <Icon name="check" size={16} /> Abrir apontamento
+                  </button>
+                )}
+                <div className="row-flex">
+                  <button className="btn btn-secondary grow" onClick={() => setEditando(null)}>Cancelar</button>
+                  <button
+                    className="btn btn-primary grow" onClick={salvar}
+                    disabled={salvando || !editando?.titulo?.trim()}
+                  >
+                    {salvando ? 'Salvando…' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+            )
           )
         }
       >
         {editando && (
           <div className="stack-2">
-            {editando.id && (
+            {travado && (
+              <div className="alert info">
+                Este apontamento está publicado (aberto). Só a gestão admin edita os detalhes daqui pra
+                frente — comentários continuam abertos pra todo mundo.
+              </div>
+            )}
+
+            {editando.id && editando.visibilidade === 'rascunho' && pendenciasAbrir.length > 0 && (
+              <div className="t-caption">
+                Falta preencher pra poder abrir: {pendenciasAbrir.join(', ')}.
+              </div>
+            )}
+
+            {editando.id && !travado && (
               <div className="row-flex" style={{ flexWrap: 'wrap' }}>
                 {editando.status === 'ativo' ? (
                   <>
@@ -268,7 +313,7 @@ export default function Projetos({ goto, voltar, perfil }) {
             />
 
             {abaDetalhe === 'detalhes' && (
-              <AbaDetalhes editando={editando} setEditando={setEditando} dados={dados} garantirSalvo={garantirSalvo} />
+              <AbaDetalhes editando={editando} setEditando={setEditando} dados={dados} garantirSalvo={garantirSalvo} travado={travado} />
             )}
             {abaDetalhe === 'disciplinas' && (
               <AbaDisciplinas editando={editando} setEditando={setEditando} dados={dados} garantirSalvo={garantirSalvo} />
@@ -296,12 +341,13 @@ export default function Projetos({ goto, voltar, perfil }) {
 
 /* ── Aba Detalhes ─────────────────────────────────────────── */
 
-function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
+function AbaDetalhes({ editando, setEditando, dados, garantirSalvo, travado }) {
   const links = useLinksDeAnexos(editando.anexos)
   const [enviandoAnexo, setEnviandoAnexo] = useState(0)
   const [novaEtiqueta, setNovaEtiqueta] = useState('')
 
   const alternar = (campo, id) => {
+    if (travado) return
     setEditando((p) => {
       const atual = p[campo] || []
       const novo = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]
@@ -336,14 +382,14 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
     <div className="stack-2">
       <Campo label="Título">
         <input
-          className="ipt" autoFocus value={editando.titulo || ''}
+          className="ipt" autoFocus value={editando.titulo || ''} disabled={travado}
           onChange={(e) => setEditando((p) => ({ ...p, titulo: e.target.value }))}
           placeholder="Uma frase curta e específica"
         />
       </Campo>
       <Campo label="Descrição">
         <TextareaComAudio
-          value={editando.descricao || ''}
+          value={editando.descricao || ''} disabled={travado}
           onChange={(e) => setEditando((p) => ({ ...p, descricao: e.target.value }))}
           placeholder="Contexto suficiente para quem for resolver."
         />
@@ -352,7 +398,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
         <div className="grow">
           <Campo label="Visibilidade">
             <select
-              className="sel" value={editando.visibilidade || 'rascunho'}
+              className="sel" value={editando.visibilidade || 'rascunho'} disabled={travado}
               onChange={(e) => setEditando((p) => ({ ...p, visibilidade: e.target.value }))}
             >
               {VISIBILIDADE_APONTAMENTO.map((v) => <option key={v} value={v}>{ROTULO_VISIBILIDADE_APONTAMENTO[v]}</option>)}
@@ -362,7 +408,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
         <div className="grow">
           <Campo label="Prioridade">
             <select
-              className="sel" value={editando.prioridade || 'media'}
+              className="sel" value={editando.prioridade || 'media'} disabled={travado}
               onChange={(e) => setEditando((p) => ({ ...p, prioridade: e.target.value }))}
             >
               {PRIORIDADES.map((x) => <option key={x} value={x}>{ROTULO_PRIORIDADE[x]}</option>)}
@@ -372,7 +418,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
       </div>
       <Campo label="Etapa de criação">
         <select
-          className="sel" value={editando.stage_id || ''}
+          className="sel" value={editando.stage_id || ''} disabled={travado}
           onChange={(e) => setEditando((p) => ({ ...p, stage_id: e.target.value || null }))}
         >
           <option value="">Não definida</option>
@@ -384,7 +430,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
       <Campo label="Categorias" dica="Toque para marcar quantas fizerem sentido.">
         <div className="row-wrap">
           {dados.categoriasProjeto.filter((c) => c.ativo !== false).map((c) => (
-            <ChipToggle key={c.id} ativo={editando.category_ids.includes(c.id)} onClick={() => alternar('category_ids', c.id)}>
+            <ChipToggle key={c.id} ativo={editando.category_ids.includes(c.id)} disabled={travado} onClick={() => alternar('category_ids', c.id)}>
               {c.nome}
             </ChipToggle>
           ))}
@@ -394,7 +440,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
       <Campo label="Locais">
         <div className="row-wrap">
           {dados.locais.filter((l) => l.ativo !== false).map((l) => (
-            <ChipToggle key={l.id} ativo={editando.location_ids.includes(l.id)} onClick={() => alternar('location_ids', l.id)}>
+            <ChipToggle key={l.id} ativo={editando.location_ids.includes(l.id)} disabled={travado} onClick={() => alternar('location_ids', l.id)}>
               {l.nome}
             </ChipToggle>
           ))}
@@ -404,24 +450,29 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo }) {
       <Campo label="Etiquetas">
         <div className="row-wrap" style={{ marginBottom: 8 }}>
           {editando.etiquetas.map((et) => (
-            <ChipToggle key={et} ativo onClick={() => setEditando((p) => ({ ...p, etiquetas: p.etiquetas.filter((x) => x !== et) }))}>
+            <ChipToggle
+              key={et} ativo disabled={travado}
+              onClick={() => setEditando((p) => ({ ...p, etiquetas: p.etiquetas.filter((x) => x !== et) }))}
+            >
               {et} ✕
             </ChipToggle>
           ))}
         </div>
-        <div className="row-flex">
-          <input
-            className="ipt" value={novaEtiqueta} onChange={(e) => setNovaEtiqueta(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarEtiqueta() } }}
-            placeholder="Digite e tecle Enter"
-          />
-          <button className="btn btn-secondary" onClick={adicionarEtiqueta}>Adicionar</button>
-        </div>
+        {!travado && (
+          <div className="row-flex">
+            <input
+              className="ipt" value={novaEtiqueta} onChange={(e) => setNovaEtiqueta(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarEtiqueta() } }}
+              placeholder="Digite e tecle Enter"
+            />
+            <button className="btn btn-secondary" onClick={adicionarEtiqueta}>Adicionar</button>
+          </div>
+        )}
       </Campo>
       <Campo label="Anexos" dica={!editando.id ? 'Salve o apontamento para anexar arquivos.' : undefined}>
         {editando.id ? (
           <CampoAnexos
-            anexos={editando.anexos} links={links} enviando={enviandoAnexo}
+            anexos={editando.anexos} links={links} enviando={enviandoAnexo} bloqueado={travado}
             onAdicionar={enviarAnexos} onRemover={removerAnexo}
           />
         ) : (
@@ -537,12 +588,28 @@ function AbaDisciplinas({ editando, setEditando, dados, garantirSalvo }) {
 
 function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo }) {
   const [texto, setTexto] = useState('')
-  const [arquivo, setArquivo] = useState(null)
+  const [arquivos, setArquivos] = useState([])   // File[] escolhidos, ainda não enviados
   const [enviando, setEnviando] = useState(false)
+
+  /* Um pedido só, pra todos os anexos de todos os comentários — cada
+     comentário mostra os seus, mas o link assinado é buscado em
+     lote (mesmo hook usado pelos anexos do apontamento). */
+  const todosOsAnexos = useMemo(
+    () => editando.comentarios.flatMap((c) => c.anexos || []),
+    [editando.comentarios],
+  )
+  const links = useLinksDeAnexos(todosOsAnexos)
 
   if (!editando.id) {
     return <div className="t-caption">Salve o apontamento na aba Detalhes para comentar.</div>
   }
+
+  const escolherArquivos = (e) => {
+    const novos = [...(e.target.files || [])]
+    e.target.value = ''
+    if (novos.length) setArquivos((a) => [...a, ...novos])
+  }
+  const removerPendente = (indice) => setArquivos((a) => a.filter((_, i) => i !== indice))
 
   const enviar = async () => {
     if (!texto.trim()) return
@@ -550,14 +617,14 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
     try {
       const base = await garantirSalvo()
       if (!base) return
-      let anexo = null
-      if (arquivo) {
+      const anexosEnviados = []
+      for (const arquivo of arquivos) {
         const r = await enviarAnexoComentario({ arquivo, obraId: base.worksite_id, noteId: base.id })
         if (r.erro) { dados.avisarErro(r.erro); return }
-        anexo = { caminho: r.caminho, nome: r.nome }
+        anexosEnviados.push(r)
       }
-      const fresco = await dados.salvarComentarioApontamento(base.id, texto.trim(), anexo)
-      if (fresco) { setEditando(fresco); setTexto(''); setArquivo(null) }
+      const fresco = await dados.salvarComentarioApontamento(base.id, texto.trim(), anexosEnviados)
+      if (fresco) { setEditando(fresco); setTexto(''); setArquivos([]) }
     } finally {
       setEnviando(false)
     }
@@ -583,9 +650,16 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
                 </button>
               </div>
               <div style={{ fontSize: 14, marginTop: 4, whiteSpace: 'pre-line' }}>{c.texto}</div>
-              {c.anexo_caminho && (
-                <div className="t-caption" style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="anexo" size={13} /> {c.anexo_nome || 'Anexo'}
+              {(c.anexos || []).length > 0 && (
+                <div className="stack-1" style={{ marginTop: 8 }}>
+                  {c.anexos.map((a) => (
+                    <a
+                      key={a.id} href={links[a.caminho]} target="_blank" rel="noreferrer"
+                      className="row-flex" style={{ gap: 6, fontSize: 12.5, fontWeight: 600, textDecoration: 'none', color: 'var(--text-2)' }}
+                    >
+                      <Icon name="anexo" size={13} style={{ flex: 'none' }} /> {a.nome_arquivo || 'Anexo'}
+                    </a>
+                  ))}
                 </div>
               )}
               <div className="t-caption" style={{ marginTop: 6 }}>{formatarData(c.created_at?.slice(0, 10))}</div>
@@ -596,12 +670,35 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
 
       <div>
         <TextareaComAudio value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escreva um comentário…" />
+
+        {arquivos.length > 0 && (
+          <div className="row-wrap" style={{ marginTop: 8, gap: 6 }}>
+            {arquivos.map((a, i) => (
+              <span
+                key={i} className="t-caption"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  border: '1px solid var(--border)', borderRadius: 999, padding: '4px 8px',
+                }}
+              >
+                {a.name}
+                <button
+                  onClick={() => removerPendente(i)} aria-label={`Remover ${a.name}`}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'inherit' }}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="row-between" style={{ marginTop: 8 }}>
           <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
-            <Icon name="anexo" size={16} /> {arquivo ? arquivo.name : 'Anexar'}
+            <Icon name="anexo" size={16} /> {arquivos.length ? `${arquivos.length} anexo(s)` : 'Anexar'}
             <input
-              type="file" accept="application/pdf,image/*" style={{ display: 'none' }}
-              onChange={(e) => setArquivo(e.target.files?.[0] || null)}
+              type="file" accept="application/pdf,image/*" multiple style={{ display: 'none' }}
+              onChange={escolherArquivos}
             />
           </label>
           <button className="btn btn-primary btn-sm" onClick={enviar} disabled={enviando || !texto.trim()}>

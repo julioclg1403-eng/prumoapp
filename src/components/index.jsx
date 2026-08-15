@@ -827,13 +827,15 @@ export function CampoAnexos({ anexos, links, onAdicionar, onRemover, bloqueado, 
 /* Chip clicável, liga/desliga. Usado onde a escolha é "marque quantos
    fizerem sentido" (categorias, locais, módulos liberados) — mais
    compacto que uma lista de Selecionavel quando são poucas opções. */
-export function ChipToggle({ ativo, onClick, children }) {
+export function ChipToggle({ ativo, onClick, disabled, children }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className="chip"
       style={{
-        cursor: 'pointer', fontFamily: 'var(--font)',
+        cursor: disabled ? 'default' : 'pointer', fontFamily: 'var(--font)',
+        opacity: disabled ? 0.6 : 1,
         border: ativo ? '1.5px solid var(--primary)' : '1px solid var(--border-strong)',
         background: ativo ? 'var(--primary-tint)' : 'var(--surface-2)',
         color: ativo ? 'var(--primary-dark)' : 'var(--text-2)',

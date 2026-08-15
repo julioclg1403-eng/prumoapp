@@ -70,15 +70,18 @@ export async function apagarAnexoApontamento(anexo) {
   return {}
 }
 
-/* Anexo único de comentário: mesmo bucket, mas o caminho/nome vão
-   direto nas colunas do comentário — não existe uma linha de
-   metadado separada, porque é sempre um arquivo só. */
+/* Anexo de comentário: mesmo bucket, um arquivo por chamada — a tela
+   chama isto em loop pra mandar vários de uma vez (mesmo padrão das
+   fotos de equipamento/diário). O registro em si (a linha na tabela
+   project_note_comment_attachments) só é gravado depois, junto com o
+   comentário, por salvarComentarioApontamento — aqui só sobe o
+   arquivo e devolve os metadados prontos pra isso. */
 export async function enviarAnexoComentario({ arquivo, obraId, noteId }) {
   if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
-    return { erro: 'Este arquivo passa de 20 MB.' }
+    return { erro: `"${arquivo.name}" passa de 20 MB.` }
   }
   if (!TIPOS_ACEITOS.includes(arquivo.type)) {
-    return { erro: 'Envie um PDF ou uma imagem (JPEG, PNG ou WEBP).' }
+    return { erro: `"${arquivo.name}" não é PDF nem imagem (JPEG, PNG ou WEBP).` }
   }
 
   const id = globalThis.crypto?.randomUUID?.() || String(Date.now() + Math.random())
@@ -87,9 +90,9 @@ export async function enviarAnexoComentario({ arquivo, obraId, noteId }) {
   const envio = await supabase.storage
     .from('anexos')
     .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false })
-  if (envio.error) return { erro: `Não consegui enviar o anexo. ${envio.error.message}` }
+  if (envio.error) return { erro: `Não consegui enviar "${arquivo.name}". ${envio.error.message}` }
 
-  return { caminho, nome: arquivo.name }
+  return { caminho, nome: arquivo.name, tipo: arquivo.type, tamanho: arquivo.size }
 }
 
 export async function linksTemporariosAnexos(caminhos, segundos = 3600) {
