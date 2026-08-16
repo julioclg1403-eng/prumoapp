@@ -18,7 +18,7 @@ import { useDados } from '../lib/DadosContext'
 import {
   formatarData, formatarDataHora,
   PRIORIDADES, ROTULO_PRIORIDADE,
-  STATUS_APONTAMENTO, ROTULO_STATUS_APONTAMENTO, TOM_STATUS_APONTAMENTO,
+  STATUS_APONTAMENTO, ROTULO_STATUS_APONTAMENTO, TOM_STATUS_APONTAMENTO, COLUNAS_QUADRO_APONTAMENTO,
   VISIBILIDADE_APONTAMENTO, ROTULO_VISIBILIDADE_APONTAMENTO,
   apontamentoTravado, pendenciasParaAbrirApontamento,
 } from '../lib/dominio'
@@ -49,6 +49,7 @@ const VAZIO_NOVO = {
 export default function Projetos({ goto, voltar, perfil }) {
   const dados = useDados()
   const [aba, setAba] = useState('lista')
+  const [visao, setVisao] = useState('lista')
   const [filtro, setFiltro] = useState('ativo')
   const [busca, setBusca] = useState('')
   const [editando, setEditando] = useState(null)
@@ -62,18 +63,26 @@ export default function Projetos({ goto, voltar, perfil }) {
   const cont = useMemo(() => {
     const porStatus = (s) => dados.apontamentos.filter((a) => a.status === s).length
     return {
-      ativo: porStatus('ativo'), resolvido: porStatus('resolvido'), reprovado: porStatus('reprovado'),
+      ativo: porStatus('ativo'), em_andamento: porStatus('em_andamento'),
+      resolvido: porStatus('resolvido'), reprovado: porStatus('reprovado'),
       total: dados.apontamentos.length,
     }
   }, [dados.apontamentos])
 
-  const lista = useMemo(() => {
+  /* Separado da busca do filtro de status pra o Quadro (que sempre
+     mostra as 3 colunas juntas) respeitar a busca sem herdar o
+     filtro da Lista. */
+  const itensBuscados = useMemo(() => {
     const b = normalizarComparar(busca)
     return dados.apontamentos
-      .filter((a) => filtro === 'todos' || a.status === filtro)
       .filter((a) => !b || normalizarComparar(a.titulo).includes(b) || normalizarComparar(a.descricao).includes(b))
+  }, [dados.apontamentos, busca])
+
+  const lista = useMemo(() => {
+    return itensBuscados
+      .filter((a) => filtro === 'todos' || a.status === filtro)
       .sort((x, y) => (x.created_at < y.created_at ? 1 : -1))
-  }, [dados.apontamentos, filtro, busca])
+  }, [itensBuscados, filtro])
 
   const salvar = async () => {
     if (!editando?.titulo?.trim()) return
@@ -95,22 +104,29 @@ export default function Projetos({ goto, voltar, perfil }) {
     return salvo
   }
 
-  const mudarStatus = (novoStatus) => {
-    if (novoStatus === 'ativo' && editando.status !== 'ativo') {
+  /* Reabrir pede confirmação (pode ter sido resolvido/reprovado por
+     engano, e some da lista de "ativos" na hora); resolver/reprovar
+     não — são ações de fluxo normal, não desfazem nada. Genérica
+     (recebe o item, não só `editando`) pra servir tanto o Sheet
+     quanto o Quadro, que muda status de fora do Sheet. */
+  const mudarStatusItem = (item, novoStatus, aoTerminar) => {
+    const aplicar = async () => {
+      const fresco = await dados.mudarStatusApontamento(item.id, novoStatus)
+      if (fresco && aoTerminar) aoTerminar(fresco)
+    }
+    if (novoStatus === 'ativo' && item.status !== 'ativo') {
       setConfirmar({
         titulo: 'Reabrir apontamento?',
-        texto: `«${editando.titulo}» volta a ficar ativo.`,
+        texto: `«${item.titulo}» volta a ficar ativo.`,
         rotuloOk: 'Reabrir',
-        onOk: async () => {
-          setConfirmar(null)
-          const fresco = await dados.mudarStatusApontamento(editando.id, 'ativo')
-          if (fresco) setEditando(fresco)
-        },
+        onOk: () => { setConfirmar(null); aplicar() },
       })
       return
     }
-    dados.mudarStatusApontamento(editando.id, novoStatus).then((fresco) => { if (fresco) setEditando(fresco) })
+    aplicar()
   }
+
+  const mudarStatus = (novoStatus) => mudarStatusItem(editando, novoStatus, setEditando)
 
   const pedirExcluir = () => {
     setConfirmar({
@@ -180,11 +196,25 @@ export default function Projetos({ goto, voltar, perfil }) {
                 placeholder="Pesquisar…"
               />
               <Segmentos
+                valor={visao} onChange={setVisao}
+                opcoes={[{ valor: 'lista', rotulo: 'Lista' }, { valor: 'quadro', rotulo: 'Quadro' }]}
+              />
+
+              {visao === 'quadro' ? (
+                <QuadroApontamentos
+                  itens={itensBuscados} dados={dados}
+                  onAbrir={abrirExistente}
+                  onMudarStatus={(item, novoStatus) => mudarStatusItem(item, novoStatus)}
+                />
+              ) : (
+                <>
+              <Segmentos
                 valor={filtro} onChange={setFiltro}
                 opcoes={[
-                  { valor: 'ativo', rotulo: 'Ativos', contador: cont.ativo },
-                  { valor: 'resolvido', rotulo: 'Resolvidos', contador: cont.resolvido },
-                  { valor: 'reprovado', rotulo: 'Reprovados', contador: cont.reprovado },
+                  { valor: 'ativo', rotulo: ROTULO_STATUS_APONTAMENTO.ativo, contador: cont.ativo },
+                  { valor: 'em_andamento', rotulo: ROTULO_STATUS_APONTAMENTO.em_andamento, contador: cont.em_andamento },
+                  { valor: 'resolvido', rotulo: ROTULO_STATUS_APONTAMENTO.resolvido, contador: cont.resolvido },
+                  { valor: 'reprovado', rotulo: ROTULO_STATUS_APONTAMENTO.reprovado, contador: cont.reprovado },
                   { valor: 'todos', rotulo: 'Todos', contador: cont.total },
                 ]}
               />
@@ -226,6 +256,8 @@ export default function Projetos({ goto, voltar, perfil }) {
                     </button>
                   ))}
                 </div>
+              )}
+                </>
               )}
             </>
           ) : (
@@ -812,6 +844,73 @@ function Legenda({ itens }) {
           {i.rotulo}
         </span>
       ))}
+    </div>
+  )
+}
+
+/* ── Quadro (visão Trello) ────────────────────────────────
+   Mesmo padrão do quadro de Pendências: sem arrastar nada, esteira
+   linear de 3 (A Responder → Em Andamento → Resolvido) com seta ‹ ›
+   em cada cartão pra mover pra coluna vizinha. Mover fica liberado
+   pra qualquer um com o módulo, mesmo apontamento publicado — a RPC
+   (mudar_status_apontamento) garante isso no banco, então a tela
+   não precisa (nem deve) esconder a seta com apontamentoTravado
+   aqui; esse trava continua valendo só pra editar os campos, dentro
+   do Sheet. Reprovado fica de fora da esteira — só a Lista e o
+   Sheet mexem nele. */
+function QuadroApontamentos({ itens, dados, onAbrir, onMudarStatus }) {
+  return (
+    <div
+      className="row-flex"
+      style={{ alignItems: 'flex-start', overflowX: 'auto', gap: 10, paddingBottom: 8 }}
+    >
+      {COLUNAS_QUADRO_APONTAMENTO.map((coluna, indiceColuna) => {
+        const doColuna = itens.filter((a) => a.status === coluna.status)
+        return (
+          <div key={coluna.status} style={{ flex: '0 0 260px', minWidth: 260 }} className="stack-1">
+            <div className="row-between" style={{ padding: '0 2px' }}>
+              <div className="t-micro">{coluna.rotulo}</div>
+              <div className="t-caption">{doColuna.length}</div>
+            </div>
+            {doColuna.length === 0 ? (
+              <div className="card-flat t-caption" style={{ textAlign: 'center', padding: 16 }}>—</div>
+            ) : (
+              doColuna.map((a) => (
+                <div key={a.id} className="card-flat card-tap" onClick={() => onAbrir(a)}>
+                  <div className="t-caption">Nº {a.numero}</div>
+                  <div className="t-strong" style={{ fontSize: 14, marginTop: 2 }}>{a.titulo}</div>
+                  {a.prioridade === 'alta' && coluna.status === 'ativo' && (
+                    <div className="t-caption" style={{ color: 'var(--danger)', fontWeight: 600, marginTop: 6 }}>
+                      prioridade alta
+                    </div>
+                  )}
+                  {a.disciplinas.length > 0 && (
+                    <div className="t-caption" style={{ marginTop: 6 }}>
+                      {a.disciplinas.map((d) => siglaOuNome(dados.disciplinasProjeto, d.discipline_id)).filter(Boolean).join(', ')}
+                    </div>
+                  )}
+                  <div className="row-between" style={{ marginTop: 8 }}>
+                    <button
+                      className="btn btn-ghost btn-sm" disabled={indiceColuna === 0}
+                      onClick={(e) => { e.stopPropagation(); onMudarStatus(a, COLUNAS_QUADRO_APONTAMENTO[indiceColuna - 1].status) }}
+                      aria-label="Mover pra coluna anterior"
+                    >
+                      <Icon name="voltar" size={14} />
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm" disabled={indiceColuna === COLUNAS_QUADRO_APONTAMENTO.length - 1}
+                      onClick={(e) => { e.stopPropagation(); onMudarStatus(a, COLUNAS_QUADRO_APONTAMENTO[indiceColuna + 1].status) }}
+                      aria-label="Mover pra próxima coluna"
+                    >
+                      <Icon name="avancar" size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

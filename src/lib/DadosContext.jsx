@@ -1124,14 +1124,17 @@ export function DadosProvider({ perfil, children }) {
   /* Ativo → Resolvido/Reprovado, ou reaberto de volta a Ativo. Cada
      troca vira uma linha de histórico — é o "aviso" pedido para o
      ❌✅ do detalhe. */
+  /* Passa pela RPC (mudar_status_apontamento), não por um update
+     direto — mudar só o status é liberado pra qualquer um com o
+     módulo, mesmo apontamento já publicado (diferente de editar
+     título/descrição/disciplinas, que continua travado pra quem
+     não é admin). A RPC nunca mexe em mais nenhuma outra coluna. */
   const mudarStatusApontamento = useCallback(
     async (id, novoStatus) => {
       const atual = tudo?.apontamentos?.find((x) => x.id === id)
       if (!atual) return null
 
-      const r = await supabase.from('project_notes')
-        .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
-        .eq('id', id).select('id')
+      const r = await supabase.rpc('mudar_status_apontamento', { p_id: id, p_status: novoStatus })
       if (r.error) { checar(r, 'mudar o status do apontamento'); return null }
       if (!r.data || r.data.length === 0) {
         avisarErro('Seu perfil não tem permissão para isso. Peça à gestão.')

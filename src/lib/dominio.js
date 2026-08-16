@@ -168,11 +168,25 @@ export const TIPOS_ADVERTENCIA = ['verbal', 'escrita']
 
 export const ROTULO_ADVERTENCIA = { verbal: 'Verbal', escrita: 'Escrita' }
 
-export const STATUS_APONTAMENTO = ['ativo', 'resolvido', 'reprovado']
+export const STATUS_APONTAMENTO = ['ativo', 'em_andamento', 'resolvido', 'reprovado']
 
-export const ROTULO_STATUS_APONTAMENTO = { ativo: 'Ativo', resolvido: 'Resolvido', reprovado: 'Reprovado' }
+export const ROTULO_STATUS_APONTAMENTO = {
+  ativo: 'A Responder', em_andamento: 'Em Andamento', resolvido: 'Resolvido', reprovado: 'Reprovado',
+}
 
-export const TOM_STATUS_APONTAMENTO = { ativo: 'danger', resolvido: 'success', reprovado: '' }
+export const TOM_STATUS_APONTAMENTO = { ativo: 'danger', em_andamento: 'info', resolvido: 'success', reprovado: '' }
+
+/* O quadro (visão Trello) de Projetos é uma esteira linear de 3 —
+   A Responder → Em Andamento → Resolvido, com seta ‹ › igual o
+   quadro de Pendências — diferente do fluxo do Sheet (que também
+   tem Reprovar, um desvio, não um próximo passo da esteira).
+   Reprovado fica de fora do quadro por isso; continua existindo e
+   acessível pela Lista e pelo Sheet. */
+export const COLUNAS_QUADRO_APONTAMENTO = [
+  { status: 'ativo', rotulo: 'A Responder' },
+  { status: 'em_andamento', rotulo: 'Em Andamento' },
+  { status: 'resolvido', rotulo: 'Resolvido' },
+]
 
 export const VISIBILIDADE_APONTAMENTO = ['rascunho', 'publicado']
 
