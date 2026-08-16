@@ -466,6 +466,31 @@ export function situacaoExecucao(planejada, diarios) {
   return { chave: 'nao_executada', ...SITUACAO_EXECUCAO.nao_executada, diario, executada }
 }
 
+/* Empresa em branco (dia planejado sem empresa preenchida) não pode
+   criar um grupo "sem empresa" separado do resto da MESMA atividade
+   só porque nem todo dia tem o campo preenchido — isso fazia a
+   mesma etapa aparecer "iniciando" duas vezes na tabela (uma linha
+   sem empresa, outra com). Se só existe UMA empresa real usada
+   nessa combinação de serviço+local (em toda a obra, não só na
+   janela olhada agora), todo dia sem empresa entra nesse grupo; só
+   quando aparece mais de uma empresa real é que continuam grupos de
+   verdade separados — aí é troca de subcontratada, não campo em
+   branco. */
+export function resolverEmpresaDoGrupo(lista, listaCompleta = lista) {
+  const porServicoLocal = new Map()
+  listaCompleta.forEach((p) => {
+    if (!p.company_id) return
+    const k = `${p.service_id}|${p.location_id}`
+    if (!porServicoLocal.has(k)) porServicoLocal.set(k, new Set())
+    porServicoLocal.get(k).add(p.company_id)
+  })
+  return lista.map((p) => {
+    if (p.company_id) return p
+    const empresas = porServicoLocal.get(`${p.service_id}|${p.location_id}`)
+    return empresas?.size === 1 ? { ...p, company_id: [...empresas][0] } : p
+  })
+}
+
 /* O fechamento da semana. Esta função alimenta a tela, o resumo e
    a exportação — se alguém recalcular em qualquer um desses
    lugares, os três passam a discordar.
@@ -480,7 +505,8 @@ export function situacaoExecucao(planejada, diarios) {
       equipe fez sem estar na planilha da semana não conta a favor
       nem contra o percentual, aparece à parte em `naoPlanejados`. */
 export function fecharSemana(planejamento, diarios, de, ate, hoje = hojeISO()) {
-  const itens = planejamento
+  const resolvido = resolverEmpresaDoGrupo(planejamento)
+  const itens = resolvido
     .filter((p) => p.data >= de && p.data <= ate)
     .map((p) => ({ planejada: p, situacao: situacaoExecucao(p, diarios) }))
     .sort((a, b) => (a.planejada.data < b.planejada.data ? -1 : 1))
@@ -557,8 +583,11 @@ export function chaveGrupoPlanejamento(p) {
    faz no Cronograma. `historico` sai junto pra alimentar o calendário
    do grupo — sem isso a tela teria que refazer essa mesma varredura. */
 export function agruparPlanejamento(planejamentoDaJanela, planejamentoTodos, diarios, overrides = [], hoje = hojeISO()) {
+  const todosResolvidos = resolverEmpresaDoGrupo(planejamentoTodos || [])
+  const janelaResolvida = resolverEmpresaDoGrupo(planejamentoDaJanela, planejamentoTodos || planejamentoDaJanela)
+
   const grupos = new Map()
-  planejamentoDaJanela.forEach((p) => {
+  janelaResolvida.forEach((p) => {
     const chave = chaveGrupoPlanejamento(p)
     if (!grupos.has(chave)) {
       grupos.set(chave, {
@@ -578,7 +607,7 @@ export function agruparPlanejamento(planejamentoDaJanela, planejamentoTodos, dia
   return [...grupos.values()].map((g) => {
     g.dias.sort()
 
-    const historico = (planejamentoTodos || [])
+    const historico = todosResolvidos
       .filter((p) => chaveGrupoPlanejamento(p) === g.chave)
       .map((p) => ({ data: p.data, situacao: situacaoExecucao(p, diarios) }))
       .sort((a, b) => (a.data < b.data ? -1 : 1))
