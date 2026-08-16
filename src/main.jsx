@@ -10,16 +10,25 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>,
 )
 
-/* Sem isto, o service worker só confere se tem versão nova quando o
-   navegador decide sozinho (padrão: a cada ~24h) — na prática, o
-   Julio abria o app de novo minutos depois de um deploy e continuava
-   vendo a versão de cache antiga, mesmo com o deploy já certo na
-   Vercel. `registerType: 'autoUpdate'` (vite.config.js) já aplica a
-   versão nova sem perguntar; só faltava mandar checar com mais
-   frequência — toda vez que o app volta pra frente (reabre o
-   celular) e a cada 5 minutos enquanto fica aberto. */
-registerSW({
+/* Duas partes pro app nunca ficar preso numa versão velha:
+
+   1. Conferir com mais frequência que o padrão do navegador (~24h)
+      se tem service worker novo — a cada 5 minutos e toda vez que o
+      app volta pra frente (reabre o celular).
+   2. Quando acha um novo (onNeedRefresh), forçar a troca e recarregar
+      a página sozinho — sem isto, `registerType: 'autoUpdate'`
+      baixa e ativa o service worker novo em segundo plano, mas a
+      aba já aberta continua rodando o JavaScript velho, já carregado
+      na memória, até alguém recarregar na mão. Foi exatamente isso
+      que aconteceu: o deploy chegou certo na Vercel, mas quem já
+      tinha o app aberto continuou vendo a tela antiga mesmo depois
+      de fechar e reabrir, porque o "fechar" (minimizar) não é
+      necessariamente um reload de verdade. */
+const atualizarSW = registerSW({
   immediate: true,
+  onNeedRefresh() {
+    atualizarSW(true)
+  },
   onRegisteredSW(swUrl, registration) {
     if (!registration) return
     /* No canteiro o sinal cai — falha de rede aqui não pode virar
