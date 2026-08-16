@@ -2,17 +2,21 @@
    PLANEJAMENTO GLOBAL
 
    O cronograma mestre do projeto inteiro, que o setor de
-   planejamento do Julio manda em planilha — um degrau acima do
-   Mensal (Cronograma). Cada linha da planilha tem um ID externo
-   (do sistema deles) que vira a chave de reimportação: quando o
-   setor manda uma versão atualizada, a mesma linha é reconhecida
-   pelo ID e só tem a data atualizada, em vez de duplicar.
+   planejamento do Julio manda em planilha. É um espelho, não uma
+   fonte: só o Mensal muda o Mensal (pelo import de PDF dele) e só
+   o Semanal/diário mudam a data real de uma etapa. O Global nunca
+   cria nem edita nada em Mensal — cada linha da planilha só tenta
+   achar (por nome) uma etapa que já exista lá pra linkar; se a
+   etapa ainda não existe em Mensal, a linha fica "sem etapa" até
+   o nome bater num reimporte futuro.
 
-   Cada linha nova gera uma etapa em Mensal automaticamente, já
-   linkada — é o "passar pro mensal" que o Julio pediu. Dali,
-   vincularServicosAutomaticamente (mesma função do import de PDF)
-   liga a etapa a um serviço do Planejamento pelo nome, sem passo
-   manual — é o "que passamos pro semanal".
+   Cada linha da planilha tem um ID externo (do sistema deles) que
+   vira a chave de reimportação: quando o setor manda uma versão
+   atualizada, a mesma linha é reconhecida pelo ID e só tem a data
+   prevista atualizada, em vez de duplicar. A data REAL mostrada
+   aqui não vem da planilha — vem da etapa vinculada em Mensal
+   (que por sua vez vem do que o Semanal/diário apontou), porque é
+   o Mensal que manda nessa informação, não o Global.
    ============================================================ */
 
 import { useState, useMemo } from 'react'
@@ -75,16 +79,17 @@ export default function PlanejamentoGlobal({ perfil }) {
       ) : (
         <>
           <div className="alert info">
-            Cada tarefa daqui já virou (ou atualizou) uma etapa em Planejamento mensal, e o Planejamento
-            semanal enxerga o serviço vinculado a partir de lá. Reimporte a mesma planilha sempre que o
-            setor de planejamento mandar uma versão nova — as datas são atualizadas pelo ID da tarefa,
-            sem duplicar nada.
+            Cada tarefa daqui tenta linkar (pelo nome) numa etapa que já exista em Planejamento mensal — o
+            Global nunca cria nem muda nada lá. Reimporte a mesma planilha sempre que o setor de
+            planejamento mandar uma versão nova — a data prevista é atualizada pelo ID da tarefa, sem
+            duplicar nada; a data real mostrada aqui vem do que já está em Mensal.
           </div>
 
           {semVinculo > 0 && podeEditar && (
             <div className="alert danger">
-              {plural(semVinculo, 'tarefa está', 'tarefas estão')} sem a etapa correspondente em Mensal —
-              reimporte a planilha pra tentar de novo, ou confira se a etapa foi excluída de lá.
+              {plural(semVinculo, 'tarefa ainda não tem', 'tarefas ainda não têm')} uma etapa com esse nome
+              cadastrada em Mensal — cadastre lá (com o mesmo nome) que a vinculação acontece sozinha no
+              próximo reimporte.
             </div>
           )}
 
@@ -125,8 +130,8 @@ export default function PlanejamentoGlobal({ perfil }) {
                         <td>{i.lote || '—'}</td>
                         <td>{formatarDataCurta(i.data_inicio)}</td>
                         <td>{formatarDataCurta(i.data_fim)}</td>
-                        <td>{i.inicio_real ? formatarDataCurta(i.inicio_real) : '—'}</td>
-                        <td>{i.fim_real ? formatarDataCurta(i.fim_real) : '—'}</td>
+                        <td>{etapa?.inicio_real ? formatarDataCurta(etapa.inicio_real) : '—'}</td>
+                        <td>{etapa?.fim_real ? formatarDataCurta(etapa.fim_real) : '—'}</td>
                         <td>
                           {etapa
                             ? <Chip tom="success">Vinculada</Chip>
@@ -155,7 +160,6 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
   const [nomeArquivo, setNomeArquivo] = useState('')
   const [importandoAgora, setImportandoAgora] = useState(false)
   const [feito, setFeito] = useState(null)
-  const [vinculando, setVinculando] = useState(false)
 
   const fechar = () => {
     setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
@@ -192,9 +196,6 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
     try {
       const r = await dados.importarCronogramaGlobal(resultado.itens)
       if (!r) return
-      setVinculando(true)
-      await dados.vincularServicosAutomaticamente()
-      setVinculando(false)
       setFeito(r)
     } finally {
       setImportandoAgora(false)
@@ -208,9 +209,9 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
           <>
             <div className="alert success">
               {plural(feito.criados, 'tarefa nova criada', 'tarefas novas criadas')} e{' '}
-              {plural(feito.atualizados, 'tarefa atualizada', 'tarefas atualizadas')}. Cada tarefa nova já
-              virou uma etapa em Planejamento mensal, e os serviços foram vinculados automaticamente pelo
-              nome.
+              {plural(feito.atualizados, 'tarefa atualizada', 'tarefas atualizadas')}. Quem já tinha uma
+              etapa com o mesmo nome em Planejamento mensal ficou vinculada automaticamente; o Mensal em
+              si não foi alterado.
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
@@ -278,7 +279,7 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
                     disabled={!resultado.itens.length || importandoAgora}
                   >
                     {importandoAgora
-                      ? (vinculando ? 'Vinculando serviços…' : 'Importando…')
+                      ? 'Importando…'
                       : `Importar ${plural(resultado.itens.length, 'tarefa', 'tarefas')}`}
                   </button>
                 </div>

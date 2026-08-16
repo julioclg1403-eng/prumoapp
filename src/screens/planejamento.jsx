@@ -1,14 +1,16 @@
 /* ============================================================
    PLANEJAMENTO
 
-   Três visões do mesmo trabalho, uma aba só, em ordem de quem
-   alimenta quem: Global (o cronograma mestre do projeto inteiro,
-   importado da planilha do setor de planejamento — planejamento-
-   global.jsx) alimenta o Mensal (a EAP por etapa, avanço físico
-   medido contra o previsto — planejamento-mensal.jsx, ex-"Cronograma"),
-   que por sua vez é o que o Semanal (o que a obra faz nos próximos
-   dias, editável dia a dia — planejamento-semanal.jsx) enxerga pra
-   planejar. Eram itens de menu separados; viraram sub-abas porque,
+   Três visões do mesmo trabalho, uma aba só. Quem manda em quem é
+   o oposto da ordem de leitura: o Semanal (o que a obra faz dia a
+   dia, editável — planejamento-semanal.jsx, alimentado pelo
+   diário) atualiza o Mensal (a EAP por etapa, avanço físico medido
+   contra o previsto — planejamento-mensal.jsx, ex-"Cronograma"),
+   e o Mensal é quem alimenta o Global (o espelho do cronograma
+   mestre do projeto inteiro, importado da planilha do setor de
+   planejamento — planejamento-global.jsx). O Global nunca cria nem
+   edita nada no Mensal — só linka pelo nome numa etapa que já
+   exista lá. Eram itens de menu separados; viraram sub-abas porque,
    na prática, quem mexe num sempre acaba olhando o outro.
    ============================================================ */
 

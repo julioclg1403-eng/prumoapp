@@ -1669,9 +1669,10 @@ export function DadosProvider({ perfil, children }) {
 
   /* Planejamento Global: casa por codigo_externo (o ID da planilha
      do setor de planejamento, não o texto da descrição) — reimportar
-     uma versão nova da mesma planilha atualiza datas em vez de
-     duplicar. Cria a etapa do Cronograma (schedule_items) junto na
-     primeira vez, já linkada; dali pra frente só atualiza as duas. */
+     uma versão nova da mesma planilha atualiza as datas em vez de
+     duplicar. Nunca cria nem altera etapa do Mensal (schedule_items)
+     — só tenta achar uma etapa já existente com o mesmo nome pra
+     linkar; Mensal só muda pelo import de PDF dele mesmo. */
   const importarCronogramaGlobal = useCallback(
     async (itens) => {
       const r = await supabase.rpc('importar_cronograma_global', {
