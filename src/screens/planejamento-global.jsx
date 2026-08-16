@@ -19,9 +19,9 @@
    o Mensal que manda nessa informação, não o Global.
    ============================================================ */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarDataCurta, plural, normalizarParaCasar } from '../lib/dominio'
+import { formatarDataCurta, plural, normalizarParaCasar, cronogramaGlobalCorrespondeEtapa } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Sheet, Vazio } from '../components'
 
 export default function PlanejamentoGlobal({ perfil }) {
@@ -61,6 +61,34 @@ export default function PlanejamentoGlobal({ perfil }) {
     }
   }
 
+  /* Toda vez que a tela abre, tenta linkar de novo sozinho — pra pegar
+     etapa que foi cadastrada em Mensal desde a última vez, sem exigir
+     que a pessoa lembre de clicar no botão. Só uma vez por abertura da
+     tela (não fica repetindo a cada recarregar()). */
+  const jaTentouAoAbrir = useRef(false)
+  useEffect(() => {
+    if (jaTentouAoAbrir.current || !podeEditar) return
+    jaTentouAoAbrir.current = true
+    if (dados.cronogramaGlobal.some((i) => !i.schedule_item_id)) {
+      dados.vincularCronogramaGlobalAutomaticamente()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /* Pra cada tarefa ainda sem etapa, calcula quantas etapas do Mensal
+     têm nome parecido — 1 candidata é o que o vincular automático já
+     teria linkado (caso raro de estar temporariamente desatualizado);
+     2+ candidatas é ambíguo de propósito (o automático não arrisca
+     escolher errado) e vira o sinal de atenção que o Julio pediu. */
+  const candidatasPorItem = useMemo(() => {
+    const mapa = new Map()
+    for (const item of dados.cronogramaGlobal) {
+      if (item.schedule_item_id) continue
+      mapa.set(item.id, dados.cronograma.filter((e) => cronogramaGlobalCorrespondeEtapa(item.descricao, e.descricao)))
+    }
+    return mapa
+  }, [dados.cronogramaGlobal, dados.cronograma])
+
   const lista = useMemo(() => {
     const b = busca.trim().toLowerCase()
     return [...dados.cronogramaGlobal]
@@ -71,6 +99,7 @@ export default function PlanejamentoGlobal({ perfil }) {
 
   const criticos = dados.cronogramaGlobal.filter((i) => i.caminho_critico).length
   const semVinculo = dados.cronogramaGlobal.filter((i) => !i.schedule_item_id || !etapaPorId.has(i.schedule_item_id)).length
+  const ambiguos = [...candidatasPorItem.values()].filter((c) => c.length > 1).length
 
   return (
     <div className="page stack-2">
@@ -116,11 +145,18 @@ export default function PlanejamentoGlobal({ perfil }) {
             duplicar nada; a data real mostrada aqui vem do que já está em Mensal.
           </div>
 
-          {semVinculo > 0 && podeEditar && (
+          {ambiguos > 0 && podeEditar && (
+            <div className="alert info">
+              {plural(ambiguos, 'tarefa achou mais de uma etapa parecida', 'tarefas acharam mais de uma etapa parecida')} em
+              Mensal — o automático não arrisca escolher errado, confira e vincule manualmente qual é a certa.
+            </div>
+          )}
+
+          {semVinculo - ambiguos > 0 && podeEditar && (
             <div className="alert danger">
-              {plural(semVinculo, 'tarefa ainda não tem', 'tarefas ainda não têm')} uma etapa com esse nome
-              cadastrada em Mensal — cadastre lá (com o mesmo nome) que a vinculação acontece sozinha no
-              próximo reimporte.
+              {plural(semVinculo - ambiguos, 'tarefa ainda não tem', 'tarefas ainda não têm')} nenhuma etapa parecida
+              cadastrada em Mensal — cadastre lá (com o mesmo nome) que a vinculação acontece sozinha na próxima
+              vez que abrir esta tela.
             </div>
           )}
 
@@ -155,6 +191,7 @@ export default function PlanejamentoGlobal({ perfil }) {
                 <tbody>
                   {lista.map((i) => {
                     const etapa = i.schedule_item_id ? etapaPorId.get(i.schedule_item_id) : null
+                    const candidatas = !etapa ? (candidatasPorItem.get(i.id) || []) : []
                     return (
                       <tr key={i.id} style={i.caminho_critico ? { background: 'var(--danger-tint)' } : undefined}>
                         <td>{i.descricao}</td>
@@ -170,7 +207,9 @@ export default function PlanejamentoGlobal({ perfil }) {
                           >
                             {etapa
                               ? <Chip tom="success">Vinculada</Chip>
-                              : <Chip tom="danger">Sem etapa</Chip>}
+                              : candidatas.length > 1
+                                ? <Chip tom="info">Conferir · {candidatas.length} parecidas</Chip>
+                                : <Chip tom="danger">Sem etapa</Chip>}
                           </button>
                         </td>
                       </tr>
@@ -189,6 +228,7 @@ export default function PlanejamentoGlobal({ perfil }) {
         item={itemParaVincular} onFechar={() => setItemParaVincular(null)} dados={dados}
         etapaVinculada={itemParaVincular ? etapaPorId.get(itemParaVincular.schedule_item_id) : null}
         nomesServicoPorEtapa={nomesServicoPorEtapa}
+        candidatasPorNome={itemParaVincular ? (candidatasPorItem.get(itemParaVincular.id) || []) : []}
       />
     </div>
   )
@@ -200,7 +240,7 @@ export default function PlanejamentoGlobal({ perfil }) {
    nome dos serviços do Semanal já vinculados a ela — é o "puxar do
    semanal também" que o Julio pediu, sem precisar adivinhar como o
    Mensal escreveu a etapa. */
-function VincularEtapa({ item, onFechar, dados, etapaVinculada, nomesServicoPorEtapa }) {
+function VincularEtapa({ item, onFechar, dados, etapaVinculada, nomesServicoPorEtapa, candidatasPorNome }) {
   const [busca, setBusca] = useState('')
   const [salvando, setSalvando] = useState(false)
 
@@ -241,6 +281,30 @@ function VincularEtapa({ item, onFechar, dados, etapaVinculada, nomesServicoPorE
               <button className="btn btn-sm btn-secondary" disabled={salvando} onClick={() => escolher(null)}>
                 Desvincular
               </button>
+            </div>
+          )}
+
+          {!etapaVinculada && candidatasPorNome?.length > 1 && !busca && (
+            <div className="alert info">
+              <div style={{ marginBottom: 6 }}>
+                O nome bateu parecido com {plural(candidatasPorNome.length, 'esta etapa', 'estas etapas')} —
+                o automático não escolheu sozinho porque não dá pra saber qual é a certa:
+              </div>
+              <div className="stack-1">
+                {candidatasPorNome.map((e) => (
+                  <button
+                    key={e.id} disabled={salvando} onClick={() => escolher(e.id)}
+                    className="card-flat" style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                  >
+                    <strong>{e.descricao}</strong>
+                    {(nomesServicoPorEtapa.get(e.id) || []).length > 0 && (
+                      <div className="t-caption" style={{ marginTop: 2 }}>
+                        Serviços: {nomesServicoPorEtapa.get(e.id).join(', ')}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
