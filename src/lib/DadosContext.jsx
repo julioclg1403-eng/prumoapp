@@ -21,7 +21,7 @@ import { createContext, useContext, useMemo, useState, useCallback, useEffect, u
 import { supabase } from './supabase'
 import {
   hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar,
-  cronogramaGlobalCorrespondeEtapa,
+  cronogramaGlobalCorrespondeEtapa, agruparPlanejamento, etapaCorrespondenteAoGrupo,
   descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO,
 } from './dominio'
 import {
@@ -1647,6 +1647,40 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* O elo que faltava entre Semanal e Mensal: quando um grupo do
+     Semanal (agruparPlanejamento) fecha como concluído, a etapa
+     correspondente em Mensal (achada por serviço vinculado + local,
+     dominio.etapaCorrespondenteAoGrupo) ganha 100% e as datas reais
+     sozinha — sem exigir que alguém vá medir manualmente algo que o
+     diário já mostrou pronto. Quando não acha etapa (serviço nunca
+     vinculado, sem etapa nesse local, ou ambíguo), não força nada —
+     a tela do Semanal é quem avisa em vermelho qual grupo ficou sem
+     sincronizar e por quê. */
+  const sincronizarMensalComSemanal = useCallback(
+    async () => {
+      const grupos = agruparPlanejamento(
+        daObra.planejamento, daObra.planejamento, daObra.diarios, daObra.planejamentoOverrides, hojeISO(),
+      )
+      const atualizacoes = []
+      for (const g of grupos) {
+        if (g.situacao.chave !== 'concluida' || !g.fimReal) continue
+        const { etapa } = etapaCorrespondenteAoGrupo(g, daObra.cronograma, daObra.servicosCronograma, daObra.locais)
+        if (!etapa) continue
+        if (Number(etapa.percentual) >= 100 && etapa.inicio_real === g.inicioReal && etapa.fim_real === g.fimReal) continue
+        atualizacoes.push({ id: etapa.id, inicio_real: g.inicioReal, fim_real: g.fimReal })
+      }
+      if (atualizacoes.length === 0) return { atualizados: 0 }
+      for (const a of atualizacoes) {
+        await supabase.from('schedule_items')
+          .update({ percentual: 100, inicio_real: a.inicio_real, fim_real: a.fim_real, atualizado_em: new Date().toISOString() })
+          .eq('id', a.id)
+      }
+      await recarregar()
+      return { atualizados: atualizacoes.length }
+    },
+    [daObra, recarregar],
+  )
+
   /* Importação recorrente do PDF operacional: casada por descrição
      no próprio banco, para o item já existente ter a data e o
      responsável atualizados SEM perder o percentual que a gestão
@@ -2257,7 +2291,7 @@ export function DadosProvider({ perfil, children }) {
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
-      vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal,
+      vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal, sincronizarMensalComSemanal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
@@ -2285,7 +2319,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
-      vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal,
+      vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal, sincronizarMensalComSemanal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,

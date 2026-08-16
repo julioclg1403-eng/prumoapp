@@ -13,7 +13,7 @@
    trabalho à toa e uma fonte nova de erro de digitação.
    ============================================================ */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, plural,
@@ -43,6 +43,26 @@ export default function PlanejamentoMensal({ perfil, goto }) {
   const [resultadoVinculo, setResultadoVinculo] = useState('')
   const [mes, setMes] = useState(() => hoje.slice(0, 7))
   const [visao, setVisao] = useState('cartoes')
+  const [resultadoSincronia, setResultadoSincronia] = useState('')
+
+  /* Toda vez que abre Mensal, tenta puxar do Semanal quem fechou —
+     o elo automático que o Julio pediu: ele mexe no Semanal, o
+     Mensal se atualiza sozinho, sem precisar lembrar de medir de
+     novo o que o diário já mostrou concluído. */
+  const jaSincronizouAoAbrir = useRef(false)
+  useEffect(() => {
+    if (jaSincronizouAoAbrir.current || !podeEditar) return
+    jaSincronizouAoAbrir.current = true
+    dados.sincronizarMensalComSemanal().then((r) => {
+      if (r?.atualizados) {
+        setResultadoSincronia(
+          `${plural(r.atualizados, 'etapa atualizada', 'etapas atualizadas')} automaticamente a partir do que o Semanal já concluiu.`,
+        )
+        setTimeout(() => setResultadoSincronia(''), 6000)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const itens = useMemo(() => ordenarCronograma(dados.cronograma), [dados.cronograma])
   const curva = useMemo(() => curvaFisica(itens, hoje), [itens, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -147,6 +167,7 @@ export default function PlanejamentoMensal({ perfil, goto }) {
         />
 
         {resultadoVinculo && <div className="alert success">{resultadoVinculo}</div>}
+        {resultadoSincronia && <div className="alert success">{resultadoSincronia}</div>}
 
         {!podeEditar && (
           <div className="alert info">

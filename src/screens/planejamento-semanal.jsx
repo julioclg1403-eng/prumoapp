@@ -17,7 +17,7 @@ import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, somarDias, formatarData, formatarDataCurta, nomeDiaSemana,
   inicioDaSemana, diasDaSemana, rotuloDaSemana, fecharSemana, SITUACAO_EXECUCAO,
-  agruparPlanejamento, plural,
+  agruparPlanejamento, plural, etapaCorrespondenteAoGrupo, MOTIVO_SEM_SINCRONIA,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop, Segmentos,
@@ -881,23 +881,34 @@ function TabelaGrupos({ grupos, dados, onAbrir }) {
           </tr>
         </thead>
         <tbody>
-          {grupos.map((g) => (
-            <tr
-              key={g.chave}
-              onClick={onAbrir ? () => onAbrir(g) : undefined}
-              style={onAbrir ? { cursor: 'pointer' } : undefined}
-            >
-              <td>{dados.nomeDe(dados.servicos, g.service_id)}</td>
-              <td>{dados.nomeDe(dados.locais, g.location_id)}</td>
-              <td>{dados.nomeDe(dados.empresas, g.company_id, '—')}</td>
-              <td>
-                {g.inicioReal ? formatarDataCurta(g.inicioReal) : '—'}
-                {g.manual && <span title="Digitado à mão" style={{ marginLeft: 4, color: 'var(--text-3)' }}>✎</span>}
-              </td>
-              <td>{g.fimReal ? formatarDataCurta(g.fimReal) : '—'}</td>
-              <td><Chip tom={g.situacao.tom}>{g.situacao.rotulo}</Chip></td>
-            </tr>
-          ))}
+          {grupos.map((g) => {
+            const semSincronia = g.situacao.chave === 'concluida'
+              && etapaCorrespondenteAoGrupo(g, dados.cronograma, dados.servicosCronograma, dados.locais)
+            return (
+              <tr
+                key={g.chave}
+                onClick={onAbrir ? () => onAbrir(g) : undefined}
+                style={onAbrir ? { cursor: 'pointer' } : undefined}
+              >
+                <td>{dados.nomeDe(dados.servicos, g.service_id)}</td>
+                <td>{dados.nomeDe(dados.locais, g.location_id)}</td>
+                <td>{dados.nomeDe(dados.empresas, g.company_id, '—')}</td>
+                <td>
+                  {g.inicioReal ? formatarDataCurta(g.inicioReal) : '—'}
+                  {g.manual && <span title="Digitado à mão" style={{ marginLeft: 4, color: 'var(--text-3)' }}>✎</span>}
+                </td>
+                <td>{g.fimReal ? formatarDataCurta(g.fimReal) : '—'}</td>
+                <td>
+                  <Chip tom={g.situacao.tom}>{g.situacao.rotulo}</Chip>
+                  {semSincronia?.motivo && (
+                    <div style={{ color: 'var(--danger)', fontSize: 11, marginTop: 2 }}>
+                      Não atualizou o Mensal
+                    </div>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -956,6 +967,17 @@ function SheetGrupo({ grupo, dados, goto, salvando, onMudar, onSalvar, onReabrir
               </div>
             </div>
           )}
+
+          {grupo.situacao.chave === 'concluida' && (() => {
+            const { etapa, motivo } = etapaCorrespondenteAoGrupo(grupo, dados.cronograma, dados.servicosCronograma, dados.locais)
+            if (etapa || !motivo) return null
+            return (
+              <div className="alert danger">
+                O app tentou vincular este serviço a uma etapa do Planejamento mensal pra atualizar a
+                data real de lá sozinho, e não conseguiu: {MOTIVO_SEM_SINCRONIA[motivo]}
+              </div>
+            )
+          })()}
 
           <div className="row-flex">
             <Campo label="Início real" dica="Só preenche se o cálculo automático pelo diário estiver errado ou faltando.">

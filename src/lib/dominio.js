@@ -960,6 +960,18 @@ export function nomeBaseDaEtapa(etapaDescricao) {
   return (partes[0] || '').trim()
 }
 
+/* A planilha do Global agrupa cada tarefa por uma sigla de categoria
+   ("PAV - Calçada e Circulação", "IND - Projetos") que o Mensal não
+   usa — sem tirar isso antes de comparar, "PAV - Calçada e
+   Circulação" nunca bate com "CALÇADA E CIRCULAÇÃO - Área Externa -
+   Pátio Central" mesmo sendo o mesmo serviço. Só tira quando a
+   sigla é curta (até 5 letras maiúsculas, o padrão de categoria) —
+   não mexe em nomes que só por acaso têm um hífen no meio. */
+function semSiglaDeCategoria(descricao) {
+  const m = /^[A-ZÀ-Ú]{2,5}\s*-\s*(.+)$/.exec(String(descricao || '').trim())
+  return m ? m[1] : descricao
+}
+
 /* Casamento por nome parecido entre uma tarefa do cronograma Global
    (a planilha do setor de planejamento, que não segue o padrão
    "Serviço - Local" do PDF operacional) e uma etapa do Mensal —
@@ -967,7 +979,7 @@ export function nomeBaseDaEtapa(etapaDescricao) {
    Exige que a menor das duas descrições tenha pelo menos 6
    caracteres pra não casar por acaso em nomes curtos genéricos. */
 export function cronogramaGlobalCorrespondeEtapa(descricaoGlobal, descricaoEtapa) {
-  const g = normalizarParaCasar(descricaoGlobal)
+  const g = normalizarParaCasar(semSiglaDeCategoria(descricaoGlobal))
   const e = normalizarParaCasar(descricaoEtapa)
   if (!g || !e) return false
   if (g === e) return true
@@ -975,6 +987,39 @@ export function cronogramaGlobalCorrespondeEtapa(descricaoGlobal, descricaoEtapa
   const menor = g.length >= e.length ? e : g
   if (menor.length < 6) return false
   return maior.includes(menor)
+}
+
+/* Direção oposta de diasRealizadosEtapa: de um grupo do Semanal
+   (agruparPlanejamento) pra etapa do Mensal correspondente, pra
+   quando o serviço fecha lá e a etapa aqui precisa saber. Serviço
+   vinculado a mais de uma etapa (uma por local) só resolve pro
+   local que bate; sem bater ninguém, ou batendo mais de um, devolve
+   o motivo em vez de arriscar — quem chama decide se avisa. */
+export function etapaCorrespondenteAoGrupo(grupo, etapas, vinculos, locais) {
+  const etapaIds = new Set(
+    (vinculos || []).filter((v) => v.service_id === grupo.service_id).map((v) => v.schedule_item_id),
+  )
+  if (etapaIds.size === 0) return { etapa: null, motivo: 'servico_sem_vinculo' }
+
+  const nomeLocal = (locais || []).find((l) => l.id === grupo.location_id)?.nome
+  const localNormalizado = nomeLocal ? normalizarParaCasar(nomeLocal) : null
+
+  const candidatas = (etapas || []).filter((e) => {
+    if (!etapaIds.has(e.id)) return false
+    const localEtapa = normalizarParaCasar(localDaEtapa(e.descricao))
+    if (!localEtapa) return true
+    return localNormalizado === localEtapa
+  })
+
+  if (candidatas.length === 0) return { etapa: null, motivo: 'sem_etapa_no_local' }
+  if (candidatas.length > 1) return { etapa: null, motivo: 'ambiguo', candidatas }
+  return { etapa: candidatas[0], motivo: null }
+}
+
+export const MOTIVO_SEM_SINCRONIA = {
+  servico_sem_vinculo: 'O serviço nunca foi vinculado a nenhuma etapa em Mensal.',
+  sem_etapa_no_local: 'Tem etapa desse serviço em Mensal, mas nenhuma cadastrada nesse local.',
+  ambiguo: 'Mais de uma etapa desse serviço em Mensal parece ser desse local — corrija o nome de uma delas.',
 }
 
 /* Aceita tanto "31/12/2026" (o formato que sai do Excel em
