@@ -173,7 +173,7 @@ export function DadosProvider({ perfil, children }) {
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
-      planejamentoOverrides,
+      planejamentoOverrides, cronogramaGlobal,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -205,6 +205,7 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('stock_exits').select('*').order('data', { ascending: false }),
       supabase.from('meal_records').select('*').order('data', { ascending: false }),
       supabase.from('planned_group_overrides').select('*'),
+      supabase.from('schedule_global_items').select('*').order('data_inicio'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -212,7 +213,7 @@ export function DadosProvider({ perfil, children }) {
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
-      planejamentoOverrides].find((r) => r.error)
+      planejamentoOverrides, cronogramaGlobal].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -268,6 +269,7 @@ export function DadosProvider({ perfil, children }) {
       saidasEstoque: saidasEstoque.data || [],
       refeicoes: refeicoes.data || [],
       planejamentoOverrides: planejamentoOverrides.data || [],
+      cronogramaGlobal: cronogramaGlobal.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -342,6 +344,7 @@ export function DadosProvider({ perfil, children }) {
       saidasEstoque: filtrar(tudo.saidasEstoque),
       refeicoes: filtrar(tudo.refeicoes),
       planejamentoOverrides: filtrar(tudo.planejamentoOverrides),
+      cronogramaGlobal: filtrar(tudo.cronogramaGlobal),
     }
   }, [tudo, obraId])
 
@@ -1664,6 +1667,29 @@ export function DadosProvider({ perfil, children }) {
     [escopo, avisarErro, recarregar],
   )
 
+  /* Planejamento Global: casa por codigo_externo (o ID da planilha
+     do setor de planejamento, não o texto da descrição) — reimportar
+     uma versão nova da mesma planilha atualiza datas em vez de
+     duplicar. Cria a etapa do Cronograma (schedule_items) junto na
+     primeira vez, já linkada; dali pra frente só atualiza as duas. */
+  const importarCronogramaGlobal = useCallback(
+    async (itens) => {
+      const r = await supabase.rpc('importar_cronograma_global', {
+        p_itens: itens.map((i) => ({
+          codigo_externo: i.codigo_externo, descricao: i.descricao, lote: i.lote || null,
+          caminho_critico: Boolean(i.caminho_critico),
+          data_inicio: i.data_inicio, data_fim: i.data_fim, duracao: i.duracao ?? null,
+          inicio_real: i.inicio_real || null, fim_real: i.fim_real || null, duracao_real: i.duracao_real ?? null,
+        })),
+        p_worksite_id: escopo().worksite_id,
+      })
+      if (r.error) { avisarErro(r.error.message); return null }
+      await recarregar()
+      return r.data?.[0] || { criados: 0, atualizados: 0 }
+    },
+    [escopo, avisarErro, recarregar],
+  )
+
   const removerItemCronograma = useCallback(
     async (id) => {
       const r = await supabase.from('schedule_items').delete().eq('id', id).select('id')
@@ -2170,7 +2196,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
-      salvarItemCronograma, importarCronograma, importarCronogramaPDF,
+      salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
@@ -2197,7 +2223,7 @@ export function DadosProvider({ perfil, children }) {
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
-      salvarItemCronograma, importarCronograma, importarCronogramaPDF,
+      salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
