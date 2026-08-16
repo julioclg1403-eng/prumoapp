@@ -188,6 +188,19 @@ export const COLUNAS_QUADRO_APONTAMENTO = [
   { status: 'resolvido', rotulo: 'Resolvido' },
 ]
 
+/* "Novo comentário" no cartão do quadro (só interessa na coluna Em
+   Andamento) não é "não lido" — o app não rastreia isso por pessoa.
+   É "chegou depois de alguém pegar pra trabalhar": qualquer
+   comentário mais recente do que a última vez que o apontamento
+   entrou em "em_andamento" (project_note_history). Sem essa
+   entrada no histórico (apontamento antigo, de antes desse status
+   existir), não dá pra saber — não assume nada. */
+export function temComentarioNovoEmAndamento(apontamento) {
+  const entrada = (apontamento.historico || []).filter((h) => h.para_status === 'em_andamento').slice(-1)[0]
+  if (!entrada) return false
+  return (apontamento.comentarios || []).some((c) => c.created_at > entrada.created_at)
+}
+
 export const VISIBILIDADE_APONTAMENTO = ['rascunho', 'publicado']
 
 export const ROTULO_VISIBILIDADE_APONTAMENTO = { rascunho: 'Rascunho', publicado: 'Publicado' }

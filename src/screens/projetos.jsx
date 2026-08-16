@@ -19,6 +19,7 @@ import {
   formatarData, formatarDataHora,
   PRIORIDADES, ROTULO_PRIORIDADE,
   STATUS_APONTAMENTO, ROTULO_STATUS_APONTAMENTO, TOM_STATUS_APONTAMENTO, COLUNAS_QUADRO_APONTAMENTO,
+  temComentarioNovoEmAndamento,
   VISIBILIDADE_APONTAMENTO, ROTULO_VISIBILIDADE_APONTAMENTO,
   apontamentoTravado, pendenciasParaAbrirApontamento,
 } from '../lib/dominio'
@@ -74,8 +75,12 @@ export default function Projetos({ goto, voltar, perfil }) {
      filtro da Lista. */
   const itensBuscados = useMemo(() => {
     const b = normalizarComparar(busca)
+    const digitos = busca.replace(/\D/g, '')
     return dados.apontamentos
-      .filter((a) => !b || normalizarComparar(a.titulo).includes(b) || normalizarComparar(a.descricao).includes(b))
+      .filter((a) => !b
+        || normalizarComparar(a.titulo).includes(b)
+        || normalizarComparar(a.descricao).includes(b)
+        || (digitos && String(a.numero) === digitos))
   }, [dados.apontamentos, busca])
 
   const lista = useMemo(() => {
@@ -193,7 +198,7 @@ export default function Projetos({ goto, voltar, perfil }) {
             <>
               <input
                 className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
-                placeholder="Pesquisar…"
+                placeholder="Pesquisar por título, descrição ou número…"
               />
               <Segmentos
                 valor={visao} onChange={setVisao}
@@ -882,6 +887,11 @@ function QuadroApontamentos({ itens, dados, onAbrir, onMudarStatus }) {
                   {a.prioridade === 'alta' && coluna.status === 'ativo' && (
                     <div className="t-caption" style={{ color: 'var(--danger)', fontWeight: 600, marginTop: 6 }}>
                       prioridade alta
+                    </div>
+                  )}
+                  {coluna.status === 'em_andamento' && temComentarioNovoEmAndamento(a) && (
+                    <div className="t-caption" style={{ color: 'var(--danger)', fontWeight: 600, marginTop: 6 }}>
+                      Novo comentário
                     </div>
                   )}
                   {a.disciplinas.length > 0 && (
