@@ -21,6 +21,7 @@ import { createContext, useContext, useMemo, useState, useCallback, useEffect, u
 import { supabase } from './supabase'
 import {
   hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar,
+  cronogramaGlobalCorrespondeEtapa,
   descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO,
 } from './dominio'
 import {
@@ -1691,6 +1692,64 @@ export function DadosProvider({ perfil, children }) {
     [escopo, avisarErro, recarregar],
   )
 
+  /* Tenta linkar (por nome parecido, não exato) toda tarefa do Global
+     que ainda esteja sem etapa contra as etapas do Mensal — chamada
+     de novo a qualquer momento (não só no import), pra pegar etapa
+     que foi cadastrada em Mensal depois. Busca direto no banco (não
+     do estado local) pelo mesmo motivo do vincularServicosAutomaticamente:
+     evitar corrida logo após um import/cadastro recém-feito. Só linka
+     quando a etapa candidata é única e ainda não foi usada por outra
+     linha do Global nesta mesma passada — ambíguo fica sem linkar. */
+  const vincularCronogramaGlobalAutomaticamente = useCallback(
+    async () => {
+      const worksite_id = escopo().worksite_id
+      const [pendentesR, etapasR, usadasR] = await Promise.all([
+        supabase.from('schedule_global_items').select('id, descricao')
+          .eq('worksite_id', worksite_id).is('schedule_item_id', null),
+        supabase.from('schedule_items').select('id, descricao').eq('worksite_id', worksite_id),
+        supabase.from('schedule_global_items').select('schedule_item_id')
+          .eq('worksite_id', worksite_id).not('schedule_item_id', 'is', null),
+      ])
+      if (pendentesR.error || etapasR.error) return { vinculados: 0 }
+
+      const usadas = new Set((usadasR.data || []).map((g) => g.schedule_item_id))
+      const atualizacoes = []
+      for (const item of pendentesR.data || []) {
+        const candidatas = (etapasR.data || []).filter(
+          (e) => !usadas.has(e.id) && cronogramaGlobalCorrespondeEtapa(item.descricao, e.descricao),
+        )
+        if (candidatas.length === 1) {
+          atualizacoes.push({ id: item.id, schedule_item_id: candidatas[0].id })
+          usadas.add(candidatas[0].id)
+        }
+      }
+      for (const a of atualizacoes) {
+        await supabase.from('schedule_global_items').update({ schedule_item_id: a.schedule_item_id }).eq('id', a.id)
+      }
+      if (atualizacoes.length) await recarregar()
+      return { vinculados: atualizacoes.length }
+    },
+    [escopo, recarregar],
+  )
+
+  /* Vínculo manual: quando o nome não bate parecido o bastante pro
+     automático achar, a pessoa escolhe a etapa certa na tela. Passar
+     etapaId null desvincula (pra desfazer um vínculo automático errado). */
+  const vincularEtapaGlobal = useCallback(
+    async (globalItemId, etapaId) => {
+      const r = await supabase.from('schedule_global_items')
+        .update({ schedule_item_id: etapaId }).eq('id', globalItemId).select('id')
+      if (r.error) { checar(r, 'vincular a etapa'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não pode vincular isso. Isso é da gestão.')
+        return false
+      }
+      await recarregar()
+      return true
+    },
+    [checar, avisarErro, recarregar],
+  )
+
   const removerItemCronograma = useCallback(
     async (id) => {
       const r = await supabase.from('schedule_items').delete().eq('id', id).select('id')
@@ -2198,6 +2257,7 @@ export function DadosProvider({ perfil, children }) {
       salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
+      vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
@@ -2225,6 +2285,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
+      vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,

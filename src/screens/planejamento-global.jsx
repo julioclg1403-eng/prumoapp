@@ -21,7 +21,7 @@
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarDataCurta, plural } from '../lib/dominio'
+import { formatarDataCurta, plural, normalizarParaCasar } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Sheet, Vazio } from '../components'
 
 export default function PlanejamentoGlobal({ perfil }) {
@@ -31,11 +31,35 @@ export default function PlanejamentoGlobal({ perfil }) {
   const [busca, setBusca] = useState('')
   const [soCritico, setSoCritico] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [vinculando, setVinculando] = useState(false)
+  const [itemParaVincular, setItemParaVincular] = useState(null)
 
   const etapaPorId = useMemo(
     () => new Map(dados.cronograma.map((e) => [e.id, e])),
     [dados.cronograma],
   )
+
+  const nomesServicoPorEtapa = useMemo(() => {
+    const servicoPorId = new Map(dados.servicos.map((s) => [s.id, s.nome]))
+    const mapa = new Map()
+    for (const v of dados.servicosCronograma) {
+      const nome = servicoPorId.get(v.service_id)
+      if (!nome) continue
+      if (!mapa.has(v.schedule_item_id)) mapa.set(v.schedule_item_id, [])
+      mapa.get(v.schedule_item_id).push(nome)
+    }
+    return mapa
+  }, [dados.servicos, dados.servicosCronograma])
+
+  const tentarVincularAutomatico = async () => {
+    setVinculando(true)
+    try {
+      const r = await dados.vincularCronogramaGlobalAutomaticamente()
+      return r
+    } finally {
+      setVinculando(false)
+    }
+  }
 
   const lista = useMemo(() => {
     const b = busca.trim().toLowerCase()
@@ -55,9 +79,16 @@ export default function PlanejamentoGlobal({ perfil }) {
         sub={`${plural(dados.cronogramaGlobal.length, 'tarefa', 'tarefas')} do cronograma mestre${criticos ? ` · ${criticos} no caminho crítico` : ''}`}
         acao={
           podeEditar && (
-            <button className="btn btn-primary" onClick={() => setImportando(true)}>
-              <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
-            </button>
+            <div className="row-flex" style={{ flexWrap: 'wrap' }}>
+              {semVinculo > 0 && (
+                <button className="btn btn-secondary" onClick={tentarVincularAutomatico} disabled={vinculando}>
+                  {vinculando ? 'Vinculando…' : 'Vincular automaticamente'}
+                </button>
+              )}
+              <button className="btn btn-primary" onClick={() => setImportando(true)}>
+                <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
+              </button>
+            </div>
           )
         }
       />
@@ -68,7 +99,7 @@ export default function PlanejamentoGlobal({ perfil }) {
             titulo="Nenhum cronograma global importado"
             texto={
               podeEditar
-                ? 'Importe a planilha mestre que o setor de planejamento manda — cada tarefa vira uma etapa em Mensal automaticamente.'
+                ? 'Importe a planilha mestre que o setor de planejamento manda — cada tarefa tenta linkar sozinha numa etapa já existente em Mensal.'
                 : 'A gestão ainda não importou o cronograma mestre desta obra.'
             }
             acao={podeEditar && (
@@ -130,12 +161,17 @@ export default function PlanejamentoGlobal({ perfil }) {
                         <td>{i.lote || '—'}</td>
                         <td>{formatarDataCurta(i.data_inicio)}</td>
                         <td>{formatarDataCurta(i.data_fim)}</td>
-                        <td>{etapa?.inicio_real ? formatarDataCurta(etapa.inicio_real) : '—'}</td>
-                        <td>{etapa?.fim_real ? formatarDataCurta(etapa.fim_real) : '—'}</td>
+                        <td>{(etapa?.inicio_real || i.inicio_real) ? formatarDataCurta(etapa?.inicio_real || i.inicio_real) : '—'}</td>
+                        <td>{(etapa?.fim_real || i.fim_real) ? formatarDataCurta(etapa?.fim_real || i.fim_real) : '—'}</td>
                         <td>
-                          {etapa
-                            ? <Chip tom="success">Vinculada</Chip>
-                            : <Chip tom="danger">Sem etapa</Chip>}
+                          <button
+                            onClick={() => podeEditar && setItemParaVincular(i)}
+                            disabled={!podeEditar} style={{ background: 'none', border: 'none', padding: 0, cursor: podeEditar ? 'pointer' : 'default' }}
+                          >
+                            {etapa
+                              ? <Chip tom="success">Vinculada</Chip>
+                              : <Chip tom="danger">Sem etapa</Chip>}
+                          </button>
                         </td>
                       </tr>
                     )
@@ -148,7 +184,91 @@ export default function PlanejamentoGlobal({ perfil }) {
       )}
 
       <ImportarCronogramaGlobal aberto={importando} onFechar={() => setImportando(false)} dados={dados} />
+      <VincularEtapa
+        key={itemParaVincular?.id || 'fechado'}
+        item={itemParaVincular} onFechar={() => setItemParaVincular(null)} dados={dados}
+        etapaVinculada={itemParaVincular ? etapaPorId.get(itemParaVincular.schedule_item_id) : null}
+        nomesServicoPorEtapa={nomesServicoPorEtapa}
+      />
     </div>
+  )
+}
+
+/* ── Vínculo manual com uma etapa do Mensal ───────────────────
+   Pra quando o nome não bate parecido o bastante pro automático
+   achar sozinho. A busca casa tanto pelo nome da etapa quanto pelo
+   nome dos serviços do Semanal já vinculados a ela — é o "puxar do
+   semanal também" que o Julio pediu, sem precisar adivinhar como o
+   Mensal escreveu a etapa. */
+function VincularEtapa({ item, onFechar, dados, etapaVinculada, nomesServicoPorEtapa }) {
+  const [busca, setBusca] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const candidatas = useMemo(() => {
+    if (!item) return []
+    const b = normalizarParaCasar(busca)
+    return dados.cronograma
+      .map((e) => ({ ...e, servicos: nomesServicoPorEtapa.get(e.id) || [] }))
+      .filter((e) => {
+        if (!b) return true
+        if (normalizarParaCasar(e.descricao).includes(b)) return true
+        return e.servicos.some((s) => normalizarParaCasar(s).includes(b))
+      })
+      .slice(0, 50)
+  }, [item, dados.cronograma, nomesServicoPorEtapa, busca])
+
+  const escolher = async (etapaId) => {
+    setSalvando(true)
+    try {
+      if (item && await dados.vincularEtapaGlobal(item.id, etapaId)) onFechar()
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Sheet aberto={Boolean(item)} titulo="Vincular a uma etapa do Mensal" onFechar={onFechar}>
+      {item && (
+        <div className="stack-2">
+          <div className="t-caption">{item.descricao}</div>
+
+          {etapaVinculada && (
+            <div className="card-flat row-between" style={{ alignItems: 'center' }}>
+              <div>
+                <div className="t-caption">Vinculada agora a</div>
+                <strong>{etapaVinculada.descricao}</strong>
+              </div>
+              <button className="btn btn-sm btn-secondary" disabled={salvando} onClick={() => escolher(null)}>
+                Desvincular
+              </button>
+            </div>
+          )}
+
+          <input
+            className="ipt" autoFocus value={busca} onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar etapa do Mensal ou serviço do Semanal…"
+          />
+
+          <div style={{ maxHeight: 340, overflowY: 'auto' }} className="stack-1">
+            {candidatas.length === 0 ? (
+              <div className="t-caption" style={{ padding: 8 }}>Nada encontrado.</div>
+            ) : (
+              candidatas.map((e) => (
+                <button
+                  key={e.id} disabled={salvando} onClick={() => escolher(e.id)}
+                  className="card-flat" style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <strong>{e.descricao}</strong>
+                  {e.servicos?.length > 0 && (
+                    <div className="t-caption" style={{ marginTop: 2 }}>Serviços: {e.servicos.join(', ')}</div>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </Sheet>
   )
 }
 
@@ -196,6 +316,7 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
     try {
       const r = await dados.importarCronogramaGlobal(resultado.itens)
       if (!r) return
+      await dados.vincularCronogramaGlobalAutomaticamente()
       setFeito(r)
     } finally {
       setImportandoAgora(false)
@@ -210,8 +331,8 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
             <div className="alert success">
               {plural(feito.criados, 'tarefa nova criada', 'tarefas novas criadas')} e{' '}
               {plural(feito.atualizados, 'tarefa atualizada', 'tarefas atualizadas')}. Quem já tinha uma
-              etapa com o mesmo nome em Planejamento mensal ficou vinculada automaticamente; o Mensal em
-              si não foi alterado.
+              etapa de nome parecido em Planejamento mensal ficou vinculada automaticamente; o Mensal em
+              si não foi alterado. O que não achou par pode ser vinculado manualmente na lista.
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
@@ -219,8 +340,8 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
               A planilha do cronograma mestre (.xlsx), do jeito que o setor de planejamento manda. Tarefa
-              que já existe (mesmo ID) tem as datas atualizadas; tarefa nova entra do zero e já cria a
-              etapa correspondente em Mensal.
+              que já existe (mesmo ID) só tem a data prevista atualizada; tarefa nova entra do zero. Nada
+              disso cria ou muda etapa em Mensal — o link acontece por nome parecido com o que já existe lá.
             </div>
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>

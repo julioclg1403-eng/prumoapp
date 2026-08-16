@@ -960,6 +960,23 @@ export function nomeBaseDaEtapa(etapaDescricao) {
   return (partes[0] || '').trim()
 }
 
+/* Casamento por nome parecido entre uma tarefa do cronograma Global
+   (a planilha do setor de planejamento, que não segue o padrão
+   "Serviço - Local" do PDF operacional) e uma etapa do Mensal —
+   usado pra vincular sem exigir que os dois textos sejam idênticos.
+   Exige que a menor das duas descrições tenha pelo menos 6
+   caracteres pra não casar por acaso em nomes curtos genéricos. */
+export function cronogramaGlobalCorrespondeEtapa(descricaoGlobal, descricaoEtapa) {
+  const g = normalizarParaCasar(descricaoGlobal)
+  const e = normalizarParaCasar(descricaoEtapa)
+  if (!g || !e) return false
+  if (g === e) return true
+  const maior = g.length >= e.length ? g : e
+  const menor = g.length >= e.length ? e : g
+  if (menor.length < 6) return false
+  return maior.includes(menor)
+}
+
 /* Aceita tanto "31/12/2026" (o formato que sai do Excel em
    português) quanto "2026-12-31". Devolve null se não entender —
    quem chama decide o que fazer com uma linha ruim, não esta função. */
