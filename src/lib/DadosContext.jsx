@@ -1568,6 +1568,25 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Preenche a empresa de dias já planejados que estavam sem
+     (company_id nulo) quando a planilha semanal reconhece o
+     responsável daquele pacote — nunca troca uma empresa que já
+     estava preenchida (pode ter sido digitada à mão de propósito). */
+  const preencherEmpresaPlanejada = useCallback(
+    async (ids, companyId) => {
+      if (!ids?.length) return true
+      const r = await supabase.from('planned_activities')
+        .update({ company_id: companyId }).in('id', ids).is('company_id', null).select('id')
+      if (r.error) { checar(r, 'preencher a empresa do planejamento'); return false }
+      setTudo((t) => t && ({
+        ...t,
+        planejamento: t.planejamento.map((p) => (ids.includes(p.id) ? { ...p, company_id: companyId } : p)),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   const removerPlanejado = useCallback(
     async (id) => {
       const r = await supabase.from('planned_activities').delete().eq('id', id).select('id')
@@ -2339,7 +2358,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, removerPlanejado, salvarOverridePlanejamento,
+      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
       vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal, sincronizarMensalComSemanal,
@@ -2365,7 +2384,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, removerPlanejado, salvarOverridePlanejamento, definirPapel,
+      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,

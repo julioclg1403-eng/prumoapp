@@ -46,6 +46,28 @@ function casar(texto, lista) {
   return lista.find((item) => normalizarComparar(item.nome) === alvo) || null
 }
 
+/* O "RESPONSÁVEL" do PDF ("RDL PINTURA") raramente bate letra por
+   letra com o nome cadastrado da empresa ("RDL pinturas") — plural,
+   abreviação, etc. Tenta exato primeiro; sem isso, casa por conter
+   um o outro (com mínimo de 4 letras, pra "FAMA" não virar alvo de
+   qualquer coisa por acaso). Nomes genéricos do relatório
+   ("TERCEIRIZADO") ou gente que ainda não foi cadastrada como
+   empresa ("ORTEGA") não batem com nada — fica null de propósito,
+   não inventa nem cria empresa sozinho (mesma regra do local: errar
+   aqui contamina o cadastro pra obra toda). */
+function casarEmpresa(texto, lista) {
+  if (!texto) return null
+  const alvo = normalizarComparar(texto)
+  if (alvo.length < 4) return null
+  const exato = lista.find((item) => normalizarComparar(item.nome) === alvo)
+  if (exato) return exato
+  const candidatos = lista.filter((item) => {
+    const nome = normalizarComparar(item.nome)
+    return nome.length >= 4 && (nome.includes(alvo) || alvo.includes(nome))
+  })
+  return candidatos.length === 1 ? candidatos[0] : null
+}
+
 /* Devolve um item por PACOTE (não por dia) — a tela decide como
    desdobrar em dias. Serviço sem correspondência vale NULL (vai
    ser criado, como material novo na requisição). Local sem
@@ -53,7 +75,7 @@ function casar(texto, lista) {
    local é usado em toda a obra, então uma correspondência errada
    aqui contamina o seletor de local para todo mundo — fica
    marcado como problema, para a pessoa decidir. */
-export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSemana }) {
+export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSemana, empresas }) {
   const lido = await lerCronogramaDoPDF(arquivo)
   if (lido.erroGeral) return lido
 
@@ -61,6 +83,7 @@ export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSe
     const { servicoTexto, localTexto } = dividirPacote(it.descricao)
     const servico = casar(servicoTexto, servicos)
     const local = casar(localTexto, locais)
+    const empresa = casarEmpresa(it.responsavel, empresas || [])
     const diasAtivos = diasDaSemana.filter((d) => d >= it.data_inicio && d <= it.data_fim)
 
     const problemas = []
@@ -72,6 +95,7 @@ export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSe
       linha: it.linha,
       descricao: it.descricao,
       responsavel: it.responsavel,
+      empresa,
       data_inicio: it.data_inicio,
       data_fim: it.data_fim,
       servicoTexto, servico,

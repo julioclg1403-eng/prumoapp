@@ -546,7 +546,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
     try {
       const { lerPlanejamentoDoPDF } = await import('../lib/pdfPlanejamento')
       const lido = await lerPlanejamentoDoPDF(arquivo, {
-        servicos: dados.servicos, locais: dados.locais, diasDaSemana: dias,
+        servicos: dados.servicos, locais: dados.locais, empresas: dados.empresas, diasDaSemana: dias,
       })
       setResultado(lido)
     } catch (err) {
@@ -564,7 +564,11 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
      sido lançados à mão antes do PDF chegar). Os que já existem mas
      ainda não tinham a marca da planilha (`da_planilha`) precisam
      ser confirmados, não só ignorados — é essa marca que diz pro
-     fechamento da semana o que realmente estava no plano. */
+     fechamento da semana o que realmente estava no plano. Os que
+     estão sem empresa e a planilha reconhece o responsável também
+     entram pra receber a empresa agora — sem isso, um pacote
+     lançado antes de a planilha trazer o responsável ficava sem
+     empresa pra sempre. */
   const diasNovosPorItem = useMemo(() => {
     return validos.map((it) => {
       const existentes = it.servico
@@ -579,6 +583,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
         item: it,
         novos: it.diasAtivos.filter((dia) => !diasExistentes.has(dia)),
         paraConfirmar: existentes.filter((e) => !e.da_planilha).map((e) => e.id),
+        paraPreencherEmpresa: it.empresa ? existentes.filter((e) => !e.company_id).map((e) => e.id) : [],
       }
     })
   }, [validos, dados]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -598,23 +603,33 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
       }
 
       // 2) Monta a lista final (pacote × dia novo) já com os ids reais,
-      //    e junta os ids dos dias que já existiam pra confirmar.
+      //    junta os ids dos dias que já existiam pra confirmar, e
+      //    agrupa por empresa os dias que precisam ser preenchidos.
       const itensParaCriar = []
       const idsParaConfirmar = []
-      for (const { item, novos, paraConfirmar } of diasNovosPorItem) {
+      const idsPorEmpresa = new Map()
+      for (const { item, novos, paraConfirmar, paraPreencherEmpresa } of diasNovosPorItem) {
         const serviceId = item.servico?.id || idPorNomeServico[item.servicoTexto.toLowerCase()]
         if (!serviceId) continue
         for (const dia of novos) {
           itensParaCriar.push({
             data: dia, service_id: serviceId, location_id: item.local.id,
-            company_id: null, observacao: null, da_planilha: true,
+            company_id: item.empresa?.id || null, observacao: null, da_planilha: true,
           })
         }
         idsParaConfirmar.push(...paraConfirmar)
+        if (item.empresa && paraPreencherEmpresa.length) {
+          if (!idsPorEmpresa.has(item.empresa.id)) idsPorEmpresa.set(item.empresa.id, [])
+          idsPorEmpresa.get(item.empresa.id).push(...paraPreencherEmpresa)
+        }
       }
 
       const salvos = itensParaCriar.length ? await dados.salvarPlanejadosEmLote(itensParaCriar) : []
       if (idsParaConfirmar.length) await dados.marcarDaPlanilha(idsParaConfirmar)
+      let empresasPreenchidas = 0
+      for (const [companyId, ids] of idsPorEmpresa) {
+        if (await dados.preencherEmpresaPlanejada(ids, companyId)) empresasPreenchidas += ids.length
+      }
 
       /* Serviço novo pode já ter etapa esperando por ele no cronograma
          (o PDF de cronograma costuma entrar primeiro) — casa pelo nome
@@ -624,6 +639,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
       setFeito({
         criados: salvos?.length || 0,
         confirmados: idsParaConfirmar.length,
+        empresasPreenchidas,
         jaExistiam: totalDiasNovos - (salvos?.length || 0),
         servicosNovos: servicosNovos.length,
       })
@@ -641,6 +657,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
               {plural(feito.criados, 'dia de planejamento criado', 'dias de planejamento criados')}.
               {feito.servicosNovos > 0 && ` ${plural(feito.servicosNovos, 'serviço novo cadastrado', 'serviços novos cadastrados')}.`}
               {feito.confirmados > 0 && ` ${plural(feito.confirmados, 'dia já lançado confirmado', 'dias já lançados confirmados')} como planejado pela planilha.`}
+              {feito.empresasPreenchidas > 0 && ` ${plural(feito.empresasPreenchidas, 'dia sem empresa preenchido', 'dias sem empresa preenchidos')} com a empresa que a planilha reconheceu.`}
               {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'dia já estava planejado', 'dias já estavam planejados')} e não foram repetidos.`}
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
