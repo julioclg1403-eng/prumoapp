@@ -291,6 +291,16 @@ export function estaAtrasada(p, hoje = hojeISO()) {
   return situacaoPendencia(p, hoje).chave === 'atrasada'
 }
 
+/* O quadro (visão Trello) do Dia a dia usa um terceiro estado que o
+   resto do app não usa — "em_andamento", entre aberta e resolvida.
+   Ordem fixa: é nela que as colunas aparecem e que os botões ‹ ›
+   avançam/voltam o cartão. */
+export const COLUNAS_QUADRO_PENDENCIA = [
+  { status: 'aberta', rotulo: 'A Fazer' },
+  { status: 'em_andamento', rotulo: 'Em Andamento' },
+  { status: 'resolvida', rotulo: 'Concluído' },
+]
+
 export function filtrarPendencias(lista, filtro, hoje = hojeISO()) {
   if (filtro === 'resolvidas') return lista.filter((p) => p.status === 'resolvida')
   if (filtro === 'atrasadas') return lista.filter((p) => estaAtrasada(p, hoje))

@@ -813,6 +813,32 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  /* O quadro do Dia a dia move o cartão pra qualquer das 3 colunas
+     (alternarPendencia só sabe virar entre aberta/resolvida) —
+     mesmo padrão otimista: muda na tela na hora, desfaz se o banco
+     recusar. */
+  const mudarStatusPendencia = useCallback(
+    async (id, status) => {
+      const atual = tudo?.pendencias.find((p) => p.id === id)
+      if (!atual) return
+      const mudanca = { status, resolvido_em: status === 'resolvida' ? hojeISO() : null }
+
+      setTudo((t) => t && ({
+        ...t,
+        pendencias: t.pendencias.map((p) => (p.id === id ? { ...p, ...mudanca } : p)),
+      }))
+
+      const r = await supabase.from('issues').update(mudanca).eq('id', id)
+      if (r.error) {
+        checar(r, 'mover a pendência')
+        setTudo((t) => t && ({
+          ...t, pendencias: t.pendencias.map((p) => (p.id === id ? atual : p)),
+        }))
+      }
+    },
+    [tudo, checar],
+  )
+
   const excluirPendencia = useCallback(
     async (id) => {
       const r = await supabase.from('issues').delete().eq('id', id).select('id')
@@ -2345,7 +2371,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
-      salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, excluirPendencia,
+      salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
@@ -2371,7 +2397,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
-      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, excluirPendencia,
+      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,

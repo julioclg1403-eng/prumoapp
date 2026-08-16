@@ -9,8 +9,8 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, filtrarPendencias, situacaoPendencia, contarPendencias,
-  pendenciasGerais, pendenciasTaticas, fecharSemanaTatica,
+  hojeISO, formatarData, situacaoPendencia, contarPendencias,
+  pendenciasGerais, pendenciasTaticas, fecharSemanaTatica, COLUNAS_QUADRO_PENDENCIA,
   inicioDaSemana, somarDias, rotuloDaSemana,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
@@ -31,7 +31,7 @@ export default function Pendencias({ perfil, params = {} }) {
   const hoje = hojeISO()
   const podeExcluir = perfil.role !== 'campo'
   const [categoria, setCategoria] = useState('geral')
-  const [filtro, setFiltro] = useState('abertas')
+  const [filtro, setFiltro] = useState('aberta')
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
@@ -41,6 +41,8 @@ export default function Pendencias({ perfil, params = {} }) {
   const [fotoAberta, setFotoAberta] = useState(null)
   const [inicio, setInicio] = useState(() => inicioDaSemana(hoje))
   const [verFechamentoTatico, setVerFechamentoTatico] = useState(false)
+  const [visao, setVisao] = useState('lista')
+  const [busca, setBusca] = useState('')
 
   const links = useLinksDeFotos(editando?.fotos)
 
@@ -60,10 +62,24 @@ export default function Pendencias({ perfil, params = {} }) {
   )
   const pendenciasDaCategoria = categoria === 'tatico' ? semanaTatica.itens : geraisTodas
 
-  const cont = contarPendencias(pendenciasDaCategoria, hoje)
+  /* A busca filtra o que aparece nos tópicos (Lista e Quadro, os
+     dois), mas nunca o fechamento tático (semanaTatica.percentual
+     etc.) — isso é um retrato fechado da semana, não pode balançar
+     conforme alguém digita numa caixa de busca. */
+  const pendenciasFiltradas = useMemo(() => {
+    const alvo = normalizarComparar(busca)
+    if (!alvo) return pendenciasDaCategoria
+    return pendenciasDaCategoria.filter((p) =>
+      normalizarComparar(p.titulo).includes(alvo) || normalizarComparar(p.descricao).includes(alvo))
+  }, [pendenciasDaCategoria, busca])
 
+  const cont = contarPendencias(pendenciasFiltradas, hoje)
+
+  /* Dia a dia e Tático usam os mesmos 3 tópicos (status exato: A
+     Fazer/Em Andamento/Concluído) — mesmo vocabulário em qualquer
+     categoria e em qualquer visão (Lista ou Quadro). */
   const lista = useMemo(() => {
-    return filtrarPendencias(pendenciasDaCategoria, filtro, hoje)
+    return pendenciasFiltradas.filter((p) => p.status === filtro)
       .map((p) => ({ p, s: situacaoPendencia(p, hoje) }))
       .sort((a, b) => {
         /* Atrasada primeiro, depois o prazo mais próximo, depois sem prazo. */
@@ -74,7 +90,7 @@ export default function Pendencias({ perfil, params = {} }) {
         if (!b.p.prazo) return -1
         return a.p.prazo < b.p.prazo ? -1 : 1
       })
-  }, [pendenciasDaCategoria, filtro, hoje])
+  }, [pendenciasFiltradas, filtro, hoje])
 
   const abrirNova = () =>
     setEditando({
@@ -199,12 +215,31 @@ export default function Pendencias({ perfil, params = {} }) {
 
         <div className="stack-2">
           <Segmentos
-            valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('abertas') }}
+            valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('aberta') }}
             opcoes={[
               { valor: 'geral', rotulo: 'Dia a dia', contador: geraisTodas.length },
               { valor: 'tatico', rotulo: 'Tático', contador: semanaTatica.total },
             ]}
           />
+
+          <div style={{ position: 'relative' }}>
+            <Icon
+              name="busca" size={16}
+              style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }}
+            />
+            <input
+              className="ipt" style={{ paddingLeft: 34, width: '100%' }}
+              value={busca} onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar pendência por título ou descrição…"
+            />
+          </div>
+
+          {categoria === 'geral' && (
+            <Segmentos
+              valor={visao} onChange={setVisao}
+              opcoes={[{ valor: 'lista', rotulo: 'Lista' }, { valor: 'quadro', rotulo: 'Quadro' }]}
+            />
+          )}
 
           {categoria === 'tatico' && (
             <div className="row-between" style={{ flexWrap: 'wrap' }}>
@@ -245,14 +280,19 @@ export default function Pendencias({ perfil, params = {} }) {
             </div>
           )}
 
+          {categoria === 'geral' && visao === 'quadro' ? (
+            <QuadroPendencias
+              itens={pendenciasFiltradas} dados={dados} destaque={destaque}
+              onAbrir={(p) => { setDestaque(null); setEditando({ ...p, prazo: p.prazo || '', resolucao: p.resolucao || '', fotos: p.fotos || [] }) }}
+              onMover={(p, status) => dados.mudarStatusPendencia(p.id, status)}
+            />
+          ) : (
+            <>
           <Segmentos
             valor={filtro} onChange={setFiltro}
-            opcoes={[
-              { valor: 'abertas', rotulo: 'Em aberto', contador: cont.abertas },
-              { valor: 'atrasadas', rotulo: 'Atrasadas', contador: cont.atrasadas },
-              { valor: 'resolvidas', rotulo: 'Resolvidas', contador: cont.resolvidas },
-              { valor: 'todas', rotulo: 'Todas', contador: cont.total },
-            ]}
+            opcoes={COLUNAS_QUADRO_PENDENCIA.map((c) => (
+              { valor: c.status, rotulo: c.rotulo, contador: pendenciasFiltradas.filter((p) => p.status === c.status).length }
+            ))}
           />
 
           {lista.length === 0 ? (
@@ -260,11 +300,9 @@ export default function Pendencias({ perfil, params = {} }) {
               <Vazio
                 titulo="Nada por aqui"
                 texto={
-                  filtro === 'atrasadas'
-                    ? 'Nenhuma pendência passou do prazo.'
-                    : categoria === 'tatico'
-                      ? 'Nenhuma pendência tática neste filtro. Importe o PDF do planejamento tático para trazer as da semana.'
-                      : 'Nenhuma pendência neste filtro. Registre o que precisa de alguém para resolver.'
+                  categoria === 'tatico'
+                    ? 'Nenhuma pendência tática neste tópico. Importe o PDF do planejamento tático para trazer as da semana.'
+                    : 'Nenhuma pendência neste tópico. Registre o que precisa de alguém para resolver.'
                 }
                 acao={
                   categoria === 'tatico'
@@ -277,6 +315,7 @@ export default function Pendencias({ perfil, params = {} }) {
             <div className="stack-1">
               {lista.map(({ p, s }) => {
                 const resolvida = p.status === 'resolvida'
+                const indiceTopico = COLUNAS_QUADRO_PENDENCIA.findIndex((c) => c.status === p.status)
                 return (
                   <div
                     key={p.id}
@@ -324,6 +363,22 @@ export default function Pendencias({ perfil, params = {} }) {
                       </div>
 
                       <button
+                        className="btn btn-ghost btn-sm" disabled={indiceTopico === 0}
+                        onClick={() => dados.mudarStatusPendencia(p.id, COLUNAS_QUADRO_PENDENCIA[indiceTopico - 1].status)}
+                        aria-label={`Mover pra ${indiceTopico > 0 ? COLUNAS_QUADRO_PENDENCIA[indiceTopico - 1].rotulo : ''}`}
+                        title={indiceTopico > 0 ? `Mover pra ${COLUNAS_QUADRO_PENDENCIA[indiceTopico - 1].rotulo}` : undefined}
+                      >
+                        <Icon name="voltar" size={16} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm" disabled={indiceTopico === COLUNAS_QUADRO_PENDENCIA.length - 1}
+                        onClick={() => dados.mudarStatusPendencia(p.id, COLUNAS_QUADRO_PENDENCIA[indiceTopico + 1].status)}
+                        aria-label={`Mover pra ${indiceTopico < COLUNAS_QUADRO_PENDENCIA.length - 1 ? COLUNAS_QUADRO_PENDENCIA[indiceTopico + 1].rotulo : ''}`}
+                        title={indiceTopico < COLUNAS_QUADRO_PENDENCIA.length - 1 ? `Mover pra ${COLUNAS_QUADRO_PENDENCIA[indiceTopico + 1].rotulo}` : undefined}
+                      >
+                        <Icon name="avancar" size={16} />
+                      </button>
+                      <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => setEditando({ ...p, prazo: p.prazo || '', resolucao: p.resolucao || '', fotos: p.fotos || [] })}
                         aria-label="Editar"
@@ -356,6 +411,8 @@ export default function Pendencias({ perfil, params = {} }) {
                 )
               })}
             </div>
+          )}
+            </>
           )}
         </div>
       </div>
@@ -494,6 +551,81 @@ export default function Pendencias({ perfil, params = {} }) {
 
 const ROTULO_FILTRO = {
   abertas: 'Em aberto', atrasadas: 'Atrasadas', resolvidas: 'Resolvidas', todas: 'Todas',
+  aberta: 'A Fazer', em_andamento: 'Em Andamento', resolvida: 'Concluído',
+}
+
+/* ── Quadro (visão Trello) ────────────────────────────────
+   Só o Dia a dia tem quadro — Tático já tem seu próprio jeito de
+   olhar a semana (Fechamento). Sem arrastar nada (o app inteiro é
+   por toque, não por arrastar, e cartão lado a lado é ruim de
+   arrastar no celular): cada cartão tem ‹ › pra mover pra coluna
+   vizinha, uma de cada vez. */
+function QuadroPendencias({ itens, dados, destaque, onAbrir, onMover }) {
+  return (
+    <div
+      className="row-flex"
+      style={{ alignItems: 'flex-start', overflowX: 'auto', gap: 10, paddingBottom: 8 }}
+    >
+      {COLUNAS_QUADRO_PENDENCIA.map((coluna, indiceColuna) => {
+        const doCartoes = itens.filter((p) => p.status === coluna.status)
+        return (
+          <div key={coluna.status} style={{ flex: '0 0 260px', minWidth: 260 }} className="stack-1">
+            <div className="row-between" style={{ padding: '0 2px' }}>
+              <div className="t-micro">{coluna.rotulo}</div>
+              <div className="t-caption">{doCartoes.length}</div>
+            </div>
+            {doCartoes.length === 0 ? (
+              <div className="card-flat t-caption" style={{ textAlign: 'center', padding: 16 }}>—</div>
+            ) : (
+              doCartoes.map((p) => {
+                const s = situacaoPendencia(p, hojeISO())
+                return (
+                  <div
+                    key={p.id}
+                    className="card-flat card-tap"
+                    style={{ outline: destaque === p.id ? '2px solid var(--primary)' : undefined }}
+                    onClick={() => onAbrir(p)}
+                  >
+                    <div className="t-strong" style={{ fontSize: 14 }}>{p.titulo}</div>
+                    <div className="row-wrap" style={{ marginTop: 6, gap: 6, alignItems: 'center' }}>
+                      {coluna.status !== 'resolvida' && <Chip tom={s.tom}>{s.rotulo}</Chip>}
+                      {p.prioridade === 'alta' && coluna.status !== 'resolvida' && (
+                        <span className="t-caption" style={{ color: 'var(--danger)', fontWeight: 600 }}>prioridade alta</span>
+                      )}
+                    </div>
+                    <div className="t-caption" style={{ marginTop: 6 }}>
+                      {dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'}
+                    </div>
+                    {p.fotos?.length > 0 && (
+                      <div className="t-caption" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="camera" size={13} />{p.fotos.length}
+                      </div>
+                    )}
+                    <div className="row-between" style={{ marginTop: 8 }}>
+                      <button
+                        className="btn btn-ghost btn-sm" disabled={indiceColuna === 0}
+                        onClick={(e) => { e.stopPropagation(); onMover(p, COLUNAS_QUADRO_PENDENCIA[indiceColuna - 1].status) }}
+                        aria-label="Mover pra coluna anterior"
+                      >
+                        <Icon name="voltar" size={14} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm" disabled={indiceColuna === COLUNAS_QUADRO_PENDENCIA.length - 1}
+                        onClick={(e) => { e.stopPropagation(); onMover(p, COLUNAS_QUADRO_PENDENCIA[indiceColuna + 1].status) }}
+                        aria-label="Mover pra próxima coluna"
+                      >
+                        <Icon name="avancar" size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /* ── Importação do PDF tático ─────────────────────────────
