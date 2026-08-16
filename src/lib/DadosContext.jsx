@@ -1417,6 +1417,7 @@ export function DadosProvider({ perfil, children }) {
         data_nota: item.data_nota || null,
         quantidade: Number(item.quantidade),
         valor_total: item.valor_total === '' || item.valor_total == null ? null : Number(item.valor_total),
+        recebido_por: item.recebido_por || null,
         autor_id: perfil.id,
       }
       if (item.id) linha.id = item.id

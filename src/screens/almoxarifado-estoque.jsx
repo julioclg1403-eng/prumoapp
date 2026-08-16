@@ -42,7 +42,7 @@ export default function AlmoxarifadoEstoque({ perfil }) {
   const hoje = hojeISO()
   const podeExcluir = perfil?.role !== 'campo'
 
-  const [aba, setAba] = useState('saldo')
+  const [aba, setAba] = useState('estoqueAtual')
   const [busca, setBusca] = useState('')
   const [novaEntrada, setNovaEntrada] = useState(null)
   const [novaSaida, setNovaSaida] = useState(null)
@@ -66,6 +66,16 @@ export default function AlmoxarifadoEstoque({ perfil }) {
   }, [saldos, busca])
   const abaixoDoMinimo = saldos.filter((s) => s.abaixoDoMinimo).length
 
+  /* Estoque Atual e Histórico Estoque são a MESMA lista de saldos,
+     só separada pelo saldo ser maior que zero ou não — material
+     recém-cadastrado (importado da planilha, ou criado na hora)
+     nasce com saldo zero, fica no Histórico até a primeira entrada;
+     a partir daí o saldo recalcula sozinho (dominio.saldoEstoque) e
+     ele passa a aparecer no Estoque Atual, sem precisar mover nada
+     na mão. */
+  const emEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo > 0), [saldosFiltrados])
+  const semEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo <= 0), [saldosFiltrados])
+
   const entradas = useMemo(
     () => [...(dados.entradasEstoque || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
     [dados.entradasEstoque],
@@ -75,8 +85,36 @@ export default function AlmoxarifadoEstoque({ perfil }) {
     [dados.saidasEstoque],
   )
 
+  /* Histórico de movimentação de UM material (dentro de Editar
+     material) — entrada e saída juntas, mais recente primeiro, pra
+     ver de relance quando entrou e quando saiu, sem precisar caçar
+     em duas abas separadas. */
+  const historicoMaterial = useMemo(() => {
+    if (!editandoMaterial?.id) return []
+    const ents = entradas
+      .filter((e) => e.material_id === editandoMaterial.id)
+      .map((e) => ({ tipo: 'entrada', data: e.data, quantidade: e.quantidade, detalhe: e.recebido_por ? `recebido por ${e.recebido_por}` : e.fornecedor || '' }))
+    const sais = saidas
+      .filter((s) => s.material_id === editandoMaterial.id)
+      .map((s) => ({ tipo: 'saida', data: s.data, quantidade: s.quantidade, detalhe: s.destino || '' }))
+    return [...ents, ...sais].sort((a, b) => (a.data < b.data ? 1 : -1))
+  }, [editandoMaterial, entradas, saidas])
+
   const nomeMaterial = (id) => dados.materiaisEstoque?.find((m) => m.id === id)?.nome || 'Material removido'
   const unidadeMaterial = (id) => dados.materiaisEstoque?.find((m) => m.id === id)?.unidade || ''
+
+  /* Mesmo ponto de partida pro botão "Nova entrada" do topo e pro
+     "Lançar entrada" de dentro de Editar material — só muda se o
+     material já vem escolhido (pulando o seletor, que com 752
+     opções não é rápido de navegar de novo). */
+  const abrirNovaEntrada = (materialId = '') => setNovaEntrada({
+    data: hoje, material_id: materialId, quantidade: '',
+    fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
+  })
+
+  const abrirNovaSaida = (materialId = '') => setNovaSaida({
+    data: hoje, material_id: materialId, quantidade: '', destino: '',
+  })
 
   const salvarEntrada = async () => {
     if (!novaEntrada?.material_id || !novaEntrada?.data || !Number(novaEntrada?.quantidade)) return
@@ -124,11 +162,12 @@ export default function AlmoxarifadoEstoque({ perfil }) {
 
   const baixarPlanilha = () => {
     const sigla = dados.obra.sigla || 'obra'
-    if (aba === 'saldo') {
+    if (aba === 'estoqueAtual' || aba === 'historico') {
+      const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
       baixarCSV(
-        `estoque-${sigla}-${hoje}.csv`,
+        `${aba === 'estoqueAtual' ? 'estoque' : 'historico-estoque'}-${sigla}-${hoje}.csv`,
         ['Material', 'Unidade', 'Quantidade', 'Custo Unitário Médio', 'Custo Total', 'Quantidade de Saída', 'Estoque', 'Estoque regulador'],
-        saldos.map((s) => [
+        lista.map((s) => [
           s.material.nome, s.material.unidade, s.quantidadeEntrada,
           s.custoMedio.toFixed(2), s.custoTotal.toFixed(2), s.quantidadeSaida, s.saldo,
           s.material.estoque_minimo ?? '',
@@ -137,10 +176,10 @@ export default function AlmoxarifadoEstoque({ perfil }) {
     } else if (aba === 'entradas') {
       baixarCSV(
         `entrada-${sigla}-${hoje}.csv`,
-        ['Chegou em', 'Material', 'Fornecedor', 'Nº da Nota Fiscal', 'Data da Nota', 'Quantidade'],
+        ['Chegou em', 'Material', 'Fornecedor', 'Nº da Nota Fiscal', 'Data da Nota', 'Quantidade', 'Recebido por'],
         entradas.map((e) => [
           formatarData(e.data), nomeMaterial(e.material_id), e.fornecedor || '',
-          e.nota_fiscal || '', formatarData(e.data_nota), e.quantidade,
+          e.nota_fiscal || '', formatarData(e.data_nota), e.quantidade, e.recebido_por || '',
         ]),
       )
     } else {
@@ -169,10 +208,10 @@ export default function AlmoxarifadoEstoque({ perfil }) {
             <button className="btn btn-secondary" onClick={() => setImportando(true)}>
               <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
             </button>
-            <button className="btn btn-secondary" onClick={() => setNovaSaida({ data: hoje, material_id: '', quantidade: '', destino: '' })}>
+            <button className="btn btn-secondary" onClick={() => abrirNovaSaida()}>
               <Icon name="baixar" size={16} /> Registrar saída
             </button>
-            <button className="btn btn-primary" onClick={() => setNovaEntrada({ data: hoje, material_id: '', quantidade: '', fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '' })}>
+            <button className="btn btn-primary" onClick={() => abrirNovaEntrada()}>
               <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Nova entrada
             </button>
           </div>
@@ -182,75 +221,82 @@ export default function AlmoxarifadoEstoque({ perfil }) {
       <Segmentos
         valor={aba} onChange={setAba}
         opcoes={[
-          { valor: 'saldo', rotulo: 'Saldo', contador: materiais.length },
+          { valor: 'estoqueAtual', rotulo: 'Estoque Atual', contador: emEstoque.length },
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
+          { valor: 'historico', rotulo: 'Histórico Estoque', contador: semEstoque.length },
         ]}
       />
 
       <div className="row-between">
         <div className="t-caption">
-          {aba === 'saldo' && `${plural(saldosFiltrados.length, 'material', 'materiais')} nesta lista`}
+          {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'material', 'materiais')} nesta lista`}
           {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
           {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
+          {aba === 'historico' && `${plural(semEstoque.length, 'material sem estoque', 'materiais sem estoque')}`}
         </div>
         <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
           <Icon name="baixar" size={15} /> Baixar planilha
         </button>
       </div>
 
-      {aba === 'saldo' && (
-        <div className="stack-2">
-          {materiais.length > 0 && (
-            <input
-              className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar material…"
-            />
-          )}
-          {saldosFiltrados.length === 0 ? (
-            <div className="card-flat">
-              <Vazio
-                titulo={materiais.length === 0 ? 'Nenhum material cadastrado' : 'Nada com esse nome'}
-                texto={
-                  materiais.length === 0
-                    ? 'Cadastre o primeiro material lançando uma entrada — não precisa de passo separado.'
-                    : 'Troque a busca ou limpe o campo.'
-                }
-                acao={materiais.length === 0 && (
-                  <button className="btn btn-primary" onClick={() => setNovaEntrada({ data: hoje, material_id: '', quantidade: '', fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '' })}>
-                    Lançar entrada
-                  </button>
-                )}
+      {(aba === 'estoqueAtual' || aba === 'historico') && (() => {
+        const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
+        return (
+          <div className="stack-2">
+            {materiais.length > 0 && (
+              <input
+                className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar material…"
               />
-            </div>
-          ) : (
-            <div className="stack-1">
-              {saldosFiltrados.map((s) => (
-                <ItemLista
-                  key={s.material.id}
-                  titulo={s.material.nome}
-                  sub={[s.material.categoria, s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null].filter(Boolean).join(' · ')}
-                  direita={
-                    <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
-                      {s.abaixoDoMinimo && <Chip tom="danger">Abaixo do mínimo</Chip>}
-                      <span className="t-strong" style={{ fontSize: 15, minWidth: 70, textAlign: 'right' }}>
-                        {s.saldo} {s.material.unidade}
-                      </span>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
-                        aria-label="Editar material"
-                      >
-                        <Icon name="editar" size={16} />
-                      </button>
-                    </div>
+            )}
+            {lista.length === 0 ? (
+              <div className="card-flat">
+                <Vazio
+                  titulo={materiais.length === 0 ? 'Nenhum material cadastrado' : 'Nada com esse nome'}
+                  texto={
+                    materiais.length === 0
+                      ? 'Cadastre o primeiro material lançando uma entrada — não precisa de passo separado.'
+                      : aba === 'estoqueAtual'
+                        ? 'Nenhum material com saldo ainda — lance uma entrada, ou troque a busca.'
+                        : 'Nenhum material sem estoque com esse nome — troque a busca ou limpe o campo.'
                   }
+                  acao={materiais.length === 0 && (
+                    <button className="btn btn-primary" onClick={() => abrirNovaEntrada()}>
+                      Lançar entrada
+                    </button>
+                  )}
                 />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+              </div>
+            ) : (
+              <div className="stack-1">
+                {lista.map((s) => (
+                  <ItemLista
+                    key={s.material.id}
+                    titulo={s.material.nome}
+                    sub={[s.material.categoria, s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null].filter(Boolean).join(' · ')}
+                    direita={
+                      <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+                        {s.abaixoDoMinimo && <Chip tom="danger">Abaixo do mínimo</Chip>}
+                        <span className="t-strong" style={{ fontSize: 15, minWidth: 70, textAlign: 'right' }}>
+                          {s.saldo} {s.material.unidade}
+                        </span>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
+                          aria-label="Editar material"
+                        >
+                          <Icon name="editar" size={16} />
+                        </button>
+                      </div>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {aba === 'entradas' && (
         entradas.length === 0 ? (
@@ -263,7 +309,7 @@ export default function AlmoxarifadoEstoque({ perfil }) {
               <ItemLista
                 key={e.id}
                 titulo={nomeMaterial(e.material_id)}
-                sub={[formatarDataCurta(e.data), e.fornecedor, e.nota_fiscal ? `NF ${e.nota_fiscal}` : null].filter(Boolean).join(' · ')}
+                sub={[formatarDataCurta(e.data), e.fornecedor, e.nota_fiscal ? `NF ${e.nota_fiscal}` : null, e.recebido_por ? `recebido por ${e.recebido_por}` : null].filter(Boolean).join(' · ')}
                 direita={
                   <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
                     <span className="t-strong" style={{ fontSize: 14 }}>+{e.quantidade} {unidadeMaterial(e.material_id)}</span>
@@ -348,12 +394,20 @@ export default function AlmoxarifadoEstoque({ perfil }) {
                 />
               </Campo>
             </div>
-            <Campo label="Fornecedor" dica="Opcional">
-              <input
-                className="ipt" value={novaEntrada.fornecedor}
-                onChange={(e) => setNovaEntrada((p) => ({ ...p, fornecedor: e.target.value }))}
-              />
-            </Campo>
+            <div className="row-flex">
+              <Campo label="Fornecedor" dica="Opcional">
+                <input
+                  className="ipt" value={novaEntrada.fornecedor}
+                  onChange={(e) => setNovaEntrada((p) => ({ ...p, fornecedor: e.target.value }))}
+                />
+              </Campo>
+              <Campo label="Recebido por" dica="Opcional — quem conferiu na obra">
+                <input
+                  className="ipt" value={novaEntrada.recebido_por}
+                  onChange={(e) => setNovaEntrada((p) => ({ ...p, recebido_por: e.target.value }))}
+                />
+              </Campo>
+            </div>
             <div className="row-flex">
               <Campo label="Nº da nota fiscal" dica="Opcional">
                 <input
@@ -484,6 +538,47 @@ export default function AlmoxarifadoEstoque({ perfil }) {
                 onChange={(e) => setEditandoMaterial((p) => ({ ...p, estoque_minimo: e.target.value }))}
               />
             </Campo>
+            <div className="row-flex">
+              <button
+                className="btn btn-secondary grow"
+                onClick={() => { const id = editandoMaterial.id; setEditandoMaterial(null); abrirNovaEntrada(id) }}
+              >
+                <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Lançar entrada
+              </button>
+              <button
+                className="btn btn-secondary grow"
+                onClick={() => { const id = editandoMaterial.id; setEditandoMaterial(null); abrirNovaSaida(id) }}
+              >
+                <Icon name="baixar" size={16} /> Lançar saída
+              </button>
+            </div>
+
+            <div>
+              <div className="t-micro" style={{ marginBottom: 8 }}>Histórico de movimentação</div>
+              {historicoMaterial.length === 0 ? (
+                <div className="t-caption">Nenhuma entrada ou saída lançada ainda pra este material.</div>
+              ) : (
+                <div className="stack-1">
+                  {historicoMaterial.map((h, i) => (
+                    <div key={i} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
+                      <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                        <Chip tom={h.tipo === 'entrada' ? 'success' : 'danger'}>
+                          {h.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                        </Chip>
+                        <div>
+                          <div className="t-caption">{formatarDataCurta(h.data)}</div>
+                          {h.detalhe && <div className="t-caption">{h.detalhe}</div>}
+                        </div>
+                      </div>
+                      <span className="t-strong" style={{ fontSize: 14 }}>
+                        {h.tipo === 'entrada' ? '+' : '−'}{h.quantidade} {editandoMaterial.unidade}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => pedirArquivarMaterial(editandoMaterial)}>
               Arquivar material
             </button>
