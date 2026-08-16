@@ -10,11 +10,12 @@ import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, filtrarPendencias, situacaoPendencia, contarPendencias,
-  pendenciasGerais, pendenciasTaticas,
+  pendenciasGerais, pendenciasTaticas, fecharSemanaTatica,
+  inicioDaSemana, somarDias, rotuloDaSemana,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
 import {
-  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
   CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
 } from '../components'
@@ -38,15 +39,26 @@ export default function Pendencias({ perfil, params = {} }) {
   const [importandoPDF, setImportandoPDF] = useState(false)
   const [enviandoFoto, setEnviandoFoto] = useState(0)
   const [fotoAberta, setFotoAberta] = useState(null)
+  const [inicio, setInicio] = useState(() => inicioDaSemana(hoje))
+  const [verFechamentoTatico, setVerFechamentoTatico] = useState(false)
 
   const links = useLinksDeFotos(editando?.fotos)
 
-  /* Tático (vem do PDF de restrições, revisado semana a semana) é
-     uma categoria à parte do dia a dia (manual ou vindo do diário)
-     — cada uma com seu próprio filtro de aberta/atrasada/resolvida. */
+  /* Tático (vem do PDF de restrições, reimportado semana a semana)
+     é uma categoria à parte do dia a dia (manual ou vindo do diário)
+     — cada uma com seu próprio filtro de aberta/atrasada/resolvida.
+     A lista do tático é a semana navegada, não "todo tático que já
+     existiu": o mesmo item de restrição pode se repetir várias
+     semanas seguidas enquanto não resolve (fecharSemanaTatica, pela
+     marca de confirmação de cada reimporte), e cada semana fechada
+     mantém seu próprio retrato em % pra sempre. */
   const geraisTodas = pendenciasGerais(dados.pendencias)
   const taticasTodas = pendenciasTaticas(dados.pendencias)
-  const pendenciasDaCategoria = categoria === 'tatico' ? taticasTodas : geraisTodas
+  const semanaTatica = useMemo(
+    () => fecharSemanaTatica(taticasTodas, dados.semanasTaticas, inicio),
+    [taticasTodas, dados.semanasTaticas, inicio],
+  )
+  const pendenciasDaCategoria = categoria === 'tatico' ? semanaTatica.itens : geraisTodas
 
   const cont = contarPendencias(pendenciasDaCategoria, hoje)
 
@@ -167,9 +179,17 @@ export default function Pendencias({ perfil, params = {} }) {
             <div className="row-flex">
               {lista.length > 0 && <BotaoRelatorio />}
               {categoria === 'tatico' ? (
-                <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
-                  Importar PDF tático
-                </button>
+                <>
+                  <button
+                    className={`btn btn-sm ${verFechamentoTatico ? 'btn-dark' : 'btn-secondary'}`}
+                    onClick={() => setVerFechamentoTatico((v) => !v)}
+                  >
+                    Fechamento
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
+                    Importar PDF tático
+                  </button>
+                </>
               ) : (
                 <button className="btn btn-primary" onClick={abrirNova}><Icon name="mais_sinal" size={18} /> Nova</button>
               )}
@@ -182,9 +202,49 @@ export default function Pendencias({ perfil, params = {} }) {
             valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('abertas') }}
             opcoes={[
               { valor: 'geral', rotulo: 'Dia a dia', contador: geraisTodas.length },
-              { valor: 'tatico', rotulo: 'Tático', contador: taticasTodas.length },
+              { valor: 'tatico', rotulo: 'Tático', contador: semanaTatica.total },
             ]}
           />
+
+          {categoria === 'tatico' && (
+            <div className="row-between" style={{ flexWrap: 'wrap' }}>
+              <div className="row-flex">
+                <button className="btn btn-secondary btn-sm" onClick={() => setInicio(somarDias(inicio, -7))}>
+                  <Icon name="voltar" size={16} />
+                </button>
+                <button
+                  className={`btn btn-sm ${inicio === inicioDaSemana(hoje) ? 'btn-dark' : 'btn-secondary'}`}
+                  onClick={() => setInicio(inicioDaSemana(hoje))}
+                >
+                  {inicio === inicioDaSemana(hoje) ? 'Esta semana' : rotuloDaSemana(inicio)}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setInicio(somarDias(inicio, 7))}>
+                  <Icon name="avancar" size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {categoria === 'tatico' && verFechamentoTatico && (
+            <div className="card stack-2">
+              <div className="row-between">
+                <div className="t-micro">Fechamento da semana tática</div>
+                <span className="t-num t-strong" style={{ fontSize: 20, color: 'var(--success)' }}>
+                  {semanaTatica.percentual}%
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
+                <Indicador rotulo="Confirmadas" valor={semanaTatica.total} />
+                <Indicador rotulo="Resolvidas" valor={semanaTatica.resolvidas} tom={semanaTatica.resolvidas ? 'success' : undefined} />
+                <Indicador rotulo="Em aberto" valor={semanaTatica.abertas} tom={semanaTatica.abertas ? 'danger' : undefined} />
+              </div>
+              <div className="t-caption" style={{ lineHeight: 1.5 }}>
+                Conta as restrições que a planilha tática confirmou pra essa semana (reimportada ou não de
+                novo) — resolvidas sobre o total confirmado.
+              </div>
+            </div>
+          )}
+
           <Segmentos
             valor={filtro} onChange={setFiltro}
             opcoes={[
@@ -407,6 +467,7 @@ export default function Pendencias({ perfil, params = {} }) {
         aberto={importandoPDF}
         onFechar={() => setImportandoPDF(false)}
         dados={dados}
+        inicio={inicio}
       />
 
       <RelatorioFolha
@@ -445,7 +506,7 @@ const ROTULO_FILTRO = {
    a um usuário do Prumo (são nomes de fora, tipo "LEONARDO"), então
    fica só como texto na descrição. */
 
-function ImportarPDFTatico({ aberto, onFechar, dados }) {
+function ImportarPDFTatico({ aberto, onFechar, dados, inicio }) {
   const [lendo, setLendo] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [nomeArquivo, setNomeArquivo] = useState('')
@@ -476,13 +537,16 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
 
   /* Uma pendência já importada antes (mesmo título) não entra de
      novo — é assim que reimportar o relatório da semana seguinte
-     não duplica o que já foi trazido, resolvido ou não. */
+     não duplica o que já foi trazido, resolvido ou não. Mas ela
+     PRECISA ser reconfirmada pra essa semana (existente.id junto),
+     senão o fechamento semanal nunca saberia que essa restrição
+     continua valendo agora, e não só na semana em que foi criada. */
   const itensParaCriar = useMemo(() => {
     const itens = resultado?.itens || []
     const taticasExistentes = pendenciasTaticas(dados.pendencias)
     return itens.map((it) => {
       const titulo = `${it.acao_remocao} — ${it.servico}`
-      const jaExiste = taticasExistentes.some((p) => normalizarComparar(p.titulo) === normalizarComparar(titulo))
+      const existente = taticasExistentes.find((p) => normalizarComparar(p.titulo) === normalizarComparar(titulo))
       const linhasDescricao = [
         it.lote && `Lote: ${it.lote}`,
         it.responsavel && `Responsável (relatório): ${it.responsavel}`,
@@ -490,7 +554,8 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
       ].filter(Boolean)
       return {
         item: it,
-        jaExiste,
+        jaExiste: Boolean(existente),
+        existente,
         novo: {
           titulo,
           descricao: linhasDescricao.join('\n') || null,
@@ -508,6 +573,9 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
     setImportando(true)
     try {
       const salvas = await dados.salvarPendenciasEmLote(novos.map((x) => x.novo))
+      const idsNovos = (salvas || []).map((s) => s.id)
+      const idsExistentes = itensParaCriar.filter((x) => x.jaExiste).map((x) => x.existente.id)
+      await dados.confirmarPendenciasTaticasDaSemana([...idsNovos, ...idsExistentes], inicio)
       setFeito({ criadas: salvas?.length || 0, jaExistiam: itensParaCriar.length - novos.length })
     } finally {
       setImportando(false)
@@ -521,7 +589,7 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
           <>
             <div className="alert success">
               {plural(feito.criadas, 'pendência criada', 'pendências criadas')}.
-              {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'item já tinha sido importado antes', 'itens já tinham sido importados antes')} e não foram repetidos.`}
+              {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'item já existia e foi reconfirmado', 'itens já existiam e foram reconfirmados')} pra esta semana, sem duplicar.`}
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
@@ -530,7 +598,9 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
               O planejamento tático, do jeito que o setor de planejamento manda. Puxo só as linhas marcadas
               em vermelho no relatório — "A Resolver na Semana" — e viram pendências, com prazo na data de
-              início do serviço.
+              início do serviço. Todo item (novo ou já existente) fica confirmado como parte de{' '}
+              <strong>{rotuloDaSemana(inicio)}</strong> — troque a semana na tela antes de importar, se for
+              outro período.
             </div>
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
@@ -548,7 +618,7 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
                 <div className="alert info">
                   {plural(novos.length, 'pendência nova', 'pendências novas')}
                   {itensParaCriar.length > novos.length
-                    ? ` · ${plural(itensParaCriar.length - novos.length, 'item já importado', 'itens já importados')}`
+                    ? ` · ${plural(itensParaCriar.length - novos.length, 'item reconfirmado', 'itens reconfirmados')}`
                     : ''}.
                 </div>
 
@@ -566,7 +636,7 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
                       <div style={{ marginTop: 4, whiteSpace: 'pre-line' }}>{novo.descricao}</div>
                       <div style={{ marginTop: 4 }}>
                         Prazo: {formatarData(novo.prazo)}
-                        {jaExiste && ' · já importado antes'}
+                        {jaExiste && ' · já existia, só reconfirma pra esta semana'}
                       </div>
                     </div>
                   ))}
@@ -576,9 +646,13 @@ function ImportarPDFTatico({ aberto, onFechar, dados }) {
                   <button className="btn btn-secondary grow" onClick={() => setResultado(null)}>Corrigir</button>
                   <button
                     className="btn btn-primary grow" onClick={confirmar}
-                    disabled={!novos.length || importando}
+                    disabled={!itensParaCriar.length || importando}
                   >
-                    {importando ? 'Importando…' : `Importar ${plural(novos.length, 'pendência', 'pendências')}`}
+                    {importando ? 'Importando…' : (
+                      novos.length
+                        ? `Importar ${plural(novos.length, 'pendência', 'pendências')}`
+                        : 'Confirmar esta semana'
+                    )}
                   </button>
                 </div>
               </>

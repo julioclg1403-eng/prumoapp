@@ -322,6 +322,28 @@ export function pendenciasTaticas(lista) {
   return lista.filter((p) => p.origem === ORIGEM_TATICO)
 }
 
+/* O fechamento da semana tática: entre as pendências táticas,
+   quais foram CONFIRMADAS pra essa semana (issue_semanas_taticas —
+   uma marca por reimporte, já que o mesmo item de restrição pode
+   se repetir várias semanas seguidas enquanto não resolve) e, entre
+   essas, quantas já foram resolvidas. Semana passada continua com o
+   retrato de quando foi fechada, mesmo que a pendência ainda exista
+   e tenha sido reconfirmada em semanas mais novas depois. */
+export function fecharSemanaTatica(taticas, confirmacoes, semanaInicio) {
+  const idsDaSemana = new Set(
+    (confirmacoes || []).filter((c) => c.semana_inicio === semanaInicio).map((c) => c.issue_id),
+  )
+  const itens = taticas.filter((p) => idsDaSemana.has(p.id))
+  const resolvidas = itens.filter((p) => p.status === 'resolvida').length
+  return {
+    itens,
+    total: itens.length,
+    resolvidas,
+    abertas: itens.length - resolvidas,
+    percentual: itens.length ? Math.round((resolvidas / itens.length) * 100) : 0,
+  }
+}
+
 /* ── Lembretes ────────────────────────────────────────────────
    Só GUARDA a data marcada aqui: quem de fato manda o aviso na hora
    certa é o disparador do WhatsApp (fora do escopo desta tela). Sem
@@ -446,27 +468,68 @@ export function situacaoExecucao(planejada, diarios) {
 
 /* O fechamento da semana. Esta função alimenta a tela, o resumo e
    a exportação — se alguém recalcular em qualquer um desses
-   lugares, os três passam a discordar. */
-export function fecharSemana(planejamento, diarios, de, ate) {
+   lugares, os três passam a discordar.
+
+   Duas correções sobre a versão antiga (que contava linha por dia):
+   1. Uma atividade de vários dias (ex.: "PINTURA FINAL" de segunda a
+      sexta) é UMA atividade, não cinco — os contadores agrupam por
+      serviço+local+empresa, do mesmo jeito que agruparPlanejamento.
+   2. "Planejada" passou a significar "veio da planilha que a gestão
+      importou pra essa semana" (campo `da_planilha`), não "tem
+      alguma linha no banco nesse intervalo de data" — trabalho que a
+      equipe fez sem estar na planilha da semana não conta a favor
+      nem contra o percentual, aparece à parte em `naoPlanejados`. */
+export function fecharSemana(planejamento, diarios, de, ate, hoje = hojeISO()) {
   const itens = planejamento
     .filter((p) => p.data >= de && p.data <= ate)
     .map((p) => ({ planejada: p, situacao: situacaoExecucao(p, diarios) }))
     .sort((a, b) => (a.planejada.data < b.planejada.data ? -1 : 1))
 
-  const conta = (chave) => itens.filter((i) => i.situacao.chave === chave).length
+  const gruposMapa = new Map()
+  itens.forEach(({ planejada, situacao }) => {
+    const chave = chaveGrupoPlanejamento(planejada)
+    if (!gruposMapa.has(chave)) {
+      gruposMapa.set(chave, {
+        chave, service_id: planejada.service_id, location_id: planejada.location_id,
+        company_id: planejada.company_id || null, itens: [], planejada: false,
+      })
+    }
+    const g = gruposMapa.get(chave)
+    g.itens.push({ planejada, situacao })
+    if (planejada.da_planilha) g.planejada = true
+  })
+
+  const grupos = [...gruposMapa.values()].map((g) => {
+    const concluidos = g.itens.filter((i) => i.situacao.chave === 'concluida')
+    const iniciados = g.itens.filter((i) => i.situacao.chave === 'iniciada' || i.situacao.chave === 'concluida')
+    const passados = g.itens.filter((i) => i.planejada.data <= hoje)
+    let situacaoGeral = 'planejada'
+    if (concluidos.length) situacaoGeral = 'concluida'
+    else if (iniciados.length) situacaoGeral = 'iniciada'
+    else if (passados.some((i) => i.situacao.chave === 'nao_executada')) situacaoGeral = 'nao_executada'
+    else if (passados.length) situacaoGeral = 'sem_lancamento'
+    return { ...g, situacao: { chave: situacaoGeral, ...SITUACAO_EXECUCAO[situacaoGeral] } }
+  })
+
+  const planejados = grupos.filter((g) => g.planejada)
+  const naoPlanejados = grupos.filter((g) => !g.planejada)
+  const conta = (chave) => planejados.filter((g) => g.situacao.chave === chave).length
   const concluidas = conta('concluida')
 
   return {
-    itens,
-    total: itens.length,
+    itens, // por dia — quem mostra card por dia (porDia) continua usando isto
+    grupos, planejados, naoPlanejados, // por atividade — o fechamento usa isto
+    total: planejados.length,
     concluidas,
     iniciadas: conta('iniciada'),
     naoExecutadas: conta('nao_executada'),
     semLancamento: conta('sem_lancamento'),
-    /* Percentual sobre o total planejado, incluindo o que não foi
-       lançado. Tirar o não lançado da conta inflaria o número
-       justamente nas semanas em que o campo deixou de registrar. */
-    percentual: itens.length ? Math.round((concluidas / itens.length) * 100) : 0,
+    /* Percentual sobre o que estava na planilha da semana, incluindo
+       o que não foi lançado. Tirar o não lançado da conta inflaria o
+       número justamente nas semanas em que o campo deixou de
+       registrar; contar o que não estava na planilha puniria (ou
+       inflaria) o percentual por trabalho que nem era o combinado. */
+    percentual: planejados.length ? Math.round((concluidas / planejados.length) * 100) : 0,
   }
 }
 

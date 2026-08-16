@@ -174,7 +174,7 @@ export function DadosProvider({ perfil, children }) {
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
-      planejamentoOverrides, cronogramaGlobal,
+      planejamentoOverrides, cronogramaGlobal, semanasTaticas,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -207,6 +207,7 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('meal_records').select('*').order('data', { ascending: false }),
       supabase.from('planned_group_overrides').select('*'),
       supabase.from('schedule_global_items').select('*').order('data_inicio'),
+      supabase.from('issue_semanas_taticas').select('*'),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -214,7 +215,7 @@ export function DadosProvider({ perfil, children }) {
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
-      planejamentoOverrides, cronogramaGlobal].find((r) => r.error)
+      planejamentoOverrides, cronogramaGlobal, semanasTaticas].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -271,6 +272,7 @@ export function DadosProvider({ perfil, children }) {
       refeicoes: refeicoes.data || [],
       planejamentoOverrides: planejamentoOverrides.data || [],
       cronogramaGlobal: cronogramaGlobal.data || [],
+      semanasTaticas: semanasTaticas.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -346,6 +348,7 @@ export function DadosProvider({ perfil, children }) {
       refeicoes: filtrar(tudo.refeicoes),
       planejamentoOverrides: filtrar(tudo.planejamentoOverrides),
       cronogramaGlobal: filtrar(tudo.cronogramaGlobal),
+      semanasTaticas: filtrar(tudo.semanasTaticas),
     }
   }, [tudo, obraId])
 
@@ -755,6 +758,34 @@ export function DadosProvider({ perfil, children }) {
       return salvas
     },
     [perfil.id, escopo, checar],
+  )
+
+  /* Marca cada pendência tática como confirmada pra ESTA semana —
+     chamada toda vez que a planilha tática é (re)importada, tanto
+     pro item novo quanto pro que já existia (mesmo título) e só
+     está sendo reconfirmado. onConflict deixa reimportar a mesma
+     semana de novo sem duplicar nem dar erro. */
+  const confirmarPendenciasTaticasDaSemana = useCallback(
+    async (issueIds, semanaInicio) => {
+      if (!issueIds?.length) return true
+      const { organization_id, worksite_id } = escopo()
+      const r = await supabase.from('issue_semanas_taticas')
+        .upsert(
+          issueIds.map((issue_id) => ({ organization_id, worksite_id, issue_id, semana_inicio: semanaInicio })),
+          { onConflict: 'issue_id,semana_inicio' },
+        )
+        .select('*')
+      if (r.error) { checar(r, 'confirmar as pendências táticas da semana'); return false }
+      setTudo((t) => t && ({
+        ...t,
+        semanasTaticas: [
+          ...t.semanasTaticas.filter((c) => !(c.semana_inicio === semanaInicio && issueIds.includes(c.issue_id))),
+          ...r.data,
+        ],
+      }))
+      return true
+    },
+    [escopo, checar],
   )
 
   const alternarPendencia = useCallback(
@@ -1517,6 +1548,26 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar],
   )
 
+  /* Reimportar a mesma planilha de uma semana que já tinha dias
+     planejados à mão (ou de uma importação anterior) não cria linha
+     nova pra esses dias — mas eles agora estão confirmados pela
+     planilha, e fecharSemana só considera "planejada" quem tem essa
+     marca. Sem isso, reimportar do jeito que o Julio faz toda
+     semana nunca marcaria nada como planejado de verdade. */
+  const marcarDaPlanilha = useCallback(
+    async (ids) => {
+      if (!ids?.length) return true
+      const r = await supabase.from('planned_activities').update({ da_planilha: true }).in('id', ids).select('id')
+      if (r.error) { checar(r, 'confirmar os dias já planejados pela planilha'); return false }
+      setTudo((t) => t && ({
+        ...t,
+        planejamento: t.planejamento.map((p) => (ids.includes(p.id) ? { ...p, da_planilha: true } : p)),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   const removerPlanejado = useCallback(
     async (id) => {
       const r = await supabase.from('planned_activities').delete().eq('id', id).select('id')
@@ -2275,7 +2326,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
-      salvarPendencia, salvarPendenciasEmLote, alternarPendencia, excluirPendencia,
+      salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
@@ -2288,7 +2339,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento,
+      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
       vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal, sincronizarMensalComSemanal,
@@ -2301,7 +2352,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
-      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, alternarPendencia, excluirPendencia,
+      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
@@ -2314,7 +2365,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, removerPlanejado, salvarOverridePlanejamento, definirPapel,
+      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,

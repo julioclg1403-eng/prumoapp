@@ -499,7 +499,8 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
           <div style={{ fontSize: 13 }}>
             Planejadas: <strong>{semana.total}</strong> · Concluídas: <strong>{semana.concluidas}</strong> ·
             Iniciadas: <strong>{semana.iniciadas}</strong> · Não executadas: <strong>{semana.naoExecutadas}</strong> ·
-            Sem lançamento: <strong>{semana.semLancamento}</strong> · {semana.percentual}% concluído
+            Sem lançamento: <strong>{semana.semLancamento}</strong> ·
+            Não planejadas: <strong>{semana.naoPlanejados.length}</strong> · {semana.percentual}% concluído
           </div>
         </SecaoRelatorio>
         <SecaoRelatorio titulo="Atividades da semana">
@@ -559,20 +560,31 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
 
   /* Quantos dias-de-planejamento novos isso realmente cria — um
      pacote pode estar ativo em vários dias da semana, e alguns
-     desses dias já podem estar planejados (reimportação). */
+     desses dias já podem estar planejados (reimportação, ou tinham
+     sido lançados à mão antes do PDF chegar). Os que já existem mas
+     ainda não tinham a marca da planilha (`da_planilha`) precisam
+     ser confirmados, não só ignorados — é essa marca que diz pro
+     fechamento da semana o que realmente estava no plano. */
   const diasNovosPorItem = useMemo(() => {
-    return validos.map((it) => ({
-      item: it,
-      // Serviço novo (it.servico === null) nunca pode já estar
-      // planejado — ele ainda nem existe no cadastro. Só compara
-      // por id quando o serviço já existia de antes.
-      novos: it.diasAtivos.filter((dia) => !(it.servico && dados.planejamento.some(
-        (p) => p.data === dia && p.location_id === it.local.id && p.service_id === it.servico.id,
-      ))),
-    }))
+    return validos.map((it) => {
+      const existentes = it.servico
+        ? it.diasAtivos
+            .map((dia) => dados.planejamento.find(
+              (p) => p.data === dia && p.location_id === it.local.id && p.service_id === it.servico.id,
+            ))
+            .filter(Boolean)
+        : []
+      const diasExistentes = new Set(existentes.map((e) => e.data))
+      return {
+        item: it,
+        novos: it.diasAtivos.filter((dia) => !diasExistentes.has(dia)),
+        paraConfirmar: existentes.filter((e) => !e.da_planilha).map((e) => e.id),
+      }
+    })
   }, [validos, dados]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalDiasNovos = diasNovosPorItem.reduce((s, x) => s + x.novos.length, 0)
+  const totalParaConfirmar = diasNovosPorItem.reduce((s, x) => s + x.paraConfirmar.length, 0)
   const servicosNovos = [...new Set(validos.filter((i) => !i.servico).map((i) => i.servicoTexto))]
 
   const confirmar = async () => {
@@ -585,20 +597,24 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
         if (criado) idPorNomeServico[nome.toLowerCase()] = criado.id
       }
 
-      // 2) Monta a lista final (pacote × dia novo) já com os ids reais.
+      // 2) Monta a lista final (pacote × dia novo) já com os ids reais,
+      //    e junta os ids dos dias que já existiam pra confirmar.
       const itensParaCriar = []
-      for (const { item, novos } of diasNovosPorItem) {
+      const idsParaConfirmar = []
+      for (const { item, novos, paraConfirmar } of diasNovosPorItem) {
         const serviceId = item.servico?.id || idPorNomeServico[item.servicoTexto.toLowerCase()]
         if (!serviceId) continue
         for (const dia of novos) {
           itensParaCriar.push({
             data: dia, service_id: serviceId, location_id: item.local.id,
-            company_id: null, observacao: null,
+            company_id: null, observacao: null, da_planilha: true,
           })
         }
+        idsParaConfirmar.push(...paraConfirmar)
       }
 
       const salvos = itensParaCriar.length ? await dados.salvarPlanejadosEmLote(itensParaCriar) : []
+      if (idsParaConfirmar.length) await dados.marcarDaPlanilha(idsParaConfirmar)
 
       /* Serviço novo pode já ter etapa esperando por ele no cronograma
          (o PDF de cronograma costuma entrar primeiro) — casa pelo nome
@@ -607,6 +623,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
 
       setFeito({
         criados: salvos?.length || 0,
+        confirmados: idsParaConfirmar.length,
         jaExistiam: totalDiasNovos - (salvos?.length || 0),
         servicosNovos: servicosNovos.length,
       })
@@ -623,6 +640,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
             <div className="alert success">
               {plural(feito.criados, 'dia de planejamento criado', 'dias de planejamento criados')}.
               {feito.servicosNovos > 0 && ` ${plural(feito.servicosNovos, 'serviço novo cadastrado', 'serviços novos cadastrados')}.`}
+              {feito.confirmados > 0 && ` ${plural(feito.confirmados, 'dia já lançado confirmado', 'dias já lançados confirmados')} como planejado pela planilha.`}
               {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'dia já estava planejado', 'dias já estavam planejados')} e não foram repetidos.`}
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
@@ -1020,6 +1038,7 @@ function Fechamento({ semana, dados, goto }) {
         <Indicador rotulo="Iniciadas" valor={semana.iniciadas} tom={semana.iniciadas ? 'info' : undefined} />
         <Indicador rotulo="Não executadas" valor={semana.naoExecutadas} tom={semana.naoExecutadas ? 'danger' : undefined} />
         <Indicador rotulo="Sem lançamento" valor={semana.semLancamento} />
+        <Indicador rotulo="Não planejadas" valor={semana.naoPlanejados.length} tom={semana.naoPlanejados.length ? 'danger' : undefined} />
       </div>
 
       {semana.semLancamento > 0 && (
@@ -1031,31 +1050,47 @@ function Fechamento({ semana, dados, goto }) {
       )}
 
       <div className="t-caption" style={{ lineHeight: 1.5 }}>
-        A situação de cada atividade vem do diário, não de digitação. O percentual conta as
-        concluídas sobre tudo o que foi planejado, inclusive o que ficou sem lançamento.
+        Uma atividade de vários dias conta uma vez só. O percentual conta as concluídas sobre o que
+        estava na planilha importada dessa semana — o que a equipe fez sem estar nela some da conta
+        acima e aparece à parte, em "não planejadas".
       </div>
 
       {semana.naoExecutadas > 0 && (
         <div>
           <div className="t-micro" style={{ marginBottom: 8 }}>Planejado e não executado</div>
           <div className="stack-1">
-            {semana.itens.filter((i) => i.situacao.chave === 'nao_executada').map(({ planejada, situacao }) => (
-              <button
-                key={planejada.id} className="card-tap" style={{ padding: 10 }}
-                onClick={() => goto('diario', { data: planejada.data, id: situacao.diario?.id })}
-              >
-                <div className="row-between">
-                  <div className="grow">
-                    <div className="t-strong" style={{ fontSize: 13 }}>
-                      {dados.nomeDe(dados.servicos, planejada.service_id)}
+            {semana.planejados.filter((g) => g.situacao.chave === 'nao_executada').map((g) => {
+              const primeiro = g.itens[0]
+              return (
+                <button
+                  key={g.chave} className="card-tap" style={{ padding: 10 }}
+                  onClick={() => goto('diario', { data: primeiro.planejada.data, id: primeiro.situacao.diario?.id })}
+                >
+                  <div className="row-between">
+                    <div className="grow">
+                      <div className="t-strong" style={{ fontSize: 13 }}>
+                        {dados.nomeDe(dados.servicos, g.service_id)}
+                      </div>
+                      <div className="t-caption">{dados.nomeDe(dados.locais, g.location_id)}</div>
                     </div>
-                    <div className="t-caption">
-                      {dados.nomeDe(dados.locais, planejada.location_id)} · {formatarData(planejada.data)}
-                    </div>
+                    <Icon name="avancar" size={16} style={{ color: 'var(--text-3)' }} />
                   </div>
-                  <Icon name="avancar" size={16} style={{ color: 'var(--text-3)' }} />
-                </div>
-              </button>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {semana.naoPlanejados.length > 0 && (
+        <div>
+          <div className="t-micro" style={{ marginBottom: 8 }}>Feito mas não estava na planilha da semana</div>
+          <div className="stack-1">
+            {semana.naoPlanejados.map((g) => (
+              <div key={g.chave} className="card-flat" style={{ padding: 10 }}>
+                <div className="t-strong" style={{ fontSize: 13 }}>{dados.nomeDe(dados.servicos, g.service_id)}</div>
+                <div className="t-caption">{dados.nomeDe(dados.locais, g.location_id)}</div>
+              </div>
             ))}
           </div>
         </div>
