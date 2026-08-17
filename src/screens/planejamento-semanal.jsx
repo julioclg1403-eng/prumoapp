@@ -18,6 +18,7 @@ import {
   hojeISO, somarDias, formatarData, formatarDataCurta, nomeDiaSemana,
   inicioDaSemana, diasDaSemana, rotuloDaSemana, fecharSemana, SITUACAO_EXECUCAO,
   agruparPlanejamento, plural, etapaCorrespondenteAoGrupo, MOTIVO_SEM_SINCRONIA,
+  chaveGrupoPlanejamento,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop, Segmentos,
@@ -608,6 +609,15 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
       const itensParaCriar = []
       const idsParaConfirmar = []
       const idsPorEmpresa = new Map()
+      /* A planilha só escreve a data de início do pacote quando ele já
+         começou de verdade. Se essa data é de ANTES da semana que está
+         sendo importada, é sinal de que o serviço vem de uma semana
+         anterior, já em andamento — o cálculo automático do início
+         real (que só olha o diário) erraria pra "esta semana" nesse
+         caso, porque essa é a primeira vez que o app vê o grupo. Grava
+         a data da planilha como início real, do mesmo jeito que a
+         pessoa faria à mão em "Início real". */
+      const iniciosReaisParaGravar = new Map()
       for (const { item, novos, paraConfirmar, paraPreencherEmpresa } of diasNovosPorItem) {
         const serviceId = item.servico?.id || idPorNomeServico[item.servicoTexto.toLowerCase()]
         if (!serviceId) continue
@@ -622,6 +632,15 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
           if (!idsPorEmpresa.has(item.empresa.id)) idsPorEmpresa.set(item.empresa.id, [])
           idsPorEmpresa.get(item.empresa.id).push(...paraPreencherEmpresa)
         }
+
+        if (item.data_inicio && item.data_inicio < inicio) {
+          const grupo = { service_id: serviceId, location_id: item.local.id, company_id: item.empresa?.id || null }
+          const chave = chaveGrupoPlanejamento(grupo)
+          const existente = dados.planejamentoOverrides.find((o) => chaveGrupoPlanejamento(o) === chave)
+          if (!existente || existente.inicio_real !== item.data_inicio) {
+            iniciosReaisParaGravar.set(chave, { ...grupo, inicio_real: item.data_inicio, fim_real: existente?.fim_real || null })
+          }
+        }
       }
 
       const salvos = itensParaCriar.length ? await dados.salvarPlanejadosEmLote(itensParaCriar) : []
@@ -629,6 +648,11 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
       let empresasPreenchidas = 0
       for (const [companyId, ids] of idsPorEmpresa) {
         if (await dados.preencherEmpresaPlanejada(ids, companyId)) empresasPreenchidas += ids.length
+      }
+
+      let iniciosReaisGravados = 0
+      for (const override of iniciosReaisParaGravar.values()) {
+        if (await dados.salvarOverridePlanejamento(override)) iniciosReaisGravados++
       }
 
       /* Serviço novo pode já ter etapa esperando por ele no cronograma
@@ -640,6 +664,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
         criados: salvos?.length || 0,
         confirmados: idsParaConfirmar.length,
         empresasPreenchidas,
+        iniciosReaisGravados,
         jaExistiam: totalDiasNovos - (salvos?.length || 0),
         servicosNovos: servicosNovos.length,
       })
@@ -658,6 +683,7 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
               {feito.servicosNovos > 0 && ` ${plural(feito.servicosNovos, 'serviço novo cadastrado', 'serviços novos cadastrados')}.`}
               {feito.confirmados > 0 && ` ${plural(feito.confirmados, 'dia já lançado confirmado', 'dias já lançados confirmados')} como planejado pela planilha.`}
               {feito.empresasPreenchidas > 0 && ` ${plural(feito.empresasPreenchidas, 'dia sem empresa preenchido', 'dias sem empresa preenchidos')} com a empresa que a planilha reconheceu.`}
+              {feito.iniciosReaisGravados > 0 && ` ${plural(feito.iniciosReaisGravados, 'serviço veio de semana anterior e ganhou', 'serviços vieram de semana anterior e ganharam')} o início real da planilha.`}
               {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'dia já estava planejado', 'dias já estavam planejados')} e não foram repetidos.`}
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
