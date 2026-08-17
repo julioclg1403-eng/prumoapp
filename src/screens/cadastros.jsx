@@ -119,7 +119,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const [salvando, setSalvando] = useState(false)
   const [mostrarArquivados, setMostrarArquivados] = useState(false)
   const [importando, setImportando] = useState(false)
-  const [agruparPorFuncao, setAgruparPorFuncao] = useState(false)
+  const [agrupamento, setAgrupamento] = useState('nome')
 
   /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
      gravação barrada pela permissão não dá erro, simplesmente não
@@ -135,27 +135,38 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
 
   /* Só faz sentido pra colaborador — os outros cadastros não têm
-     função. Colaborador sem função cadastrada vai pro fim, num grupo
-     à parte, em vez de sumir ou quebrar a ordenação. Agrupa pela
-     função normalizada (sem acento/caixa) porque o cadastro real tem
-     a mesma função digitada de jeitos diferentes — "Pedreiro" e
-     "PEDREIRO" são o mesmo grupo, com o rótulo da primeira grafia
-     encontrada. */
-  const gruposPorFuncao = useMemo(() => {
-    if (tipo !== 'colaboradores' || !agruparPorFuncao) return null
+     função nem empresa nessa tela. Colaborador sem o dado do grupo
+     (função em branco, ou um cadastro antigo sem empresa) vai pro
+     fim, num grupo à parte, em vez de sumir ou quebrar a ordenação.
+     Por função agrupa pelo texto normalizado (sem acento/caixa)
+     porque o cadastro real tem a mesma função digitada de jeitos
+     diferentes — "Pedreiro" e "PEDREIRO" são o mesmo grupo, com o
+     rótulo da primeira grafia encontrada. Por empresa agrupa pelo
+     vínculo de verdade (company_id), não pelo texto. */
+  const grupos = useMemo(() => {
+    if (tipo !== 'colaboradores' || agrupamento === 'nome') return null
     const grupos = new Map()
     lista.forEach((item) => {
-      const funcao = (item.funcao || '').trim()
-      const chave = funcao ? normalizarParaCasar(funcao) : ''
-      if (!grupos.has(chave)) grupos.set(chave, { rotulo: funcao || 'Sem função', itens: [] })
+      let chave, rotuloSemDado, rotulo
+      if (agrupamento === 'funcao') {
+        const funcao = (item.funcao || '').trim()
+        chave = funcao ? normalizarParaCasar(funcao) : ''
+        rotuloSemDado = 'Sem função'
+        rotulo = funcao || rotuloSemDado
+      } else {
+        chave = item.company_id || ''
+        rotuloSemDado = 'Sem empresa'
+        rotulo = item.company_id ? dados.nomeDe(dados.empresas, item.company_id) : rotuloSemDado
+      }
+      if (!grupos.has(chave)) grupos.set(chave, { rotulo, rotuloSemDado, itens: [] })
       grupos.get(chave).itens.push(item)
     })
     return Array.from(grupos.values()).sort((a, b) => {
-      if (a.rotulo === 'Sem função') return 1
-      if (b.rotulo === 'Sem função') return -1
+      if (a.rotulo === a.rotuloSemDado) return 1
+      if (b.rotulo === b.rotuloSemDado) return -1
       return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
     })
-  }, [tipo, agruparPorFuncao, lista])
+  }, [tipo, agrupamento, lista, dados])
 
   const abrirNovo = () => setEditando({})
 
@@ -276,11 +287,12 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
           {tipo === 'colaboradores' && (
             <Segmentos
-              valor={agruparPorFuncao ? 'funcao' : 'nome'}
-              onChange={(v) => setAgruparPorFuncao(v === 'funcao')}
+              valor={agrupamento}
+              onChange={setAgrupamento}
               opcoes={[
                 { valor: 'nome', rotulo: 'Por nome' },
                 { valor: 'funcao', rotulo: 'Por função' },
+                { valor: 'empresa', rotulo: 'Por empresa' },
               ]}
             />
           )}
@@ -297,9 +309,9 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
                 acao={!mostrarArquivados && <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar</button>}
               />
             </div>
-          ) : gruposPorFuncao ? (
+          ) : grupos ? (
             <div className="stack-3">
-              {gruposPorFuncao.map(({ rotulo, itens }) => (
+              {grupos.map(({ rotulo, itens }) => (
                 <div key={rotulo} className="stack-1">
                   <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
                     {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
