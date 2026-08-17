@@ -937,6 +937,13 @@ function DashboardProjetos({ dados }) {
   const [visao, setVisao] = useState('resumo')
   const apontamentos = dados.apontamentos
 
+  /* Filtros só da aba Tempo de Resposta — servem pra achar o que mais
+     demora dentro de um recorte (uma disciplina, um local...), sem
+     mexer nas outras visões do dashboard. */
+  const [filtroDisciplinaTempo, setFiltroDisciplinaTempo] = useState('')
+  const [filtroLocalTempo, setFiltroLocalTempo] = useState('')
+  const [filtroPrioridadeTempo, setFiltroPrioridadeTempo] = useState('')
+
   const resumo = useMemo(() => STATUS_APONTAMENTO.map((s) => ({
     rotulo: ROTULO_STATUS_APONTAMENTO[s], cor: CORES_STATUS[s],
     valor: apontamentos.filter((a) => a.status === s).length,
@@ -982,8 +989,18 @@ function DashboardProjetos({ dados }) {
      fechamento = da criação até a primeira vez que foi pra Resolvido.
      Todo apontamento entra na lista, mesmo o que ainda não passou por
      Em Andamento ou nunca foi resolvido — cada tempo fica "—" até o
-     apontamento chegar lá; as médias (abaixo) ignoram os "—". */
-  const temposPorApontamento = useMemo(() => apontamentos
+     apontamento chegar lá; as médias (abaixo) ignoram os "—". Filtros
+     de disciplina/local/prioridade recortam o conjunto antes de
+     calcular tudo, pra achar o que mais demora dentro de um recorte.
+     Ordenado por quem demorou mais pra responder primeiro (sem
+     resposta ainda fica por último, não no topo). */
+  const apontamentosParaTempo = useMemo(() => apontamentos.filter((a) => (
+    (!filtroDisciplinaTempo || a.disciplinas.some((d) => d.discipline_id === filtroDisciplinaTempo))
+    && (!filtroLocalTempo || a.location_ids.includes(filtroLocalTempo))
+    && (!filtroPrioridadeTempo || a.prioridade === filtroPrioridadeTempo)
+  )), [apontamentos, filtroDisciplinaTempo, filtroLocalTempo, filtroPrioridadeTempo])
+
+  const temposPorApontamento = useMemo(() => apontamentosParaTempo
     .map((a) => {
       const emAndamentoEm = a.historico.find((h) => h.para_status === 'em_andamento')?.created_at
       const resolvidoEm = a.historico.find((h) => h.para_status === 'resolvido')?.created_at
@@ -995,7 +1012,11 @@ function DashboardProjetos({ dados }) {
         diasResposta, diasFechamento,
       }
     })
-    .sort((x, y) => (x.criado_em < y.criado_em ? 1 : -1)), [apontamentos])
+    .sort((x, y) => {
+      if (x.diasResposta == null) return 1
+      if (y.diasResposta == null) return -1
+      return y.diasResposta - x.diasResposta
+    }), [apontamentosParaTempo])
 
   const media = (itens, campo) => {
     const doGrupo = itens.filter((t) => t[campo] != null)
@@ -1090,14 +1111,50 @@ function DashboardProjetos({ dados }) {
       )}
 
       {visao === 'tempo' && (
-        temposPorApontamento.length === 0 ? (
-          <div className="card-flat">
-            <div className="t-caption">Nenhum apontamento ainda.</div>
+        <div className="stack-2">
+          <div className="card-flat stack-2">
+            <div className="t-micro">Filtrar</div>
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <select
+                className="sel" style={{ flex: '1 1 160px' }}
+                value={filtroDisciplinaTempo} onChange={(e) => setFiltroDisciplinaTempo(e.target.value)}
+              >
+                <option value="">Todas as disciplinas</option>
+                {disciplinasAtivas.map((d) => <option key={d.id} value={d.id}>{d.sigla || d.nome}</option>)}
+              </select>
+              <select
+                className="sel" style={{ flex: '1 1 160px' }}
+                value={filtroLocalTempo} onChange={(e) => setFiltroLocalTempo(e.target.value)}
+              >
+                <option value="">Todos os locais</option>
+                {dados.locais.filter((l) => l.ativo !== false).map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
+              <select
+                className="sel" style={{ flex: '1 1 160px' }}
+                value={filtroPrioridadeTempo} onChange={(e) => setFiltroPrioridadeTempo(e.target.value)}
+              >
+                <option value="">Todas as prioridades</option>
+                {PRIORIDADES.map((p) => <option key={p} value={p}>{ROTULO_PRIORIDADE[p]}</option>)}
+              </select>
+              {(filtroDisciplinaTempo || filtroLocalTempo || filtroPrioridadeTempo) && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => { setFiltroDisciplinaTempo(''); setFiltroLocalTempo(''); setFiltroPrioridadeTempo('') }}
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="stack-2">
+
+          {temposPorApontamento.length === 0 ? (
+            <div className="card-flat">
+              <div className="t-caption">Nenhum apontamento neste filtro.</div>
+            </div>
+          ) : (
+            <>
             <div className="card-flat stack-2">
-              <div className="t-micro">Médias — geral</div>
+              <div className="t-micro">Médias do recorte filtrado</div>
               <GraficoTempos
                 linhas={[
                   { rotulo: 'Geral', resposta: mediasGerais.resposta, fechamento: mediasGerais.fechamento },
@@ -1134,8 +1191,9 @@ function DashboardProjetos({ dados }) {
                 </tbody>
               </table>
             </div>
-          </div>
-        )
+            </>
+          )}
+        </div>
       )}
     </div>
   )
