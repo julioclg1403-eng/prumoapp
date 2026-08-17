@@ -979,25 +979,23 @@ function DashboardProjetos({ dados }) {
 
   /* Tempo de resposta = da criação (A Responder) até a primeira vez
      que alguém pegou pra trabalhar (entrou em Em Andamento). Tempo de
-     fechamento = da criação até a primeira vez que foi pra Resolvido
-     — o ciclo inteiro. Só entra na lista quem já fechou pelo menos
-     uma vez; resposta fica "—" se o apontamento pulou direto pra
-     Resolvido sem passar por Em Andamento. */
+     fechamento = da criação até a primeira vez que foi pra Resolvido.
+     Todo apontamento entra na lista, mesmo o que ainda não passou por
+     Em Andamento ou nunca foi resolvido — cada tempo fica "—" até o
+     apontamento chegar lá; as médias (abaixo) ignoram os "—". */
   const temposPorApontamento = useMemo(() => apontamentos
     .map((a) => {
       const emAndamentoEm = a.historico.find((h) => h.para_status === 'em_andamento')?.created_at
       const resolvidoEm = a.historico.find((h) => h.para_status === 'resolvido')?.created_at
-      if (!resolvidoEm) return null
       const diasResposta = emAndamentoEm ? (new Date(emAndamentoEm) - new Date(a.created_at)) / 86400000 : null
-      const diasFechamento = (new Date(resolvidoEm) - new Date(a.created_at)) / 86400000
+      const diasFechamento = resolvidoEm ? (new Date(resolvidoEm) - new Date(a.created_at)) / 86400000 : null
       return {
         id: a.id, numero: a.numero, titulo: a.titulo, prioridade: a.prioridade,
         criado_em: a.created_at, em_andamento_em: emAndamentoEm, resolvido_em: resolvidoEm,
         diasResposta, diasFechamento,
       }
     })
-    .filter(Boolean)
-    .sort((x, y) => (x.resolvido_em < y.resolvido_em ? 1 : -1)), [apontamentos])
+    .sort((x, y) => (x.criado_em < y.criado_em ? 1 : -1)), [apontamentos])
 
   const media = (itens, campo) => {
     const doGrupo = itens.filter((t) => t[campo] != null)
@@ -1094,7 +1092,7 @@ function DashboardProjetos({ dados }) {
       {visao === 'tempo' && (
         temposPorApontamento.length === 0 ? (
           <div className="card-flat">
-            <div className="t-caption">Nenhum apontamento resolvido ainda — o relatório aparece assim que o primeiro fechar.</div>
+            <div className="t-caption">Nenhum apontamento ainda.</div>
           </div>
         ) : (
           <div className="stack-2">
@@ -1128,7 +1126,7 @@ function DashboardProjetos({ dados }) {
                       <td className="t-strong">{t.titulo}</td>
                       <td style={{ color: 'var(--text-2)' }}>{formatarData(t.criado_em.slice(0, 10))}</td>
                       <td style={{ color: 'var(--text-2)' }}>{t.em_andamento_em ? formatarData(t.em_andamento_em.slice(0, 10)) : '—'}</td>
-                      <td style={{ color: 'var(--text-2)' }}>{formatarData(t.resolvido_em.slice(0, 10))}</td>
+                      <td style={{ color: 'var(--text-2)' }}>{t.resolvido_em ? formatarData(t.resolvido_em.slice(0, 10)) : '—'}</td>
                       <td className="t-num t-strong">{formatarDias(t.diasResposta)}</td>
                       <td className="t-num t-strong">{formatarDias(t.diasFechamento)}</td>
                     </tr>
