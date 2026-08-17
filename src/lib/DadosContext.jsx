@@ -42,6 +42,7 @@ const TABELA = {
   tiposOcorrencia: 'occurrence_types',
   equipamentos: 'equipment',
   materiaisEstoque: 'stock_materials',
+  materiaisEpi: 'epi_materials',
   disciplinasProjeto: 'project_disciplines',
   categoriasProjeto: 'project_categories',
   etapasProjeto: 'project_stages',
@@ -175,6 +176,7 @@ export function DadosProvider({ perfil, children }) {
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
+      materiaisEpi, entradasEpi, saidasEpi,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -208,6 +210,9 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('planned_group_overrides').select('*'),
       supabase.from('schedule_global_items').select('*').order('data_inicio'),
       supabase.from('issue_semanas_taticas').select('*'),
+      supabase.from('epi_materials').select('*').order('nome'),
+      supabase.from('epi_entries').select('*').order('data', { ascending: false }),
+      supabase.from('epi_exits').select('*').order('data', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -215,7 +220,8 @@ export function DadosProvider({ perfil, children }) {
       contatosWhatsapp, equipamentos, ocorrenciasSeguranca, advertencias,
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
-      planejamentoOverrides, cronogramaGlobal, semanasTaticas].find((r) => r.error)
+      planejamentoOverrides, cronogramaGlobal, semanasTaticas,
+      materiaisEpi, entradasEpi, saidasEpi].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -273,6 +279,9 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides: planejamentoOverrides.data || [],
       cronogramaGlobal: cronogramaGlobal.data || [],
       semanasTaticas: semanasTaticas.data || [],
+      materiaisEpi: materiaisEpi.data || [],
+      entradasEpi: entradasEpi.data || [],
+      saidasEpi: saidasEpi.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -311,6 +320,12 @@ export function DadosProvider({ perfil, children }) {
      material antes mesmo de saber se precisa trocar de obra. */
   const materialEstoquePorId = useCallback(
     (id) => (tudo ? tudo.materiaisEstoque.find((m) => m.id === id) || null : null), [tudo],
+  )
+
+  /* Mesma ideia, pro estoque de EPI (useAbrirQrMaterial também lê
+     etiqueta de EPI, então precisa achar em qualquer obra). */
+  const materialEpiPorId = useCallback(
+    (id) => (tudo ? tudo.materiaisEpi.find((m) => m.id === id) || null : null), [tudo],
   )
 
   const escopo = useCallback(
@@ -356,6 +371,9 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides: filtrar(tudo.planejamentoOverrides),
       cronogramaGlobal: filtrar(tudo.cronogramaGlobal),
       semanasTaticas: filtrar(tudo.semanasTaticas),
+      materiaisEpi: filtrar(tudo.materiaisEpi),
+      entradasEpi: filtrar(tudo.entradasEpi),
+      saidasEpi: filtrar(tudo.saidasEpi),
     }
   }, [tudo, obraId])
 
@@ -1500,6 +1518,98 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Controle de estoque de EPI (Segurança) ─────────────────
+  /* Mesmo desenho do estoque do Almoxarifado, tabelas e chaves de
+     estado à parte (epi_materials/epi_entries/epi_exits) — EPI é um
+     estoque próprio, não mistura com material de obra. */
+  const salvarEntradaEpi = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        material_id: item.material_id,
+        data: item.data,
+        fornecedor: item.fornecedor || null,
+        nota_fiscal: item.nota_fiscal || null,
+        data_nota: item.data_nota || null,
+        quantidade: Number(item.quantidade),
+        valor_total: item.valor_total === '' || item.valor_total == null ? null : Number(item.valor_total),
+        recebido_por: item.recebido_por || null,
+        autor_id: perfil.id,
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('epi_entries').upsert(linha).select('*').single(),
+        'salvar a entrada de EPI',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        entradasEpi: t.entradasEpi.some((e) => e.id === salvo.id)
+          ? t.entradasEpi.map((e) => (e.id === salvo.id ? salvo : e))
+          : [salvo, ...t.entradasEpi],
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirEntradaEpi = useCallback(
+    async (id) => {
+      const r = await supabase.from('epi_entries').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a entrada de EPI'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, entradasEpi: t.entradasEpi.filter((e) => e.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
+  const salvarSaidaEpi = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        material_id: item.material_id,
+        data: item.data,
+        quantidade: Number(item.quantidade),
+        destino: item.destino || null,
+        autor_id: perfil.id,
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('epi_exits').upsert(linha).select('*').single(),
+        'salvar a saída de EPI',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        saidasEpi: t.saidasEpi.some((s) => s.id === salvo.id)
+          ? t.saidasEpi.map((s) => (s.id === salvo.id ? salvo : s))
+          : [salvo, ...t.saidasEpi],
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirSaidaEpi = useCallback(
+    async (id) => {
+      const r = await supabase.from('epi_exits').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a saída de EPI'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, saidasEpi: t.saidasEpi.filter((s) => s.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -2378,7 +2488,7 @@ export function DadosProvider({ perfil, children }) {
       registrarEntrega, relerRequisicao, salvarMaterial,
       trocarObra,
       perfil, erro, salvando, avisarErro, recarregar,
-      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId,
+      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
@@ -2394,6 +2504,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
+      salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
@@ -2405,7 +2516,7 @@ export function DadosProvider({ perfil, children }) {
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
-      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId,
+      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
@@ -2420,6 +2531,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
+      salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,

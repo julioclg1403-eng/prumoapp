@@ -1,9 +1,11 @@
 /* ============================================================
    ETIQUETAS QR DO ESTOQUE
 
-   Cada material ganha um QR Code que aponta pra um link do próprio
-   Prumo (?qr=<id do material>). Impresso com o nome embaixo e colado
-   na prateleira, qualquer câmera de celular lê o link e abre o app
+   Compartilhado pelos dois controles de estoque do app — Almoxarifado
+   (material de obra) e Segurança (EPI). Cada material ganha um QR
+   Code que aponta pra um link do próprio Prumo (?qr=<id do material>,
+   com &t=epi quando é EPI). Impresso com o nome embaixo e colado na
+   prateleira, qualquer câmera de celular lê o link e abre o app
    direto na tela de dar saída daquele material — sem digitar nada,
    sem catálogo pra abrir na mão (useAbrirQrMaterial.js cuida da
    ponta de chegada, isto aqui cuida da geração/impressão).
@@ -11,8 +13,9 @@
 
 import QRCode from 'qrcode'
 
-export function linkQrMaterial(materialId) {
-  return `${window.location.origin}${window.location.pathname}?qr=${materialId}`
+export function linkQrMaterial(materialId, tipo = 'estoque') {
+  const sufixo = tipo === 'epi' ? '&t=epi' : ''
+  return `${window.location.origin}${window.location.pathname}?qr=${materialId}${sufixo}`
 }
 
 export async function gerarQRDataURL(texto) {

@@ -111,7 +111,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} params={rota.params} />; break
-    case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} />; break
+    case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} params={rota.params} />; break
     case 'projetos':     corpo = <Projetos goto={goto} voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'mais':         corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break

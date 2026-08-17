@@ -149,7 +149,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':  corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Almoxarifado voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
-    case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break

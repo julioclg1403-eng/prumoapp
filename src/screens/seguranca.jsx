@@ -24,6 +24,7 @@ import {
   CampoFotos, VisorFoto, useLinksDeFotos,
   RelatorioFolha, SecaoRelatorio, FotosRelatorio,
 } from '../components'
+import SegurancaEpi from './seguranca-epi'
 
 /* Uma linha rótulo/valor no aviso impresso. */
 function LinhaRelatorio({ rotulo, valor }) {
@@ -36,9 +37,16 @@ function LinhaRelatorio({ rotulo, valor }) {
   )
 }
 
-export default function Seguranca({ voltar, perfil }) {
+export default function Seguranca({ voltar, perfil, params = {} }) {
   const dados = useDados()
   const [aba, setAba] = useState('ocorrencias')
+
+  /* Chegada por QR Code (useAbrirQrMaterial): a tela já existe na
+     pilha quando isto muda, então o React não remonta o componente —
+     precisa deste efeito pra pular direto pra sub-aba EPI. */
+  useEffect(() => {
+    if (params.abrirEpiMaterialId) setAba('epi')
+  }, [params.abrirEpiMaterialId])
 
   return (
     <>
@@ -51,7 +59,7 @@ export default function Seguranca({ voltar, perfil }) {
       </div>
 
       <div className="page">
-        <PageHeader titulo="Segurança do trabalho" sub="Ocorrências e advertências da obra" />
+        <PageHeader titulo="Segurança do trabalho" sub="Ocorrências, advertências e estoque de EPI da obra" />
 
         <div className="stack-2">
           <Segmentos
@@ -59,11 +67,12 @@ export default function Seguranca({ voltar, perfil }) {
             opcoes={[
               { valor: 'ocorrencias', rotulo: 'Ocorrências', contador: dados.ocorrenciasSeguranca.length },
               { valor: 'advertencias', rotulo: 'Advertências', contador: dados.advertencias.length },
+              { valor: 'epi', rotulo: 'Estoque EPI', contador: (dados.materiaisEpi || []).filter((m) => m.ativo !== false).length },
             ]}
           />
-          {aba === 'ocorrencias'
-            ? <Ocorrencias dados={dados} perfil={perfil} />
-            : <Advertencias dados={dados} perfil={perfil} />}
+          {aba === 'ocorrencias' && <Ocorrencias dados={dados} perfil={perfil} />}
+          {aba === 'advertencias' && <Advertencias dados={dados} perfil={perfil} />}
+          {aba === 'epi' && <SegurancaEpi perfil={perfil} params={params} />}
         </div>
       </div>
     </>
