@@ -343,6 +343,59 @@ export function BarraErro({ mensagem }) {
   )
 }
 
+/* ── Aviso de "abriu pelo navegador, não pelo ícone" ─────────
+   iOS não tem como redirecionar sozinho um link (QR, WhatsApp etc)
+   pro app já instalado na tela de início — é limitação do próprio
+   Safari, nenhum PWA escapa disso. O melhor que dá pra fazer é
+   avisar: a pessoa decide se fecha a aba e abre pelo ícone. Some
+   pra sempre depois de fechado uma vez (por navegador). */
+
+const AVISO_ICONE_FECHADO = 'prumo:aviso-icone-fechado'
+
+function abriuPeloNavegadorNoIOS() {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false
+  if (!/iPad|iPhone|iPod/.test(navigator.userAgent)) return false
+  const instalado = window.navigator.standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches
+  return !instalado
+}
+
+export function AvisoAbrirPeloIcone() {
+  const [fechado, setFechado] = useState(() => {
+    try { return localStorage.getItem(AVISO_ICONE_FECHADO) === '1' } catch { return false }
+  })
+
+  if (fechado || !abriuPeloNavegadorNoIOS()) return null
+
+  const fechar = () => {
+    setFechado(true)
+    try { localStorage.setItem(AVISO_ICONE_FECHADO, '1') } catch { /* navegador sem storage */ }
+  }
+
+  return (
+    <div
+      role="status"
+      style={{
+        position: 'fixed', left: 12, right: 12, top: 12, zIndex: 90,
+        maxWidth: 560, margin: '0 auto',
+        background: 'var(--surface)', boxShadow: 'var(--shadow-pop)',
+        borderLeft: '4px solid var(--primary)',
+        borderRadius: '0 var(--radius-btn) var(--radius-btn) 0',
+        padding: '12px 14px', fontSize: 13, lineHeight: 1.45,
+        display: 'flex', gap: 10, alignItems: 'flex-start',
+      }}
+    >
+      <span className="grow">
+        Você está pelo navegador. Se já tiver o Prumo na tela de início, feche esta aba
+        e abra por lá — fica mais rápido e continua logado.
+      </span>
+      <button onClick={fechar} aria-label="Fechar aviso" style={{ flex: 'none', color: 'var(--text-3)' }}>
+        <Icon name="x" size={16} />
+      </button>
+    </div>
+  )
+}
+
 /* ── Item de lista clicável ──────────────────────────────── */
 
 export function ItemLista({ titulo, sub, direita, onClick, aviso }) {

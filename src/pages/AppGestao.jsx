@@ -6,7 +6,7 @@
    ============================================================ */
 
 import { useState, useCallback } from 'react'
-import { Icon, useDesktop, BarraErro } from '../components'
+import { Icon, useDesktop, BarraErro, AvisoAbrirPeloIcone } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
 import {
@@ -178,6 +178,7 @@ export default function AppGestao({ perfil, onSair }) {
 
       <div className="app-body">{corpo}</div>
 
+      <AvisoAbrirPeloIcone />
       <BarraErro mensagem={dados.erro} />
 
       <nav className="bottom-nav" aria-label="Navegação principal">
