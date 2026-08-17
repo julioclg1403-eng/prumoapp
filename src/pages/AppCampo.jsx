@@ -11,6 +11,7 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro, SeletorObra } from '../components'
 import { useDados } from '../lib/DadosContext'
+import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
 import { contarPendencias, pendenciasGerais, moduloPermitido } from '../lib/dominio'
 
 import InicioCampo from '../screens/inicio-campo'
@@ -68,6 +69,8 @@ export default function AppCampo({ perfil, onSair }) {
      esperam de uma barra inferior. */
   const irParaAba = (chave, params = {}) => setPilha([{ screen: chave, params }])
 
+  useAbrirQrMaterial(dados, goto)
+
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
 
   const itens = TODOS_ITENS.filter((i) => i.chave === 'inicio' || moduloPermitido(perfil, i.chave))
@@ -107,7 +110,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'requisicao':   corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
-    case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} />; break
+    case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} params={rota.params} />; break
     case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} />; break
     case 'projetos':     corpo = <Projetos goto={goto} voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break

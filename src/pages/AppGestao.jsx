@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro } from '../components'
 import { useDados } from '../lib/DadosContext'
+import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
 import {
   contarPendencias, pendenciasGerais, pendentesDeRevisao, contarRequisicoes, situacaoLembrete,
 } from '../lib/dominio'
@@ -44,6 +45,8 @@ export default function AppGestao({ perfil, onSair }) {
   }, [])
 
   const irParaAba = (chave, params = {}) => setPilha([{ screen: chave, params }])
+
+  useAbrirQrMaterial(dados, goto)
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
@@ -145,7 +148,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':  corpo = <Lembretes perfil={perfil} />; break
-    case 'equipamentos': corpo = <Almoxarifado voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'equipamentos': corpo = <Almoxarifado voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break

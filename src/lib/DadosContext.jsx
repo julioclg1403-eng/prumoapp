@@ -306,6 +306,13 @@ export function DadosProvider({ perfil, children }) {
     (id) => (tudo ? tudo.perfis.find((p) => p.id === id) || null : null), [tudo],
   )
 
+  /* Busca um material do estoque em QUALQUER obra, não só na atual —
+     é o que permite o link do QR Code (useAbrirQrMaterial) achar o
+     material antes mesmo de saber se precisa trocar de obra. */
+  const materialEstoquePorId = useCallback(
+    (id) => (tudo ? tudo.materiaisEstoque.find((m) => m.id === id) || null : null), [tudo],
+  )
+
   const escopo = useCallback(
     () => ({ organization_id: perfil.organization_id, worksite_id: obraId }),
     [perfil.organization_id, obraId],
@@ -2371,7 +2378,7 @@ export function DadosProvider({ perfil, children }) {
       registrarEntrega, relerRequisicao, salvarMaterial,
       trocarObra,
       perfil, erro, salvando, avisarErro, recarregar,
-      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
+      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId,
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, mesclarColaborador,
@@ -2398,7 +2405,7 @@ export function DadosProvider({ perfil, children }) {
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
-      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId,
+      nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,

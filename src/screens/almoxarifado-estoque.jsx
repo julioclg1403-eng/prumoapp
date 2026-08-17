@@ -12,9 +12,10 @@
    "fácil de adicionar material" era o pedido.
    ============================================================ */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '../lib/dominio'
+import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
 } from '../components'
@@ -37,7 +38,7 @@ function baixarCSV(nomeArquivo, cabecalho, linhas) {
   URL.revokeObjectURL(url)
 }
 
-export default function AlmoxarifadoEstoque({ perfil }) {
+export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const dados = useDados()
   const hoje = hojeISO()
   const podeExcluir = perfil?.role !== 'campo'
@@ -50,6 +51,8 @@ export default function AlmoxarifadoEstoque({ perfil }) {
   const [importando, setImportando] = useState(false)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [etiquetando, setEtiquetando] = useState(false)
+  const [gerandoEtiquetas, setGerandoEtiquetas] = useState(false)
 
   const materiais = useMemo(
     () => (dados.materiaisEstoque || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -116,6 +119,14 @@ export default function AlmoxarifadoEstoque({ perfil }) {
     data: hoje, material_id: materialId, quantidade: '', destino: '',
   })
 
+  /* Chegada por QR Code: a etiqueta da prateleira já traz a pessoa
+     direto pra "Registrar saída" deste material, sem passar pela
+     lista nem pelo seletor. */
+  useEffect(() => {
+    if (params.abrirEstoqueMaterialId) abrirNovaSaida(params.abrirEstoqueMaterialId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.abrirEstoqueMaterialId])
+
   const salvarEntrada = async () => {
     if (!novaEntrada?.material_id || !novaEntrada?.data || !Number(novaEntrada?.quantidade)) return
     setSalvando(true)
@@ -144,6 +155,33 @@ export default function AlmoxarifadoEstoque({ perfil }) {
     })
     setSalvando(false)
     if (ok) setEditandoMaterial(null)
+  }
+
+  /* Gera o QR de cada material selecionado (o link é sempre o mesmo
+     formato: origem do app + ?qr=<id>, ver lib/qrEstoque) e abre a
+     aba de impressão já pronta pra colar na prateleira.
+
+     A janela abre ANTES de gerar os QR Codes (que é assíncrono) —
+     precisa ser assim: o navegador só deixa `window.open` passar sem
+     bloqueio quando ele roda no mesmo tique do clique, e "gerar 700
+     QR Codes" não pode acontecer nesse mesmo tique. */
+  const imprimirEtiquetas = async (lista) => {
+    if (!lista.length || gerandoEtiquetas) return
+    const janela = abrirJanelaEtiquetas()
+    if (!janela) {
+      dados.avisarErro('O navegador bloqueou a janela de impressão. Libere pop-ups pra este site e tente de novo.')
+      return
+    }
+    setGerandoEtiquetas(true)
+    try {
+      const etiquetas = await Promise.all(lista.map(async (m) => ({
+        nome: m.nome,
+        dataUrl: await gerarQRDataURL(linkQrMaterial(m.id)),
+      })))
+      escreverEtiquetas(janela, etiquetas, dados.obra.nome)
+    } finally {
+      setGerandoEtiquetas(false)
+    }
   }
 
   const pedirExcluirEntrada = (item) => setConfirmar({
@@ -207,6 +245,9 @@ export default function AlmoxarifadoEstoque({ perfil }) {
           <div className="row-flex" style={{ flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" onClick={() => setImportando(true)}>
               <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
+            </button>
+            <button className="btn btn-secondary" onClick={() => setEtiquetando(true)}>
+              <Icon name="qrcode" size={16} /> Etiquetas QR
             </button>
             <button className="btn btn-secondary" onClick={() => abrirNovaSaida()}>
               <Icon name="baixar" size={16} /> Registrar saída
@@ -553,6 +594,14 @@ export default function AlmoxarifadoEstoque({ perfil }) {
               </button>
             </div>
 
+            <button
+              className="btn btn-ghost btn-block"
+              onClick={() => imprimirEtiquetas([editandoMaterial])}
+              disabled={gerandoEtiquetas}
+            >
+              <Icon name="qrcode" size={16} /> {gerandoEtiquetas ? 'Gerando…' : 'Imprimir etiqueta QR deste material'}
+            </button>
+
             <div>
               <div className="t-micro" style={{ marginBottom: 8 }}>Histórico de movimentação</div>
               {historicoMaterial.length === 0 ? (
@@ -601,6 +650,14 @@ export default function AlmoxarifadoEstoque({ perfil }) {
         onFechar={() => setImportando(false)}
         dados={dados}
         materiaisExistentes={dados.materiaisEstoque || []}
+      />
+
+      <EtiquetasQR
+        aberto={etiquetando}
+        onFechar={() => setEtiquetando(false)}
+        materiais={materiais}
+        gerando={gerandoEtiquetas}
+        onImprimir={imprimirEtiquetas}
       />
     </div>
   )
@@ -737,6 +794,96 @@ function ImportarMateriais({ aberto, onFechar, dados, materiaisExistentes }) {
                 </div>
               </>
             )}
+          </>
+        )}
+      </div>
+    </Sheet>
+  )
+}
+
+/* ── Etiquetas QR — escolhe quais materiais imprimir ─────────
+   Nasce com tudo marcado — imprimir o lote inteiro de uma vez é o
+   uso mais comum (etiquetar a prateleira toda). Cada QR aponta pro
+   link do próprio material (lib/qrEstoque); apontar a câmera do
+   celular nele abre o Prumo direto na saída daquele material. */
+function EtiquetasQR({ aberto, onFechar, materiais, gerando, onImprimir }) {
+  const [busca, setBusca] = useState('')
+  const [selecionados, setSelecionados] = useState(() => new Set())
+
+  useEffect(() => {
+    if (aberto) setSelecionados(new Set(materiais.map((m) => m.id)))
+    else setBusca('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto])
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    return termo ? materiais.filter((m) => m.nome.toLowerCase().includes(termo)) : materiais
+  }, [materiais, busca])
+
+  const alternar = (id) => setSelecionados((s) => {
+    const novo = new Set(s)
+    if (novo.has(id)) novo.delete(id); else novo.add(id)
+    return novo
+  })
+
+  const todosFiltradosMarcados = filtrados.length > 0 && filtrados.every((m) => selecionados.has(m.id))
+  const alternarTodos = () => setSelecionados((s) => {
+    const novo = new Set(s)
+    if (todosFiltradosMarcados) filtrados.forEach((m) => novo.delete(m.id))
+    else filtrados.forEach((m) => novo.add(m.id))
+    return novo
+  })
+
+  const confirmar = async () => {
+    const lista = materiais.filter((m) => selecionados.has(m.id))
+    await onImprimir(lista)
+    onFechar()
+  }
+
+  return (
+    <Sheet
+      aberto={aberto}
+      titulo="Etiquetas QR"
+      onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={confirmar} disabled={gerando || selecionados.size === 0}>
+            {gerando ? 'Gerando…' : `Imprimir ${plural(selecionados.size, 'etiqueta', 'etiquetas')}`}
+          </button>
+        </div>
+      }
+    >
+      <div className="stack-2">
+        <div className="t-caption" style={{ lineHeight: 1.5 }}>
+          Cada etiqueta traz o QR Code e o nome do material embaixo. Cole na prateleira —
+          apontando a câmera do celular nela, abre direto a saída daquele material.
+        </div>
+
+        {materiais.length === 0 ? (
+          <div className="t-caption">Nenhum material cadastrado ainda.</div>
+        ) : (
+          <>
+            <input
+              className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar material…"
+            />
+            <button className="btn btn-ghost btn-sm" onClick={alternarTodos} style={{ alignSelf: 'flex-start' }}>
+              {todosFiltradosMarcados ? 'Limpar seleção' : 'Selecionar todos'}
+            </button>
+            <div style={{ maxHeight: 360, overflowY: 'auto' }} className="stack-1">
+              {filtrados.map((m) => (
+                <label
+                  key={m.id} className="card-flat row-flex"
+                  style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                >
+                  <input type="checkbox" checked={selecionados.has(m.id)} onChange={() => alternar(m.id)} />
+                  <span className="grow">{m.nome}</span>
+                </label>
+              ))}
+              {filtrados.length === 0 && <div className="t-caption">Nada com esse nome.</div>}
+            </div>
           </>
         )}
       </div>

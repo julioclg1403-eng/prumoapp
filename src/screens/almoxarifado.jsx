@@ -6,7 +6,7 @@
    como o almoxarife controla cada uma hoje).
    ============================================================ */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Icon, Segmentos } from '../components'
 import AlmoxarifadoEquipamentos from './almoxarifado-equipamentos'
 import AlmoxarifadoEstoque from './almoxarifado-estoque'
@@ -18,8 +18,16 @@ const ABAS = {
   refeicoes: { rotulo: 'Refeições', Tela: AlmoxarifadoRefeicoes },
 }
 
-export default function Almoxarifado({ voltar, perfil }) {
+export default function Almoxarifado({ voltar, perfil, params = {} }) {
   const [aba, setAba] = useState('equipamentos')
+
+  /* Chegada por QR Code (useAbrirQrMaterial): a tela já existe na
+     pilha quando isto muda, então o React não remonta o componente —
+     precisa deste efeito pra pular direto pra sub-aba Estoque. */
+  useEffect(() => {
+    if (params.abrirEstoqueMaterialId) setAba('estoque')
+  }, [params.abrirEstoqueMaterialId])
+
   const Tela = ABAS[aba].Tela
 
   return (
@@ -40,7 +48,7 @@ export default function Almoxarifado({ voltar, perfil }) {
         />
       </div>
 
-      <Tela perfil={perfil} />
+      <Tela perfil={perfil} params={params} />
     </>
   )
 }
