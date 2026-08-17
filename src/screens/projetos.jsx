@@ -925,6 +925,16 @@ function QuadroApontamentos({ itens, dados, onAbrir, onMudarStatus }) {
   )
 }
 
+/* Dias corridos entre a criação (entrada em "A Responder") e a
+   primeira vez que o apontamento chegou a "Resolvido" — se reaberto
+   e resolvido de novo depois, conta só a primeira resolução, igual
+   à curva de evolução logo abaixo. */
+function formatarDias(dias) {
+  if (dias == null) return '—'
+  if (dias < 1) return `${Math.max(1, Math.round(dias * 24))}h`
+  return `${dias.toFixed(1)} dia${dias >= 1.95 ? 's' : ''}`
+}
+
 function DashboardProjetos({ dados }) {
   const [visao, setVisao] = useState('resumo')
   const apontamentos = dados.apontamentos
@@ -969,6 +979,29 @@ function DashboardProjetos({ dados }) {
     }))
     .filter((r) => r.segmentos.some((s) => s.valor > 0)), [dados.locais, disciplinasAtivas, apontamentos])
 
+  const temposResolucao = useMemo(() => apontamentos
+    .map((a) => {
+      const resolvidoEm = a.historico.find((h) => h.para_status === 'resolvido')?.created_at
+      if (!resolvidoEm) return null
+      const dias = (new Date(resolvidoEm) - new Date(a.created_at)) / 86400000
+      return { id: a.id, numero: a.numero, titulo: a.titulo, prioridade: a.prioridade, criado_em: a.created_at, resolvido_em: resolvidoEm, dias }
+    })
+    .filter(Boolean)
+    .sort((x, y) => (x.resolvido_em < y.resolvido_em ? 1 : -1)), [apontamentos])
+
+  const mediaGeralResolucao = useMemo(() => (
+    temposResolucao.length ? temposResolucao.reduce((s, t) => s + t.dias, 0) / temposResolucao.length : null
+  ), [temposResolucao])
+
+  const mediaResolucaoPorPrioridade = useMemo(() => PRIORIDADES.map((p) => {
+    const doGrupo = temposResolucao.filter((t) => t.prioridade === p)
+    return {
+      prioridade: p, rotulo: ROTULO_PRIORIDADE[p], cor: CORES_PRIORIDADE[p],
+      media: doGrupo.length ? doGrupo.reduce((s, t) => s + t.dias, 0) / doGrupo.length : null,
+      quantidade: doGrupo.length,
+    }
+  }), [temposResolucao])
+
   const evolucao = useMemo(() => {
     if (apontamentos.length === 0) return null
     const dias = [...apontamentos].map((a) => a.created_at.slice(0, 10)).sort()
@@ -997,6 +1030,7 @@ function DashboardProjetos({ dados }) {
           { valor: 'local_prio', rotulo: 'Locais e Prioridade' },
           { valor: 'local_disc', rotulo: 'Locais e Disciplinas' },
           { valor: 'evolucao', rotulo: 'Curva de Evolução' },
+          { valor: 'tempo', rotulo: 'Tempo de Resposta' },
         ]}
       />
 
@@ -1039,6 +1073,50 @@ function DashboardProjetos({ dados }) {
           {!evolucao ? <div className="t-caption">Sem apontamentos ainda.</div> : <CurvaEvolucao dados={evolucao} />}
           <Legenda itens={[{ rotulo: 'Criados (acumulado)', cor: 'var(--graphite)' }, { rotulo: 'Resolvidos (acumulado)', cor: 'var(--success)' }]} />
         </div>
+      )}
+
+      {visao === 'tempo' && (
+        temposResolucao.length === 0 ? (
+          <div className="card-flat">
+            <div className="t-caption">Nenhum apontamento resolvido ainda — o relatório aparece assim que o primeiro fechar.</div>
+          </div>
+        ) : (
+          <div className="stack-2">
+            <div className="card-flat stack-1">
+              <div className="t-micro">Médias de tempo até resolver</div>
+              <div className="row-between" style={{ padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                <span>Geral</span>
+                <span className="t-strong">{formatarDias(mediaGeralResolucao)} <span className="t-caption">({temposResolucao.length})</span></span>
+              </div>
+              {mediaResolucaoPorPrioridade.filter((m) => m.quantidade > 0).map((m) => (
+                <div key={m.prioridade} className="row-between" style={{ padding: '4px 0' }}>
+                  <span className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: m.cor, display: 'inline-block' }} />
+                    {m.rotulo}
+                  </span>
+                  <span className="t-strong">{formatarDias(m.media)} <span className="t-caption">({m.quantidade})</span></span>
+                </div>
+              ))}
+            </div>
+
+            <div className="stack-1">
+              {temposResolucao.map((t) => (
+                <div key={t.id} className="card-flat" style={{ padding: 10 }}>
+                  <div className="row-between" style={{ gap: 10 }}>
+                    <div className="grow" style={{ minWidth: 0 }}>
+                      <div className="t-caption">Nº {t.numero}</div>
+                      <div className="t-strong" style={{ fontSize: 14, marginTop: 2 }}>{t.titulo}</div>
+                    </div>
+                    <Chip>{formatarDias(t.dias)}</Chip>
+                  </div>
+                  <div className="t-caption" style={{ marginTop: 6 }}>
+                    {formatarData(t.criado_em.slice(0, 10))} → {formatarData(t.resolvido_em.slice(0, 10))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
       )}
     </div>
   )
