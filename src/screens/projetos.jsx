@@ -925,10 +925,8 @@ function QuadroApontamentos({ itens, dados, onAbrir, onMudarStatus }) {
   )
 }
 
-/* Dias corridos entre a criação (entrada em "A Responder") e a
-   primeira vez que o apontamento chegou a "Resolvido" — se reaberto
-   e resolvido de novo depois, conta só a primeira resolução, igual
-   à curva de evolução logo abaixo. */
+/* Formata uma duração em dias (fracionária) pro relatório de tempo
+   de resposta/fechamento — vira horas se for menos de 1 dia. */
 function formatarDias(dias) {
   if (dias == null) return '—'
   if (dias < 1) return `${Math.max(1, Math.round(dias * 24))}h`
@@ -979,28 +977,46 @@ function DashboardProjetos({ dados }) {
     }))
     .filter((r) => r.segmentos.some((s) => s.valor > 0)), [dados.locais, disciplinasAtivas, apontamentos])
 
-  const temposResolucao = useMemo(() => apontamentos
+  /* Tempo de resposta = da criação (A Responder) até a primeira vez
+     que alguém pegou pra trabalhar (entrou em Em Andamento). Tempo de
+     fechamento = da criação até a primeira vez que foi pra Resolvido
+     — o ciclo inteiro. Só entra na lista quem já fechou pelo menos
+     uma vez; resposta fica "—" se o apontamento pulou direto pra
+     Resolvido sem passar por Em Andamento. */
+  const temposPorApontamento = useMemo(() => apontamentos
     .map((a) => {
+      const emAndamentoEm = a.historico.find((h) => h.para_status === 'em_andamento')?.created_at
       const resolvidoEm = a.historico.find((h) => h.para_status === 'resolvido')?.created_at
       if (!resolvidoEm) return null
-      const dias = (new Date(resolvidoEm) - new Date(a.created_at)) / 86400000
-      return { id: a.id, numero: a.numero, titulo: a.titulo, prioridade: a.prioridade, criado_em: a.created_at, resolvido_em: resolvidoEm, dias }
+      const diasResposta = emAndamentoEm ? (new Date(emAndamentoEm) - new Date(a.created_at)) / 86400000 : null
+      const diasFechamento = (new Date(resolvidoEm) - new Date(a.created_at)) / 86400000
+      return {
+        id: a.id, numero: a.numero, titulo: a.titulo, prioridade: a.prioridade,
+        criado_em: a.created_at, em_andamento_em: emAndamentoEm, resolvido_em: resolvidoEm,
+        diasResposta, diasFechamento,
+      }
     })
     .filter(Boolean)
     .sort((x, y) => (x.resolvido_em < y.resolvido_em ? 1 : -1)), [apontamentos])
 
-  const mediaGeralResolucao = useMemo(() => (
-    temposResolucao.length ? temposResolucao.reduce((s, t) => s + t.dias, 0) / temposResolucao.length : null
-  ), [temposResolucao])
+  const media = (itens, campo) => {
+    const doGrupo = itens.filter((t) => t[campo] != null)
+    return doGrupo.length ? doGrupo.reduce((s, t) => s + t[campo], 0) / doGrupo.length : null
+  }
 
-  const mediaResolucaoPorPrioridade = useMemo(() => PRIORIDADES.map((p) => {
-    const doGrupo = temposResolucao.filter((t) => t.prioridade === p)
+  const mediasGerais = useMemo(() => ({
+    resposta: media(temposPorApontamento, 'diasResposta'),
+    fechamento: media(temposPorApontamento, 'diasFechamento'),
+  }), [temposPorApontamento])
+
+  const mediasPorPrioridade = useMemo(() => PRIORIDADES.map((p) => {
+    const doGrupo = temposPorApontamento.filter((t) => t.prioridade === p)
     return {
-      prioridade: p, rotulo: ROTULO_PRIORIDADE[p], cor: CORES_PRIORIDADE[p],
-      media: doGrupo.length ? doGrupo.reduce((s, t) => s + t.dias, 0) / doGrupo.length : null,
+      prioridade: p, rotulo: ROTULO_PRIORIDADE[p],
+      resposta: media(doGrupo, 'diasResposta'), fechamento: media(doGrupo, 'diasFechamento'),
       quantidade: doGrupo.length,
     }
-  }), [temposResolucao])
+  }).filter((m) => m.quantidade > 0), [temposPorApontamento])
 
   const evolucao = useMemo(() => {
     if (apontamentos.length === 0) return null
@@ -1076,48 +1092,85 @@ function DashboardProjetos({ dados }) {
       )}
 
       {visao === 'tempo' && (
-        temposResolucao.length === 0 ? (
+        temposPorApontamento.length === 0 ? (
           <div className="card-flat">
             <div className="t-caption">Nenhum apontamento resolvido ainda — o relatório aparece assim que o primeiro fechar.</div>
           </div>
         ) : (
           <div className="stack-2">
-            <div className="card-flat stack-1">
-              <div className="t-micro">Médias de tempo até resolver</div>
-              <div className="row-between" style={{ padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
-                <span>Geral</span>
-                <span className="t-strong">{formatarDias(mediaGeralResolucao)} <span className="t-caption">({temposResolucao.length})</span></span>
-              </div>
-              {mediaResolucaoPorPrioridade.filter((m) => m.quantidade > 0).map((m) => (
-                <div key={m.prioridade} className="row-between" style={{ padding: '4px 0' }}>
-                  <span className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: m.cor, display: 'inline-block' }} />
-                    {m.rotulo}
-                  </span>
-                  <span className="t-strong">{formatarDias(m.media)} <span className="t-caption">({m.quantidade})</span></span>
-                </div>
-              ))}
+            <div className="card-flat stack-2">
+              <div className="t-micro">Médias — geral</div>
+              <GraficoTempos
+                linhas={[
+                  { rotulo: 'Geral', resposta: mediasGerais.resposta, fechamento: mediasGerais.fechamento },
+                  ...mediasPorPrioridade.map((m) => ({ rotulo: `${m.rotulo} (${m.quantidade})`, resposta: m.resposta, fechamento: m.fechamento })),
+                ]}
+              />
+              <Legenda itens={[
+                { rotulo: 'Tempo de resposta (até Em Andamento)', cor: 'var(--info)' },
+                { rotulo: 'Tempo de fechamento (até Resolvido)', cor: 'var(--success)' },
+              ]}
+              />
             </div>
 
-            <div className="stack-1">
-              {temposResolucao.map((t) => (
-                <div key={t.id} className="card-flat" style={{ padding: 10 }}>
-                  <div className="row-between" style={{ gap: 10 }}>
-                    <div className="grow" style={{ minWidth: 0 }}>
-                      <div className="t-caption">Nº {t.numero}</div>
-                      <div className="t-strong" style={{ fontSize: 14, marginTop: 2 }}>{t.titulo}</div>
-                    </div>
-                    <Chip>{formatarDias(t.dias)}</Chip>
-                  </div>
-                  <div className="t-caption" style={{ marginTop: 6 }}>
-                    {formatarData(t.criado_em.slice(0, 10))} → {formatarData(t.resolvido_em.slice(0, 10))}
-                  </div>
-                </div>
-              ))}
+            <div className="card-flat scroll-x" style={{ padding: 0 }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Nº</th><th>Título</th><th>Criado</th><th>Em Andamento</th><th>Resolvido</th>
+                    <th>Tempo resposta</th><th>Tempo fechamento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {temposPorApontamento.map((t) => (
+                    <tr key={t.id}>
+                      <td className="t-caption">{t.numero}</td>
+                      <td className="t-strong">{t.titulo}</td>
+                      <td style={{ color: 'var(--text-2)' }}>{formatarData(t.criado_em.slice(0, 10))}</td>
+                      <td style={{ color: 'var(--text-2)' }}>{t.em_andamento_em ? formatarData(t.em_andamento_em.slice(0, 10)) : '—'}</td>
+                      <td style={{ color: 'var(--text-2)' }}>{formatarData(t.resolvido_em.slice(0, 10))}</td>
+                      <td className="t-num t-strong">{formatarDias(t.diasResposta)}</td>
+                      <td className="t-num t-strong">{formatarDias(t.diasFechamento)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )
       )}
+    </div>
+  )
+}
+
+/* Barrinhas horizontais lado a lado (resposta × fechamento) por
+   categoria — mesma escala pra todo mundo, pra dar pra comparar
+   uma linha com a outra de olho. */
+function GraficoTempos({ linhas }) {
+  const max = Math.max(1, ...linhas.flatMap((l) => [l.resposta || 0, l.fechamento || 0]))
+  return (
+    <div className="stack-2">
+      {linhas.map((l) => (
+        <div key={l.rotulo}>
+          <div className="t-caption" style={{ marginBottom: 4 }}>{l.rotulo}</div>
+          <div className="stack-1" style={{ gap: 4 }}>
+            <BarraTempo valor={l.resposta} max={max} cor="var(--info)" />
+            <BarraTempo valor={l.fechamento} max={max} cor="var(--success)" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BarraTempo({ valor, max, cor }) {
+  const pct = valor == null ? 0 : Math.min(100, (valor / max) * 100)
+  return (
+    <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+      <div style={{ flex: 1, height: 10, borderRadius: 5, background: 'var(--surface-2)', overflow: 'hidden' }}>
+        {valor != null && <div style={{ width: `${pct}%`, height: '100%', background: cor }} />}
+      </div>
+      <span className="t-caption" style={{ flex: 'none', minWidth: 46, textAlign: 'right' }}>{formatarDias(valor)}</span>
     </div>
   )
 }
