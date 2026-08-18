@@ -18,8 +18,17 @@
 
 import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { Icon, Chip, PageHeader, Confirmar, Vazio, ChipToggle } from '../components'
+import { Icon, Chip, PageHeader, Confirmar, Vazio, ChipToggle, Sheet } from '../components'
 import { MODULOS_RESTRINGIVEIS } from '../lib/dominio'
+
+/* Sem 0/O, 1/l/I nem outro caractere fácil de confundir ditando por
+   telefone — essa senha vai ser lida em voz alta pro WhatsApp. */
+function gerarSenhaTemporaria() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  let s = ''
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)]
+  return s
+}
 
 const PAPEIS = [
   { valor: 'campo', rotulo: 'Campo', desc: 'Lança diário, presença e pendências. Celular no canteiro.' },
@@ -33,6 +42,7 @@ export default function Usuarios({ voltar, perfil }) {
   const dados = useDados()
   const [confirmar, setConfirmar] = useState(null)
   const [ocupado, setOcupado] = useState(false)
+  const [senhaNova, setSenhaNova] = useState(null) // { nome, senha } — mostrado uma vez só
 
   const aguardando = dados.perfis.filter((u) => !u.role || !u.organization_id)
   const ativos = dados.perfis.filter((u) => u.role && u.organization_id)
@@ -84,6 +94,22 @@ export default function Usuarios({ voltar, perfil }) {
       await dados.definirObrasPermitidas(u.id, null)
     }
     setOcupado(false)
+  }
+
+  const redefinirSenha = (u) => {
+    setConfirmar({
+      titulo: 'Redefinir a senha?',
+      texto: `Gera uma senha temporária nova pra ${u.nome}. A senha antiga dela para de funcionar na hora — passe a nova pra ela assim que der.`,
+      rotuloOk: 'Redefinir',
+      onOk: async () => {
+        setConfirmar(null)
+        setOcupado(true)
+        const senha = gerarSenhaTemporaria()
+        const ok = await dados.redefinirSenhaUsuario(u.id, senha)
+        setOcupado(false)
+        if (ok) setSenhaNova({ nome: u.nome, senha })
+      },
+    })
   }
 
   const alternarObra = async (u, obraId) => {
@@ -167,7 +193,17 @@ export default function Usuarios({ voltar, perfil }) {
                         {u.email}{u.cargo ? ` · ${u.cargo}` : ''}
                       </div>
                     </div>
-                    <Chip tom={u.role === 'admin' ? 'info' : ''}>{ROTULO_PAPEL[u.role]}</Chip>
+                    <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+                      <Chip tom={u.role === 'admin' ? 'info' : ''}>{ROTULO_PAPEL[u.role]}</Chip>
+                      {u.id !== perfil.id && (
+                        <button
+                          className="btn btn-ghost btn-sm" onClick={() => redefinirSenha(u)} disabled={ocupado}
+                          aria-label={`Redefinir senha de ${u.nome}`} title="Redefinir senha"
+                        >
+                          <Icon name="editar" size={15} /> Senha
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="row-wrap">
                     {PAPEIS.map((p) => (
@@ -334,6 +370,39 @@ export default function Usuarios({ voltar, perfil }) {
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
+
+      <Sheet
+        aberto={Boolean(senhaNova)}
+        titulo="Senha redefinida"
+        onFechar={() => setSenhaNova(null)}
+        rodape={
+          <button className="btn btn-primary btn-block" onClick={() => setSenhaNova(null)}>Fechar</button>
+        }
+      >
+        {senhaNova && (
+          <div className="stack-2">
+            <div className="t-caption">
+              Passe essa senha pra <strong>{senhaNova.nome}</strong> agora (WhatsApp, por exemplo) —
+              ela só aparece aqui uma vez.
+            </div>
+            <div
+              className="card-flat" style={{ textAlign: 'center', padding: 18 }}
+            >
+              <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '0.05em', fontFamily: 'monospace' }}>
+                {senhaNova.senha}
+              </div>
+            </div>
+            <button
+              className="btn btn-secondary btn-block"
+              onClick={async () => {
+                try { await navigator.clipboard.writeText(senhaNova.senha) } catch { /* clipboard indisponível */ }
+              }}
+            >
+              Copiar senha
+            </button>
+          </div>
+        )}
+      </Sheet>
     </>
   )
 }

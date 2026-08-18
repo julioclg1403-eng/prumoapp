@@ -2558,6 +2558,22 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Só admin chama (a Edge Function confere de novo, não confia só
+     na tela escondendo o botão — ver comentário lá). Não passa pela
+     tabela profiles direto: senha é auth.users, só a service role
+     mexe nisso, e essa chave nunca pode chegar no navegador. */
+  const redefinirSenhaUsuario = useCallback(
+    async (usuarioId, novaSenha) => {
+      const r = await supabase.functions.invoke('redefinir-senha', { body: { userId: usuarioId, novaSenha } })
+      if (r.error || r.data?.erro) {
+        avisarErro(r.data?.erro || 'Não consegui redefinir a senha. Tenta de novo.')
+        return false
+      }
+      return true
+    },
+    [avisarErro],
+  )
+
   const valor = useMemo(
     () => tudo && daObra && ({
       fonte: 'supabase',
@@ -2592,6 +2608,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
+      redefinirSenhaUsuario,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
       vincularCronogramaGlobalAutomaticamente, vincularEtapaGlobal, sincronizarMensalComSemanal,
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
@@ -2620,6 +2637,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
+      redefinirSenhaUsuario,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
       registrarEntrega, relerRequisicao, salvarMaterial,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
