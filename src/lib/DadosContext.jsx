@@ -119,6 +119,28 @@ const SELECT_APONTAMENTO = `
   historico:project_note_history ( id, autor_id, tipo, descricao, de_status, para_status, created_at )
 `
 
+/* O Supabase corta a resposta em ~1000 linhas por padrão, em
+   silêncio — sem erro, só devolve menos linha do que existe. Pra
+   tabela que passa disso (hoje, só o catálogo de material do
+   Almoxarifado: 1500+ registros), isso significa material sumindo
+   do app sem explicação — não aparece pra escolher, e lançamento
+   antigo que aponta pra ele mostra "removido". `criarQuery` tem que
+   devolver uma query NOVA a cada chamada (não dá pra reusar depois
+   de um `.range()`), por isso recebe uma função, não a query pronta. */
+async function buscarPaginado(criarQuery, tamanhoPagina = 1000) {
+  let tudo = []
+  let pagina = 0
+  for (;;) {
+    const r = await criarQuery().range(pagina * tamanhoPagina, pagina * tamanhoPagina + tamanhoPagina - 1)
+    if (r.error) return r
+    const lote = r.data || []
+    tudo = tudo.concat(lote)
+    if (lote.length < tamanhoPagina) break
+    pagina++
+  }
+  return { data: tudo, error: null }
+}
+
 function normalizarApontamento(n) {
   return {
     ...n,
@@ -205,7 +227,7 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('project_discipline_statuses').select('*').order('ordem'),
       supabase.from('project_notes').select(SELECT_APONTAMENTO).order('created_at', { ascending: false }),
       supabase.from('schedule_item_services').select('*'),
-      supabase.from('stock_materials').select('*').order('nome'),
+      buscarPaginado(() => supabase.from('stock_materials').select('*').order('nome')),
       supabase.from('stock_entries').select('*').order('data', { ascending: false }),
       supabase.from('stock_exits').select('*').order('data', { ascending: false }),
       supabase.from('meal_records').select('*').order('data', { ascending: false }),
