@@ -101,6 +101,18 @@ const TIPOS = {
     campos: [{ nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Aguardando resposta' }],
     sub: () => 'Andamento de cada disciplina dentro do apontamento',
   },
+  tiposTreinamento: {
+    rotulo: 'Tipos de treinamento',
+    singular: 'tipo de treinamento',
+    campos: [
+      { nome: 'sigla', rotulo: 'Sigla', placeholder: 'NR-35' },
+      { nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Trabalho em Altura' },
+      { nome: 'validade_meses', rotulo: 'Validade (meses)', tipoCampo: 'numero', placeholder: 'Vazio = não vence' },
+    ],
+    sub: (item) => (item.validade_meses
+      ? `${item.sigla ? `${item.sigla} · ` : ''}validade de ${item.validade_meses} meses`
+      : (item.sigla || 'Sem vencimento cadastrado')),
+  },
 }
 
 export default function Cadastros({ voltar, perfil, params = {} }) {
@@ -174,7 +186,11 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
     const faltando = def.campos.filter((c) => c.obrigatorio && !String(editando?.[c.nome] || '').trim())
     if (faltando.length) return
     setSalvando(true)
-    const ok = await dados.salvarCadastro(tipo, { ...editando })
+    const payload = { ...editando }
+    def.campos.filter((c) => c.tipoCampo === 'numero').forEach((c) => {
+      payload[c.nome] = payload[c.nome] === '' || payload[c.nome] == null ? null : Number(payload[c.nome])
+    })
+    const ok = await dados.salvarCadastro(tipo, payload)
     setSalvando(false)
     if (ok) setEditando(null)
   }
@@ -364,6 +380,12 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
                     <option key={r.id} value={r.id}>{r.nome}</option>
                   ))}
                 </select>
+              ) : c.tipoCampo === 'numero' ? (
+                <input
+                  className="ipt" type="number" inputMode="numeric" min="0" step="1" autoFocus={i === 0}
+                  value={editando?.[c.nome] ?? ''} placeholder={c.placeholder}
+                  onChange={(e) => setEditando((x) => ({ ...x, [c.nome]: e.target.value }))}
+                />
               ) : (
                 <input
                   className="ipt" autoFocus={i === 0} value={editando?.[c.nome] || ''}

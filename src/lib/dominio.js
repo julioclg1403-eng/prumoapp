@@ -45,6 +45,15 @@ export function somarDias(iso, n) {
   return paraISO(d)
 }
 
+/* Diferente de somarMeses (que trabalha em granularidade "AAAA-MM",
+   pro calendário de mês) — esta soma meses numa data completa com
+   dia, preservando o dia quando dá. */
+export function somarMesesData(iso, n) {
+  const d = deISO(iso)
+  d.setMonth(d.getMonth() + n)
+  return paraISO(d)
+}
+
 export function diffDias(isoA, isoB) {
   const ms = deISO(isoA).getTime() - deISO(isoB).getTime()
   return Math.round(ms / 86400000)
@@ -167,6 +176,32 @@ export const TOM_GRAVIDADE = { leve: '', moderada: 'info', grave: 'danger' }
 export const TIPOS_ADVERTENCIA = ['verbal', 'escrita']
 
 export const ROTULO_ADVERTENCIA = { verbal: 'Verbal', escrita: 'Escrita' }
+
+/* ── Treinamentos NR por colaborador ────────────────────────
+   Vencimento é calculado na hora de salvar (data de realização +
+   validade em meses do tipo) e gravado, não recalculado toda hora —
+   assim o histórico mostra o vencimento válido na época, mesmo se a
+   validade padrão do tipo mudar depois. Sem validade cadastrada no
+   tipo (ex.: NR-18, integração), o treinamento nunca vence. */
+export const DIAS_ALERTA_VENCIMENTO_TREINAMENTO = 30
+
+export function calcularVencimentoTreinamento(dataRealizacao, validadeMeses) {
+  if (!dataRealizacao || !validadeMeses) return null
+  return somarMesesData(dataRealizacao, Number(validadeMeses))
+}
+
+export function statusTreinamento(dataVencimento) {
+  if (!dataVencimento) return 'valido'
+  const hoje = hojeISO()
+  if (dataVencimento < hoje) return 'vencido'
+  if (dataVencimento <= somarDias(hoje, DIAS_ALERTA_VENCIMENTO_TREINAMENTO)) return 'a_vencer'
+  return 'valido'
+}
+
+export const ROTULO_STATUS_TREINAMENTO = {
+  valido: 'Válido', a_vencer: 'A vencer', vencido: 'Vencido', pendente: 'Pendente',
+}
+export const TOM_STATUS_TREINAMENTO = { valido: 'success', a_vencer: 'info', vencido: 'danger', pendente: '' }
 
 export const STATUS_APONTAMENTO = ['ativo', 'em_andamento', 'resolvido', 'reprovado']
 

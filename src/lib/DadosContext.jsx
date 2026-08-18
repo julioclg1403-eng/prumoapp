@@ -22,7 +22,7 @@ import { supabase } from './supabase'
 import {
   hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar,
   cronogramaGlobalCorrespondeEtapa, agruparPlanejamento, etapaCorrespondenteAoGrupo,
-  descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO,
+  descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO, calcularVencimentoTreinamento,
 } from './dominio'
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
@@ -47,6 +47,7 @@ const TABELA = {
   categoriasProjeto: 'project_categories',
   etapasProjeto: 'project_stages',
   statusDisciplinaProjeto: 'project_discipline_statuses',
+  tiposTreinamento: 'training_types',
 }
 
 /* ATENÇÃO: isto é a lista de campos que o Supabase entende, não
@@ -177,6 +178,7 @@ export function DadosProvider({ perfil, children }) {
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
+      tiposTreinamento, treinamentosColaboradores,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       supabase.from('worksites').select('*').order('nome'),
@@ -213,6 +215,8 @@ export function DadosProvider({ perfil, children }) {
       supabase.from('epi_materials').select('*').order('nome'),
       supabase.from('epi_entries').select('*').order('data', { ascending: false }),
       supabase.from('epi_exits').select('*').order('data', { ascending: false }),
+      supabase.from('training_types').select('*').order('nome'),
+      supabase.from('worker_trainings').select('*').order('data_realizacao', { ascending: false }),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -221,7 +225,8 @@ export function DadosProvider({ perfil, children }) {
       disciplinasProjeto, categoriasProjeto, etapasProjeto, statusDisciplinaProjeto, apontamentos,
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
-      materiaisEpi, entradasEpi, saidasEpi].find((r) => r.error)
+      materiaisEpi, entradasEpi, saidasEpi,
+      tiposTreinamento, treinamentosColaboradores].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -282,6 +287,8 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi: materiaisEpi.data || [],
       entradasEpi: entradasEpi.data || [],
       saidasEpi: saidasEpi.data || [],
+      tiposTreinamento: tiposTreinamento.data || [],
+      treinamentosColaboradores: treinamentosColaboradores.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -374,6 +381,8 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi: filtrar(tudo.materiaisEpi),
       entradasEpi: filtrar(tudo.entradasEpi),
       saidasEpi: filtrar(tudo.saidasEpi),
+      tiposTreinamento: filtrar(tudo.tiposTreinamento),
+      treinamentosColaboradores: filtrar(tudo.treinamentosColaboradores),
     }
   }, [tudo, obraId])
 
@@ -1577,6 +1586,7 @@ export function DadosProvider({ perfil, children }) {
         data: item.data,
         quantidade: Number(item.quantidade),
         destino: item.destino || null,
+        worker_id: item.worker_id || null,
         autor_id: perfil.id,
       }
       if (item.id) linha.id = item.id
@@ -1605,6 +1615,54 @@ export function DadosProvider({ perfil, children }) {
         return false
       }
       setTudo((t) => t && ({ ...t, saidasEpi: t.saidasEpi.filter((s) => s.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
+  // ── Treinamentos NR por colaborador (Segurança) ────────────
+  /* O vencimento é calculado aqui (não no banco) a partir da
+     validade do tipo escolhido, e gravado junto — ver comentário
+     em dominio.js sobre por que não é recalculado toda leitura. */
+  const salvarTreinamentoColaborador = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const tipo = tudo?.tiposTreinamento?.find((t) => t.id === item.training_type_id)
+      const linha = {
+        organization_id, worksite_id,
+        worker_id: item.worker_id,
+        training_type_id: item.training_type_id,
+        data_realizacao: item.data_realizacao,
+        data_vencimento: calcularVencimentoTreinamento(item.data_realizacao, tipo?.validade_meses),
+        observacao: item.observacao || null,
+        autor_id: perfil.id,
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('worker_trainings').upsert(linha).select('*').single(),
+        'salvar o treinamento',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        treinamentosColaboradores: t.treinamentosColaboradores.some((x) => x.id === salvo.id)
+          ? t.treinamentosColaboradores.map((x) => (x.id === salvo.id ? salvo : x))
+          : [salvo, ...t.treinamentosColaboradores],
+      }))
+      return salvo
+    },
+    [tudo, perfil.id, escopo, checar],
+  )
+
+  const excluirTreinamentoColaborador = useCallback(
+    async (id) => {
+      const r = await supabase.from('worker_trainings').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir o treinamento'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, treinamentosColaboradores: t.treinamentosColaboradores.filter((x) => x.id !== id) }))
       return true
     },
     [checar, avisarErro],
@@ -2505,6 +2563,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
+      salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
@@ -2532,6 +2591,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
+      salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,

@@ -14,6 +14,7 @@ import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
+  RelatorioFolha, SecaoRelatorio,
 } from '../components'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
@@ -44,6 +45,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [salvando, setSalvando] = useState(false)
   const [etiquetando, setEtiquetando] = useState(false)
   const [gerandoEtiquetas, setGerandoEtiquetas] = useState(false)
+  const [colaboradorEpiAberto, setColaboradorEpiAberto] = useState(null)
+  const [imprimindoFichaEpi, setImprimindoFichaEpi] = useState(false)
 
   const materiais = useMemo(
     () => (dados.materiaisEpi || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -86,13 +89,36 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const nomeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.nome || 'EPI removido'
   const unidadeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.unidade || ''
 
+  /* Ficha de entrega por colaborador: só quem já recebeu algo com o
+     vínculo estruturado (worker_id) aparece aqui — saída antiga, com
+     só o texto livre de destino, não dá pra amarrar com segurança a
+     um colaborador específico. */
+  const colaboradoresComEpi = useMemo(() => {
+    const porColaborador = new Map()
+    for (const s of saidas) {
+      if (!s.worker_id) continue
+      if (!porColaborador.has(s.worker_id)) porColaborador.set(s.worker_id, [])
+      porColaborador.get(s.worker_id).push(s)
+    }
+    return dados.colaboradores
+      .filter((c) => porColaborador.has(c.id))
+      .map((c) => ({ colaborador: c, entregas: porColaborador.get(c.id) }))
+      .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'))
+  }, [saidas, dados.colaboradores])
+
+  useEffect(() => {
+    if (!imprimindoFichaEpi) return
+    const id = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(id)
+  }, [imprimindoFichaEpi])
+
   const abrirNovaEntrada = (materialId = '') => setNovaEntrada({
     data: hoje, material_id: materialId, quantidade: '',
     fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
   })
 
   const abrirNovaSaida = (materialId = '') => setNovaSaida({
-    data: hoje, material_id: materialId, quantidade: '', destino: '',
+    data: hoje, material_id: materialId, quantidade: '', destino: '', worker_id: '',
   })
 
   /* Chegada por QR Code: a etiqueta da prateleira já traz a pessoa
@@ -234,20 +260,46 @@ export default function SegurancaEpi({ perfil, params = {} }) {
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
           { valor: 'historico', rotulo: 'Histórico Estoque', contador: semEstoque.length },
+          { valor: 'porColaborador', rotulo: 'Por Colaborador', contador: colaboradoresComEpi.length },
         ]}
       />
 
-      <div className="row-between">
-        <div className="t-caption">
-          {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'EPI', 'EPIs')} nesta lista`}
-          {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
-          {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
-          {aba === 'historico' && `${plural(semEstoque.length, 'EPI sem estoque', 'EPIs sem estoque')}`}
+      {aba !== 'porColaborador' && (
+        <div className="row-between">
+          <div className="t-caption">
+            {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'EPI', 'EPIs')} nesta lista`}
+            {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
+            {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
+            {aba === 'historico' && `${plural(semEstoque.length, 'EPI sem estoque', 'EPIs sem estoque')}`}
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
+            <Icon name="baixar" size={15} /> Baixar planilha
+          </button>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
-          <Icon name="baixar" size={15} /> Baixar planilha
-        </button>
-      </div>
+      )}
+
+      {aba === 'porColaborador' && (
+        colaboradoresComEpi.length === 0 ? (
+          <div className="card-flat">
+            <Vazio
+              titulo="Nenhuma entrega vinculada a colaborador ainda"
+              texto="Ao registrar uma saída, escolha o colaborador no campo próprio — daí a entrega entra na ficha dele aqui."
+            />
+          </div>
+        ) : (
+          <div className="stack-1">
+            {colaboradoresComEpi.map(({ colaborador, entregas }) => (
+              <ItemLista
+                key={colaborador.id}
+                titulo={colaborador.nome}
+                sub={`${plural(entregas.length, 'entrega', 'entregas')} · última em ${formatarDataCurta([...entregas].sort((a, b) => (a.data < b.data ? 1 : -1))[0].data)}`}
+                onClick={() => setColaboradorEpiAberto(colaborador)}
+                direita={<Icon name="avancar" size={16} />}
+              />
+            ))}
+          </div>
+        )
+      )}
 
       {(aba === 'estoqueAtual' || aba === 'historico') && (() => {
         const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
@@ -488,7 +540,22 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 />
               </Campo>
             </div>
-            <Campo label="Destino" dica="Pra onde foi — colaborador, equipe, obra.">
+            <Campo label="Colaborador" dica="Escolhendo um colaborador cadastrado, a entrega entra na ficha de EPI dele.">
+              <select
+                className="sel" value={novaSaida.worker_id}
+                onChange={(e) => {
+                  const id = e.target.value
+                  const nome = dados.colaboradores.find((c) => c.id === id)?.nome || ''
+                  setNovaSaida((p) => ({ ...p, worker_id: id, destino: id ? nome : p.destino }))
+                }}
+              >
+                <option value="">Não é um colaborador específico</option>
+                {dados.colaboradores.filter((c) => c.ativo !== false).map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+            </Campo>
+            <Campo label="Destino" dica="Pra onde foi — equipe, obra, ou detalhe além do colaborador acima.">
               <input
                 className="ipt" value={novaSaida.destino}
                 onChange={(e) => setNovaSaida((p) => ({ ...p, destino: e.target.value }))}
@@ -602,6 +669,73 @@ export default function SegurancaEpi({ perfil, params = {} }) {
           </div>
         )}
       </Sheet>
+
+      {/* ── Ficha de EPI por colaborador ── */}
+      <Sheet
+        aberto={Boolean(colaboradorEpiAberto)}
+        titulo={colaboradorEpiAberto?.nome}
+        onFechar={() => setColaboradorEpiAberto(null)}
+        rodape={
+          <button className="btn btn-primary btn-block" onClick={() => setImprimindoFichaEpi(true)}>
+            <Icon name="relatorio" size={16} /> Imprimir ficha
+          </button>
+        }
+      >
+        {colaboradorEpiAberto && (
+          <div className="stack-1">
+            {(colaboradoresComEpi.find((c) => c.colaborador.id === colaboradorEpiAberto.id)?.entregas || [])
+              .map((s) => (
+                <div key={s.id} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
+                  <div>
+                    <div className="t-strong" style={{ fontSize: 14 }}>{nomeMaterial(s.material_id)}</div>
+                    <div className="t-caption" style={{ marginTop: 2 }}>{formatarDataCurta(s.data)}</div>
+                  </div>
+                  <span className="t-strong" style={{ fontSize: 14 }}>{s.quantidade} {unidadeMaterial(s.material_id)}</span>
+                </div>
+              ))}
+          </div>
+        )}
+      </Sheet>
+
+      {imprimindoFichaEpi && colaboradorEpiAberto && (
+        <RelatorioFolha
+          titulo="Ficha de entrega de EPI"
+          sub={colaboradorEpiAberto.nome}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio titulo="Equipamentos recebidos">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #18181B', padding: '4px 6px' }}>Data</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #18181B', padding: '4px 6px' }}>EPI</th>
+                  <th style={{ textAlign: 'right', borderBottom: '1px solid #18181B', padding: '4px 6px' }}>Quantidade</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(colaboradoresComEpi.find((c) => c.colaborador.id === colaboradorEpiAberto.id)?.entregas || [])
+                  .map((s) => (
+                    <tr key={s.id}>
+                      <td style={{ padding: '4px 6px', borderBottom: '1px solid #E4E4E7' }}>{formatarData(s.data)}</td>
+                      <td style={{ padding: '4px 6px', borderBottom: '1px solid #E4E4E7' }}>{nomeMaterial(s.material_id)}</td>
+                      <td style={{ padding: '4px 6px', borderBottom: '1px solid #E4E4E7', textAlign: 'right' }}>
+                        {s.quantidade} {unidadeMaterial(s.material_id)}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </SecaoRelatorio>
+          <div style={{ marginTop: 36, fontSize: 12, lineHeight: 1.6 }}>
+            Declaro ter recebido os equipamentos de proteção individual acima, em perfeito estado, e
+            me comprometo a usá-los e conservá-los adequadamente (NR-06).
+            <div style={{ display: 'flex', gap: 40, marginTop: 34 }}>
+              <div style={{ flex: 1, borderTop: '1px solid #18181B', paddingTop: 4 }}>Assinatura do colaborador</div>
+              <div style={{ width: 140, borderTop: '1px solid #18181B', paddingTop: 4 }}>Data</div>
+            </div>
+          </div>
+        </RelatorioFolha>
+      )}
 
       <Confirmar
         aberto={Boolean(confirmar)}

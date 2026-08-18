@@ -14,10 +14,11 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData,
+  hojeISO, formatarData, plural,
   TIPOS_OCORRENCIA_SEGURANCA, ROTULO_OCORRENCIA_SEGURANCA,
   GRAVIDADES, ROTULO_GRAVIDADE, TOM_GRAVIDADE,
   TIPOS_ADVERTENCIA, ROTULO_ADVERTENCIA,
+  ROTULO_STATUS_TREINAMENTO, TOM_STATUS_TREINAMENTO, statusTreinamento, calcularVencimentoTreinamento,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio,
@@ -59,7 +60,7 @@ export default function Seguranca({ voltar, perfil, params = {} }) {
       </div>
 
       <div className="page">
-        <PageHeader titulo="Segurança do trabalho" sub="Ocorrências, advertências e estoque de EPI da obra" />
+        <PageHeader titulo="Segurança do trabalho" sub="Ocorrências, advertências, treinamentos e estoque de EPI da obra" />
 
         <div className="stack-2">
           <Segmentos
@@ -67,11 +68,13 @@ export default function Seguranca({ voltar, perfil, params = {} }) {
             opcoes={[
               { valor: 'ocorrencias', rotulo: 'Ocorrências', contador: dados.ocorrenciasSeguranca.length },
               { valor: 'advertencias', rotulo: 'Advertências', contador: dados.advertencias.length },
+              { valor: 'treinamentos', rotulo: 'Treinamentos NR', contador: dados.colaboradores.filter((c) => c.ativo !== false).length },
               { valor: 'epi', rotulo: 'Estoque EPI', contador: (dados.materiaisEpi || []).filter((m) => m.ativo !== false).length },
             ]}
           />
           {aba === 'ocorrencias' && <Ocorrencias dados={dados} perfil={perfil} />}
           {aba === 'advertencias' && <Advertencias dados={dados} perfil={perfil} />}
+          {aba === 'treinamentos' && <Treinamentos dados={dados} perfil={perfil} />}
           {aba === 'epi' && <SegurancaEpi perfil={perfil} params={params} />}
         </div>
       </div>
@@ -615,6 +618,214 @@ function Advertencias({ dados, perfil }) {
           </div>
         </RelatorioFolha>
       )}
+
+      <Confirmar
+        aberto={Boolean(confirmar)}
+        titulo={confirmar?.titulo}
+        texto={confirmar?.texto}
+        rotuloOk={confirmar?.rotuloOk}
+        perigo={confirmar?.perigo}
+        onOk={confirmar?.onOk}
+        onCancelar={() => setConfirmar(null)}
+      />
+    </>
+  )
+}
+
+/* ── Treinamentos NR ─────────────────────────────────────────
+   Inspirado num app de terceiro (WebSST) que o Julio mandou pro
+   Paulo Victor no Instagram: por colaborador, o status de cada
+   treinamento NR exigido (Válido/A vencer/Vencido/Pendente), com
+   data de realização e vencimento calculado (tipo × validade em
+   meses — ver dominio.js). Cada registro é histórico: renovar cria
+   uma linha nova, não sobrescreve a anterior. */
+
+const PRIORIDADE_STATUS_TREINAMENTO = { vencido: 0, a_vencer: 1, pendente: 2, valido: 3 }
+
+function ultimoTreinamento(treinamentos, workerId, tipoId) {
+  const doPar = treinamentos.filter((t) => t.worker_id === workerId && t.training_type_id === tipoId)
+  if (doPar.length === 0) return null
+  return [...doPar].sort((a, b) => (a.data_realizacao < b.data_realizacao ? 1 : -1))[0]
+}
+
+function Treinamentos({ dados, perfil }) {
+  const [colaboradorAberto, setColaboradorAberto] = useState(null)
+  const [registrandoTipo, setRegistrandoTipo] = useState(null)
+  const [novoRegistro, setNovoRegistro] = useState(null)
+  const [confirmar, setConfirmar] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+
+  const podeExcluir = perfil?.role !== 'campo'
+
+  const tipos = useMemo(
+    () => (dados.tiposTreinamento || []).filter((t) => t.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    [dados.tiposTreinamento],
+  )
+  const colaboradoresAtivos = useMemo(
+    () => dados.colaboradores.filter((c) => c.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    [dados.colaboradores],
+  )
+  const treinamentos = dados.treinamentosColaboradores || []
+
+  const resumoPorColaborador = useMemo(() => colaboradoresAtivos.map((c) => {
+    const linhas = tipos.map((t) => {
+      const ultimo = ultimoTreinamento(treinamentos, c.id, t.id)
+      return ultimo ? statusTreinamento(ultimo.data_vencimento) : 'pendente'
+    })
+    const pior = linhas.reduce((acc, s) => (PRIORIDADE_STATUS_TREINAMENTO[s] < PRIORIDADE_STATUS_TREINAMENTO[acc] ? s : acc), 'valido')
+    return {
+      colaborador: c, pior,
+      vencidos: linhas.filter((s) => s === 'vencido').length,
+      aVencer: linhas.filter((s) => s === 'a_vencer').length,
+    }
+  }), [colaboradoresAtivos, tipos, treinamentos])
+
+  const totais = useMemo(() => resumoPorColaborador.reduce((acc, r) => ({
+    vencidos: acc.vencidos + r.vencidos, aVencer: acc.aVencer + r.aVencer,
+  }), { vencidos: 0, aVencer: 0 }), [resumoPorColaborador])
+
+  const fecharTudo = () => { setColaboradorAberto(null); setRegistrandoTipo(null); setNovoRegistro(null) }
+
+  const abrirRegistro = (tipo) => {
+    setRegistrandoTipo(tipo)
+    setNovoRegistro({ worker_id: colaboradorAberto.id, training_type_id: tipo.id, data_realizacao: hojeISO(), observacao: '' })
+  }
+
+  const salvarRegistro = async () => {
+    if (!novoRegistro?.data_realizacao) return
+    setSalvando(true)
+    const ok = await dados.salvarTreinamentoColaborador(novoRegistro)
+    setSalvando(false)
+    if (ok) { setRegistrandoTipo(null); setNovoRegistro(null) }
+  }
+
+  const pedirExcluirRegistro = (registro, tipo) => {
+    setConfirmar({
+      titulo: 'Excluir este registro?',
+      texto: `O último «${tipo.nome}» de ${colaboradorAberto.nome} some do histórico. Isso não tem volta.`,
+      rotuloOk: 'Excluir', perigo: true,
+      onOk: async () => { setConfirmar(null); await dados.excluirTreinamentoColaborador(registro.id) },
+    })
+  }
+
+  if (tipos.length === 0) {
+    return (
+      <div className="card-flat">
+        <Vazio
+          titulo="Nenhum tipo de treinamento cadastrado"
+          texto="Cadastre os NRs exigidos (ex.: NR-35, NR-06, NR-10…) em Cadastros → Tipos de treinamento."
+        />
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {(totais.vencidos > 0 || totais.aVencer > 0) && (
+        <div className="row-wrap" style={{ gap: 8, marginBottom: 10 }}>
+          {totais.vencidos > 0 && <Chip tom="danger">{plural(totais.vencidos, 'treinamento vencido', 'treinamentos vencidos')}</Chip>}
+          {totais.aVencer > 0 && <Chip tom="info">{plural(totais.aVencer, 'a vencer nos próximos 30 dias', 'a vencer nos próximos 30 dias')}</Chip>}
+        </div>
+      )}
+
+      {colaboradoresAtivos.length === 0 ? (
+        <div className="card-flat">
+          <Vazio titulo="Nenhum colaborador" texto="Cadastre colaboradores para acompanhar os treinamentos deles." />
+        </div>
+      ) : (
+        <div className="stack-1">
+          {resumoPorColaborador.map((r) => (
+            <ItemLista
+              key={r.colaborador.id}
+              titulo={r.colaborador.nome}
+              sub={r.colaborador.funcao || ''}
+              aviso={r.pior === 'vencido'}
+              onClick={() => setColaboradorAberto(r.colaborador)}
+              direita={<Chip tom={TOM_STATUS_TREINAMENTO[r.pior]}>{ROTULO_STATUS_TREINAMENTO[r.pior]}</Chip>}
+            />
+          ))}
+        </div>
+      )}
+
+      <Sheet
+        aberto={Boolean(colaboradorAberto)}
+        titulo={registrandoTipo ? (registrandoTipo.sigla || registrandoTipo.nome) : colaboradorAberto?.nome}
+        onFechar={fecharTudo}
+        rodape={registrandoTipo && (
+          <div className="row-flex">
+            <button className="btn btn-secondary grow" onClick={() => { setRegistrandoTipo(null); setNovoRegistro(null) }}>Voltar</button>
+            <button
+              className="btn btn-primary grow" onClick={salvarRegistro}
+              disabled={salvando || !novoRegistro?.data_realizacao}
+            >
+              {salvando ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        )}
+      >
+        {colaboradorAberto && (
+          registrandoTipo ? (
+            <div className="stack-2">
+              <Campo label="Data de realização">
+                <input
+                  className="ipt" type="date" autoFocus value={novoRegistro?.data_realizacao || ''}
+                  onChange={(e) => setNovoRegistro((p) => ({ ...p, data_realizacao: e.target.value }))}
+                />
+              </Campo>
+              {registrandoTipo.validade_meses ? (
+                <div className="t-caption">
+                  Vence em {formatarData(calcularVencimentoTreinamento(novoRegistro?.data_realizacao, registrandoTipo.validade_meses))}
+                  {' '}(validade de {plural(registrandoTipo.validade_meses, 'mês', 'meses')})
+                </div>
+              ) : (
+                <div className="t-caption">Este treinamento não tem vencimento cadastrado.</div>
+              )}
+              <Campo label="Observação" dica="Opcional">
+                <input
+                  className="ipt" value={novoRegistro?.observacao || ''}
+                  onChange={(e) => setNovoRegistro((p) => ({ ...p, observacao: e.target.value }))}
+                  placeholder="Instrutor, empresa que aplicou…"
+                />
+              </Campo>
+            </div>
+          ) : (
+            <div className="stack-1">
+              {tipos.map((t) => {
+                const ultimo = ultimoTreinamento(treinamentos, colaboradorAberto.id, t.id)
+                const status = ultimo ? statusTreinamento(ultimo.data_vencimento) : 'pendente'
+                return (
+                  <div key={t.id} className="card-flat" style={{ padding: 10 }}>
+                    <div className="row-between" style={{ alignItems: 'flex-start', gap: 10 }}>
+                      <div className="grow" style={{ minWidth: 0 }}>
+                        <div className="t-strong" style={{ fontSize: 14 }}>{t.sigla ? `${t.sigla} — ${t.nome}` : t.nome}</div>
+                        {ultimo ? (
+                          <div className="t-caption" style={{ marginTop: 4 }}>
+                            Realizado em {formatarData(ultimo.data_realizacao)}
+                            {ultimo.data_vencimento && ` · vence em ${formatarData(ultimo.data_vencimento)}`}
+                          </div>
+                        ) : (
+                          <div className="t-caption" style={{ marginTop: 4 }}>Nunca realizado</div>
+                        )}
+                      </div>
+                      <Chip tom={TOM_STATUS_TREINAMENTO[status]}>{ROTULO_STATUS_TREINAMENTO[status]}</Chip>
+                    </div>
+                    <div className="row-flex" style={{ marginTop: 8, gap: 6 }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => abrirRegistro(t)}>
+                        {ultimo ? 'Renovar' : 'Registrar'}
+                      </button>
+                      {ultimo && podeExcluir && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirRegistro(ultimo, t)}>
+                          Excluir último registro
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        )}
+      </Sheet>
 
       <Confirmar
         aberto={Boolean(confirmar)}
