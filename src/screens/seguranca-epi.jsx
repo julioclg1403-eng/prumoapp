@@ -120,14 +120,21 @@ export default function SegurancaEpi({ perfil, params = {} }) {
 
   const abrirNovaSaida = (materialId = '') => {
     setBuscaColaboradorSaida('')
-    setNovaSaida({ data: hoje, material_id: materialId, quantidade: '', destino: '', worker_ids: [] })
+    setNovaSaida({ data: hoje, material_id: materialId, quantidade: '', destino: '', worker_ids: [], quantidadesPorColaborador: {} })
   }
 
+  /* Cada colaborador marcado tem sua própria quantidade (não dá pra
+     dividir 3 EPIs entre 2 pessoas igualzinho) — desmarcar limpa a
+     quantidade dele; marcar começa em 1, ajustável na hora. */
   const alternarColaboradorSaida = (id) => setNovaSaida((p) => {
     const atual = p.worker_ids || []
-    const novo = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]
+    const marcado = atual.includes(id)
+    const novo = marcado ? atual.filter((x) => x !== id) : [...atual, id]
+    const quantidadesPorColaborador = { ...(p.quantidadesPorColaborador || {}) }
+    if (marcado) delete quantidadesPorColaborador[id]
+    else if (quantidadesPorColaborador[id] == null) quantidadesPorColaborador[id] = '1'
     const destino = novo.length === 1 ? (dados.colaboradores.find((c) => c.id === novo[0])?.nome || '') : p.destino
-    return { ...p, worker_ids: novo, destino }
+    return { ...p, worker_ids: novo, quantidadesPorColaborador, destino }
   })
 
   /* Chegada por QR Code: a etiqueta da prateleira já traz a pessoa
@@ -146,27 +153,38 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     if (ok) setNovaEntrada(null)
   }
 
-  /* Com 2+ colaboradores marcados, cada um vira sua própria linha de
-     saída (mesma quantidade cada) — é o que faz a ficha por
-     colaborador (aba Por Colaborador) mostrar certinho quem recebeu
-     o quê, mesmo quando o lançamento foi feito pra vários de uma vez
-     (ex.: entregar uma luva pra cada um de 5 colaboradores). Com 0 ou
-     1 marcado, continua uma linha só, igual sempre foi. */
+  /* Com 1+ colaboradores marcados, cada um vira sua própria linha de
+     saída, com a quantidade que a pessoa digitou pra ele — não dá
+     pra dividir 3 EPIs entre 2 colaboradores em número quebrado, por
+     isso a quantidade é manual por pessoa, não um total repartido
+     igual. É o que também faz a ficha por colaborador (aba Por
+     Colaborador) mostrar certinho quem recebeu o quê. Sem nenhum
+     colaborador marcado, continua uma linha só com o campo
+     Quantidade de cima, igual sempre foi. */
+  const saidaValida = (() => {
+    if (!novaSaida?.material_id || !novaSaida?.data) return false
+    const workerIds = novaSaida.worker_ids || []
+    return workerIds.length > 0
+      ? workerIds.every((id) => Number(novaSaida.quantidadesPorColaborador?.[id]) > 0)
+      : Number(novaSaida.quantidade) > 0
+  })()
+
   const salvarSaida = async () => {
-    if (!novaSaida?.material_id || !novaSaida?.data || !Number(novaSaida?.quantidade)) return
+    if (!saidaValida) return
     setSalvando(true)
     const workerIds = novaSaida.worker_ids || []
-    if (workerIds.length > 1) {
+    if (workerIds.length > 0) {
       let ok = true
       for (const workerId of workerIds) {
         const nome = dados.colaboradores.find((c) => c.id === workerId)?.nome || ''
-        const r = await dados.salvarSaidaEpi({ ...novaSaida, worker_id: workerId, destino: nome })
+        const quantidade = novaSaida.quantidadesPorColaborador[workerId]
+        const r = await dados.salvarSaidaEpi({ ...novaSaida, worker_id: workerId, quantidade, destino: nome })
         if (!r) { ok = false; break }
       }
       setSalvando(false)
       if (ok) setNovaSaida(null)
     } else {
-      const ok = await dados.salvarSaidaEpi({ ...novaSaida, worker_id: workerIds[0] || '' })
+      const ok = await dados.salvarSaidaEpi({ ...novaSaida, worker_id: '' })
       setSalvando(false)
       if (ok) setNovaSaida(null)
     }
@@ -532,7 +550,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             <button className="btn btn-secondary grow" onClick={() => setNovaSaida(null)}>Cancelar</button>
             <button
               className="btn btn-primary grow" onClick={salvarSaida}
-              disabled={salvando || !novaSaida?.material_id || !novaSaida?.data || !Number(novaSaida?.quantidade)}
+              disabled={salvando || !saidaValida}
             >
               {salvando ? 'Salvando…' : 'Salvar'}
             </button>
@@ -553,16 +571,15 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               </div>
             )}
             <div className="row-flex">
-              <Campo
-                label="Quantidade"
-                dica={(novaSaida.worker_ids || []).length > 1 ? 'Por colaborador — o total sai multiplicado.' : undefined}
-              >
-                <input
-                  className="ipt" type="number" inputMode="decimal" min="0" step="any"
-                  value={novaSaida.quantidade}
-                  onChange={(e) => setNovaSaida((p) => ({ ...p, quantidade: e.target.value }))}
-                />
-              </Campo>
+              {(novaSaida.worker_ids || []).length === 0 && (
+                <Campo label="Quantidade">
+                  <input
+                    className="ipt" type="number" inputMode="decimal" min="0" step="any"
+                    value={novaSaida.quantidade}
+                    onChange={(e) => setNovaSaida((p) => ({ ...p, quantidade: e.target.value }))}
+                  />
+                </Campo>
+              )}
               <Campo label="Data">
                 <input
                   className="ipt" type="date" value={novaSaida.data}
@@ -572,38 +589,49 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             </div>
             <Campo
               label="Colaboradores"
-              dica="Marque um ou mais. Marcando vários, cada um vira uma entrega própria — a quantidade acima é por pessoa."
+              dica="Marque um ou mais — cada um ganha um campo de quantidade próprio, pra dividir do jeito que saiu de verdade (ex.: 2 pra um, 1 pra outro)."
             >
               <input
                 className="ipt" value={buscaColaboradorSaida} onChange={(e) => setBuscaColaboradorSaida(e.target.value)}
                 placeholder="Buscar colaborador…" style={{ marginBottom: 8 }}
               />
-              <div className="stack-1" style={{ maxHeight: 240, overflowY: 'auto' }}>
+              <div className="stack-1" style={{ maxHeight: 280, overflowY: 'auto' }}>
                 {dados.colaboradores
                   .filter((c) => c.ativo !== false)
                   .filter((c) => !buscaColaboradorSaida.trim() || c.nome.toLowerCase().includes(buscaColaboradorSaida.trim().toLowerCase()))
-                  .map((c) => (
-                    <label
-                      key={c.id} className="card-flat row-flex"
-                      style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
-                    >
-                      <input
-                        type="checkbox" checked={(novaSaida.worker_ids || []).includes(c.id)}
-                        onChange={() => alternarColaboradorSaida(c.id)}
-                      />
-                      <span className="grow">{c.nome}</span>
-                    </label>
-                  ))}
+                  .map((c) => {
+                    const marcado = (novaSaida.worker_ids || []).includes(c.id)
+                    return (
+                      <div key={c.id} className="card-flat row-between" style={{ alignItems: 'center', gap: 10 }}>
+                        <label className="row-flex grow" style={{ alignItems: 'center', gap: 10, cursor: 'pointer', minWidth: 0 }}>
+                          <input type="checkbox" checked={marcado} onChange={() => alternarColaboradorSaida(c.id)} />
+                          <span className="grow">{c.nome}</span>
+                        </label>
+                        {marcado && (
+                          <input
+                            className="ipt" type="number" inputMode="decimal" min="0" step="any"
+                            style={{ width: 72, flex: 'none' }}
+                            value={novaSaida.quantidadesPorColaborador?.[c.id] ?? ''}
+                            onChange={(e) => setNovaSaida((p) => ({
+                              ...p,
+                              quantidadesPorColaborador: { ...(p.quantidadesPorColaborador || {}), [c.id]: e.target.value },
+                            }))}
+                            placeholder="Qtd"
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
               </div>
-              {(novaSaida.worker_ids || []).length > 1 && Number(novaSaida.quantidade) > 0 && (
+              {(novaSaida.worker_ids || []).length > 0 && (
                 <div className="t-caption" style={{ marginTop: 8 }}>
-                  Total do estoque: {Number(novaSaida.quantidade) * novaSaida.worker_ids.length} {unidadeMaterial(novaSaida.material_id)}
-                  {' '}({novaSaida.worker_ids.length} colaboradores × {novaSaida.quantidade})
+                  Total do estoque: {novaSaida.worker_ids.reduce((s, id) => s + (Number(novaSaida.quantidadesPorColaborador?.[id]) || 0), 0)}
+                  {' '}{unidadeMaterial(novaSaida.material_id)} ({plural(novaSaida.worker_ids.length, 'colaborador', 'colaboradores')})
                 </div>
               )}
             </Campo>
-            {(novaSaida.worker_ids || []).length <= 1 && (
-              <Campo label="Destino" dica="Pra onde foi — equipe, obra, ou detalhe (preenche sozinho se marcar 1 colaborador acima).">
+            {(novaSaida.worker_ids || []).length === 0 && (
+              <Campo label="Destino" dica="Pra onde foi — equipe, obra, ou marque um colaborador acima em vez disso.">
                 <input
                   className="ipt" value={novaSaida.destino}
                   onChange={(e) => setNovaSaida((p) => ({ ...p, destino: e.target.value }))}
