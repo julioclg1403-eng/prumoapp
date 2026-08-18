@@ -14,7 +14,7 @@ import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
-  RelatorioFolha, SecaoRelatorio,
+  RelatorioFolha, SecaoRelatorio, ChipToggle,
 } from '../components'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
@@ -47,6 +47,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [gerandoEtiquetas, setGerandoEtiquetas] = useState(false)
   const [colaboradorEpiAberto, setColaboradorEpiAberto] = useState(null)
   const [imprimindoFichaEpi, setImprimindoFichaEpi] = useState(false)
+  const [buscaColaboradorSaida, setBuscaColaboradorSaida] = useState('')
 
   const materiais = useMemo(
     () => (dados.materiaisEpi || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -117,8 +118,16 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
   })
 
-  const abrirNovaSaida = (materialId = '') => setNovaSaida({
-    data: hoje, material_id: materialId, quantidade: '', destino: '', worker_id: '',
+  const abrirNovaSaida = (materialId = '') => {
+    setBuscaColaboradorSaida('')
+    setNovaSaida({ data: hoje, material_id: materialId, quantidade: '', destino: '', worker_ids: [] })
+  }
+
+  const alternarColaboradorSaida = (id) => setNovaSaida((p) => {
+    const atual = p.worker_ids || []
+    const novo = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]
+    const destino = novo.length === 1 ? (dados.colaboradores.find((c) => c.id === novo[0])?.nome || '') : p.destino
+    return { ...p, worker_ids: novo, destino }
   })
 
   /* Chegada por QR Code: a etiqueta da prateleira já traz a pessoa
@@ -137,12 +146,30 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     if (ok) setNovaEntrada(null)
   }
 
+  /* Com 2+ colaboradores marcados, cada um vira sua própria linha de
+     saída (mesma quantidade cada) — é o que faz a ficha por
+     colaborador (aba Por Colaborador) mostrar certinho quem recebeu
+     o quê, mesmo quando o lançamento foi feito pra vários de uma vez
+     (ex.: entregar uma luva pra cada um de 5 colaboradores). Com 0 ou
+     1 marcado, continua uma linha só, igual sempre foi. */
   const salvarSaida = async () => {
     if (!novaSaida?.material_id || !novaSaida?.data || !Number(novaSaida?.quantidade)) return
     setSalvando(true)
-    const ok = await dados.salvarSaidaEpi(novaSaida)
-    setSalvando(false)
-    if (ok) setNovaSaida(null)
+    const workerIds = novaSaida.worker_ids || []
+    if (workerIds.length > 1) {
+      let ok = true
+      for (const workerId of workerIds) {
+        const nome = dados.colaboradores.find((c) => c.id === workerId)?.nome || ''
+        const r = await dados.salvarSaidaEpi({ ...novaSaida, worker_id: workerId, destino: nome })
+        if (!r) { ok = false; break }
+      }
+      setSalvando(false)
+      if (ok) setNovaSaida(null)
+    } else {
+      const ok = await dados.salvarSaidaEpi({ ...novaSaida, worker_id: workerIds[0] || '' })
+      setSalvando(false)
+      if (ok) setNovaSaida(null)
+    }
   }
 
   const salvarMaterial = async () => {
@@ -526,7 +553,10 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               </div>
             )}
             <div className="row-flex">
-              <Campo label="Quantidade">
+              <Campo
+                label="Quantidade"
+                dica={(novaSaida.worker_ids || []).length > 1 ? 'Por colaborador — o total sai multiplicado.' : undefined}
+              >
                 <input
                   className="ipt" type="number" inputMode="decimal" min="0" step="any"
                   value={novaSaida.quantidade}
@@ -540,28 +570,44 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 />
               </Campo>
             </div>
-            <Campo label="Colaborador" dica="Escolhendo um colaborador cadastrado, a entrega entra na ficha de EPI dele.">
-              <select
-                className="sel" value={novaSaida.worker_id}
-                onChange={(e) => {
-                  const id = e.target.value
-                  const nome = dados.colaboradores.find((c) => c.id === id)?.nome || ''
-                  setNovaSaida((p) => ({ ...p, worker_id: id, destino: id ? nome : p.destino }))
-                }}
-              >
-                <option value="">Não é um colaborador específico</option>
-                {dados.colaboradores.filter((c) => c.ativo !== false).map((c) => (
-                  <option key={c.id} value={c.id}>{c.nome}</option>
-                ))}
-              </select>
-            </Campo>
-            <Campo label="Destino" dica="Pra onde foi — equipe, obra, ou detalhe além do colaborador acima.">
+            <Campo
+              label="Colaboradores"
+              dica="Marque um ou mais. Marcando vários, cada um vira uma entrega própria — a quantidade acima é por pessoa."
+            >
               <input
-                className="ipt" value={novaSaida.destino}
-                onChange={(e) => setNovaSaida((p) => ({ ...p, destino: e.target.value }))}
-                placeholder="Nome do colaborador, equipe…"
+                className="ipt" value={buscaColaboradorSaida} onChange={(e) => setBuscaColaboradorSaida(e.target.value)}
+                placeholder="Buscar colaborador…" style={{ marginBottom: 8 }}
               />
+              <div className="row-wrap" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                {dados.colaboradores
+                  .filter((c) => c.ativo !== false)
+                  .filter((c) => !buscaColaboradorSaida.trim() || c.nome.toLowerCase().includes(buscaColaboradorSaida.trim().toLowerCase()))
+                  .map((c) => (
+                    <ChipToggle
+                      key={c.id}
+                      ativo={(novaSaida.worker_ids || []).includes(c.id)}
+                      onClick={() => alternarColaboradorSaida(c.id)}
+                    >
+                      {c.nome}
+                    </ChipToggle>
+                  ))}
+              </div>
+              {(novaSaida.worker_ids || []).length > 1 && Number(novaSaida.quantidade) > 0 && (
+                <div className="t-caption" style={{ marginTop: 8 }}>
+                  Total do estoque: {Number(novaSaida.quantidade) * novaSaida.worker_ids.length} {unidadeMaterial(novaSaida.material_id)}
+                  {' '}({novaSaida.worker_ids.length} colaboradores × {novaSaida.quantidade})
+                </div>
+              )}
             </Campo>
+            {(novaSaida.worker_ids || []).length <= 1 && (
+              <Campo label="Destino" dica="Pra onde foi — equipe, obra, ou detalhe (preenche sozinho se marcar 1 colaborador acima).">
+                <input
+                  className="ipt" value={novaSaida.destino}
+                  onChange={(e) => setNovaSaida((p) => ({ ...p, destino: e.target.value }))}
+                  placeholder="Nome do colaborador, equipe…"
+                />
+              </Campo>
+            )}
           </div>
         )}
       </Sheet>
