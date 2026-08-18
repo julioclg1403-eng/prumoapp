@@ -22,7 +22,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarData, formatarDataCurta, plural, insumoCorrespondeMaterial } from '../lib/dominio'
+import { formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio } from '../components'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
@@ -31,6 +31,19 @@ function formatarDias(dias) {
   if (dias == null) return '—'
   return `${dias.toFixed(1)} dia${dias >= 1.95 ? 's' : ''}`
 }
+
+/* Ordem oficial do fluxo da planilha: Pedido → Aprovação do Pedido →
+   Aprovação da Simulação → Confirmação da Cotação → Fechamento da
+   Compra → Entrega. Mesmos seis campos que o sistema (ERP) calcula
+   os dois indicadores de dias em cima. */
+const ETAPAS_FLUXO = [
+  { chave: 'data_pedido', rotulo: 'Pedido' },
+  { chave: 'aprov_pedido', rotulo: 'Aprovação do pedido' },
+  { chave: 'aprov_simulacao', rotulo: 'Aprovação da simulação' },
+  { chave: 'confirm_cotacao', rotulo: 'Confirmação da cotação' },
+  { chave: 'fechamento_compra', rotulo: 'Fechamento da compra' },
+  { chave: 'data_entrega', rotulo: 'Entrega' },
+]
 
 export default function Suprimentos({ voltar, perfil }) {
   const dados = useDados()
@@ -145,6 +158,7 @@ export default function Suprimentos({ voltar, perfil }) {
 function AbaDados({ pedidos }) {
   const [busca, setBusca] = useState('')
   const [estagio, setEstagio] = useState('todos')
+  const [detalhe, setDetalhe] = useState(null)
 
   const estagios = useMemo(() => [...new Set(pedidos.map((p) => p.estagio).filter(Boolean))].sort(), [pedidos])
 
@@ -183,16 +197,24 @@ function AbaDados({ pedidos }) {
           <table className="tbl">
             <thead>
               <tr>
-                <th>Pedido</th><th>Insumo</th><th>Qtde</th><th>Pedido em</th><th>Entrega</th>
-                <th>Ped→Compra</th><th>Compra→Ent</th><th>Estágio</th>
+                <th>Pedido</th><th>Cotação</th><th>Cód.</th><th>Insumo</th><th>Qtde</th><th>Preço</th>
+                <th>Pedido em</th><th>Entrega</th><th>Ped→Compra</th><th>Compra→Ent</th><th>Estágio</th>
               </tr>
             </thead>
             <tbody>
               {lista.map((p) => (
-                <tr key={p.id}>
+                <tr key={p.id} onClick={() => setDetalhe(p)} style={{ cursor: 'pointer' }}>
                   <td className="t-caption">{p.pedido}</td>
-                  <td className="t-strong">{p.insumo}</td>
+                  <td className="t-caption">{p.cotacao ?? '—'}</td>
+                  <td className="t-caption">{p.codigo_insumo || '—'}</td>
+                  <td className="t-strong">
+                    {p.insumo}
+                    {p.excluido && p.excluido !== '0 - Não' && (
+                      <span style={{ marginLeft: 6 }}><Chip tom="danger">Excluído</Chip></span>
+                    )}
+                  </td>
                   <td className="t-num">{p.quantidade ?? '—'}</td>
+                  <td className="t-num">{formatarDinheiro(p.preco)}</td>
                   <td style={{ color: 'var(--text-2)' }}>{p.data_pedido ? formatarDataCurta(p.data_pedido) : '—'}</td>
                   <td style={{ color: 'var(--text-2)' }}>{p.data_entrega ? formatarDataCurta(p.data_entrega) : '—'}</td>
                   <td className="t-num">{p.dias_pedido_compra ?? '—'}</td>
@@ -204,7 +226,81 @@ function AbaDados({ pedidos }) {
           </table>
         </div>
       )}
+
+      <DetalhePedido pedido={detalhe} onFechar={() => setDetalhe(null)} />
     </div>
+  )
+}
+
+/* ── Detalhe de um pedido — linha do tempo completa ────────────
+   Aqui sim entra tudo que a planilha traz: cotação, código, preço,
+   excluído, e as seis datas do fluxo (Pedido → Aprovação do Pedido →
+   Aprovação da Simulação → Confirmação da Cotação → Fechamento da
+   Compra → Entrega), não só o resumo que cabe na tabela. */
+function DetalhePedido({ pedido, onFechar }) {
+  return (
+    <Sheet aberto={Boolean(pedido)} titulo={pedido ? `Pedido ${pedido.pedido}` : ''} onFechar={onFechar}>
+      {pedido && (
+        <div className="stack-2">
+          <div>
+            <div className="t-strong" style={{ fontSize: 15 }}>{pedido.insumo}</div>
+            <div className="t-caption" style={{ marginTop: 2 }}>Código {pedido.codigo_insumo || '—'} · Cotação {pedido.cotacao ?? '—'}</div>
+          </div>
+
+          <div className="row-wrap" style={{ gap: 8 }}>
+            <Chip tom={TOM_ESTAGIO[pedido.estagio] || ''}>{pedido.estagio || 'Sem estágio'}</Chip>
+            {pedido.excluido && pedido.excluido !== '0 - Não' && <Chip tom="danger">Excluído</Chip>}
+          </div>
+
+          <div className="row-wrap" style={{ gap: 10 }}>
+            <div className="card-flat" style={{ flex: '1 1 120px' }}>
+              <div className="t-caption">Quantidade</div>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{pedido.quantidade ?? '—'}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 120px' }}>
+              <div className="t-caption">Preço unitário</div>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(pedido.preco)}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 120px' }}>
+              <div className="t-caption">Total</div>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>
+                {pedido.preco != null && pedido.quantidade != null ? formatarDinheiro(pedido.preco * pedido.quantidade) : '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="card-flat stack-1">
+            <div className="t-micro">Linha do tempo do fluxo</div>
+            {ETAPAS_FLUXO.map((etapa, i) => {
+              const data = pedido[etapa.chave]
+              return (
+                <div key={etapa.chave} className="row-between" style={{ alignItems: 'center', padding: '6px 0', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                  <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: data ? 'var(--success)' : 'var(--border)',
+                    }} />
+                    <span className="t-caption" style={{ color: data ? 'var(--text-1)' : 'var(--text-3)' }}>{etapa.rotulo}</span>
+                  </div>
+                  <span className="t-caption t-strong">{data ? formatarData(data) : '—'}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="row-wrap" style={{ gap: 10 }}>
+            <div className="card-flat" style={{ flex: '1 1 160px' }}>
+              <div className="t-caption">Pedido → Compra</div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{formatarDias(pedido.dias_pedido_compra)}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 160px' }}>
+              <div className="t-caption">Compra → Entrega</div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{formatarDias(pedido.dias_compra_entrega)}</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </Sheet>
   )
 }
 
