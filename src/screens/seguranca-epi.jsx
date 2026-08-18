@@ -14,7 +14,7 @@ import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
-  RelatorioFolha, SecaoRelatorio, ChipToggle,
+  RelatorioFolha, SecaoRelatorio,
 } from '../components'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
@@ -578,18 +578,21 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 className="ipt" value={buscaColaboradorSaida} onChange={(e) => setBuscaColaboradorSaida(e.target.value)}
                 placeholder="Buscar colaborador…" style={{ marginBottom: 8 }}
               />
-              <div className="row-wrap" style={{ maxHeight: 180, overflowY: 'auto' }}>
+              <div className="stack-1" style={{ maxHeight: 240, overflowY: 'auto' }}>
                 {dados.colaboradores
                   .filter((c) => c.ativo !== false)
                   .filter((c) => !buscaColaboradorSaida.trim() || c.nome.toLowerCase().includes(buscaColaboradorSaida.trim().toLowerCase()))
                   .map((c) => (
-                    <ChipToggle
-                      key={c.id}
-                      ativo={(novaSaida.worker_ids || []).includes(c.id)}
-                      onClick={() => alternarColaboradorSaida(c.id)}
+                    <label
+                      key={c.id} className="card-flat row-flex"
+                      style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
                     >
-                      {c.nome}
-                    </ChipToggle>
+                      <input
+                        type="checkbox" checked={(novaSaida.worker_ids || []).includes(c.id)}
+                        onChange={() => alternarColaboradorSaida(c.id)}
+                      />
+                      <span className="grow">{c.nome}</span>
+                    </label>
                   ))}
               </div>
               {(novaSaida.worker_ids || []).length > 1 && Number(novaSaida.quantidade) > 0 && (
