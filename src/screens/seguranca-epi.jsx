@@ -48,6 +48,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [colaboradorEpiAberto, setColaboradorEpiAberto] = useState(null)
   const [imprimindoFichaEpi, setImprimindoFichaEpi] = useState(false)
   const [buscaColaboradorSaida, setBuscaColaboradorSaida] = useState('')
+  const [diaHistoricoAberto, setDiaHistoricoAberto] = useState(null)
 
   const materiais = useMemo(
     () => (dados.materiaisEpi || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -76,14 +77,28 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     [dados.saidasEpi],
   )
 
+  /* Saída agrupada por dia — uma linha só com o total do dia, clicável
+     pra abrir e ver quem recebeu (várias pessoas no mesmo dia é o caso
+     comum desde que a saída passou a aceitar vários colaboradores de
+     uma vez). Entrada continua uma linha por lançamento, como sempre. */
   const historicoMaterial = useMemo(() => {
     if (!editandoMaterial?.id) return []
     const ents = entradas
       .filter((e) => e.material_id === editandoMaterial.id)
-      .map((e) => ({ tipo: 'entrada', data: e.data, quantidade: e.quantidade, detalhe: e.recebido_por ? `recebido por ${e.recebido_por}` : e.fornecedor || '' }))
-    const sais = saidas
-      .filter((s) => s.material_id === editandoMaterial.id)
-      .map((s) => ({ tipo: 'saida', data: s.data, quantidade: s.quantidade, detalhe: s.destino || '' }))
+      .map((e) => ({ tipo: 'entrada', chave: `entrada-${e.id}`, data: e.data, quantidade: e.quantidade, detalhe: e.recebido_por ? `recebido por ${e.recebido_por}` : e.fornecedor || '' }))
+
+    const saidasDoMaterial = saidas.filter((s) => s.material_id === editandoMaterial.id)
+    const porDia = new Map()
+    for (const s of saidasDoMaterial) {
+      if (!porDia.has(s.data)) porDia.set(s.data, [])
+      porDia.get(s.data).push(s)
+    }
+    const sais = Array.from(porDia.entries()).map(([data, itens]) => ({
+      tipo: 'saida', chave: `saida-${data}`, data,
+      quantidade: itens.reduce((soma, s) => soma + Number(s.quantidade), 0),
+      pessoas: itens.map((s) => ({ nome: s.destino || 'Sem destino', quantidade: s.quantidade })),
+    }))
+
     return [...ents, ...sais].sort((a, b) => (a.data < b.data ? 1 : -1))
   }, [editandoMaterial, entradas, saidas])
 
@@ -112,6 +127,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     const id = requestAnimationFrame(() => window.print())
     return () => cancelAnimationFrame(id)
   }, [imprimindoFichaEpi])
+
+  useEffect(() => { setDiaHistoricoAberto(null) }, [editandoMaterial?.id])
 
   const abrirNovaEntrada = (materialId = '') => setNovaEntrada({
     data: hoje, material_id: materialId, quantidade: '',
@@ -720,22 +737,52 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 <div className="t-caption">Nenhuma entrada ou saída lançada ainda pra este EPI.</div>
               ) : (
                 <div className="stack-1">
-                  {historicoMaterial.map((h, i) => (
-                    <div key={i} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
-                      <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
-                        <Chip tom={h.tipo === 'entrada' ? 'success' : 'danger'}>
-                          {h.tipo === 'entrada' ? 'Entrada' : 'Saída'}
-                        </Chip>
-                        <div>
-                          <div className="t-caption">{formatarDataCurta(h.data)}</div>
-                          {h.detalhe && <div className="t-caption">{h.detalhe}</div>}
+                  {historicoMaterial.map((h) => {
+                    const aberto = diaHistoricoAberto === h.chave
+                    const clicavel = h.tipo === 'saida' && h.pessoas.length > 0
+                    return (
+                      <div key={h.chave} className="card-flat" style={{ padding: 10 }}>
+                        <div
+                          className="row-between"
+                          style={{ alignItems: 'center', cursor: clicavel ? 'pointer' : 'default' }}
+                          onClick={clicavel ? () => setDiaHistoricoAberto(aberto ? null : h.chave) : undefined}
+                        >
+                          <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                            <Chip tom={h.tipo === 'entrada' ? 'success' : 'danger'}>
+                              {h.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                            </Chip>
+                            <div>
+                              <div className="t-caption">{formatarDataCurta(h.data)}</div>
+                              {h.tipo === 'entrada' && h.detalhe && <div className="t-caption">{h.detalhe}</div>}
+                              {clicavel && (
+                                <div className="t-caption">
+                                  {plural(h.pessoas.length, 'colaborador', 'colaboradores')} · toque para ver quem
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+                            <span className="t-strong" style={{ fontSize: 14 }}>
+                              {h.tipo === 'entrada' ? '+' : '−'}{h.quantidade} {editandoMaterial.unidade}
+                            </span>
+                            {clicavel && (
+                              <Icon name="avancar" size={13} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s' }} />
+                            )}
+                          </div>
                         </div>
+                        {clicavel && aberto && (
+                          <div className="stack-1" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                            {h.pessoas.map((p, i) => (
+                              <div key={i} className="row-between">
+                                <span className="t-caption">{p.nome}</span>
+                                <span className="t-caption t-strong">−{p.quantidade} {editandoMaterial.unidade}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <span className="t-strong" style={{ fontSize: 14 }}>
-                        {h.tipo === 'entrada' ? '+' : '−'}{h.quantidade} {editandoMaterial.unidade}
-                      </span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
