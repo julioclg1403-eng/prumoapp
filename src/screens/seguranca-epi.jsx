@@ -10,7 +10,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
@@ -49,6 +49,12 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [imprimindoFichaEpi, setImprimindoFichaEpi] = useState(false)
   const [buscaColaboradorSaida, setBuscaColaboradorSaida] = useState('')
   const [diaHistoricoAberto, setDiaHistoricoAberto] = useState(null)
+  const [agrupamentoColab, setAgrupamentoColab] = useState('nome')
+  const [modoPeriodo, setModoPeriodo] = useState('tudo')
+  const [dataDia, setDataDia] = useState(hoje)
+  const [mesEscolhido, setMesEscolhido] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
 
   const materiais = useMemo(
     () => (dados.materiaisEpi || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -105,13 +111,27 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const nomeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.nome || 'EPI removido'
   const unidadeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.unidade || ''
 
+  /* Recorte por período — só afeta a aba Por Colaborador. "Período"
+     aceita início depois do fim (a pessoa pode digitar fora de ordem
+     sem querer); normaliza sozinho. */
+  const saidasNoPeriodo = useMemo(() => {
+    if (modoPeriodo === 'dia') return saidas.filter((s) => s.data === dataDia)
+    if (modoPeriodo === 'mes') return saidas.filter((s) => s.data.slice(0, 7) === mesEscolhido)
+    if (modoPeriodo === 'periodo') {
+      const ini = periodoInicio <= periodoFim ? periodoInicio : periodoFim
+      const fim = periodoInicio <= periodoFim ? periodoFim : periodoInicio
+      return saidas.filter((s) => s.data >= ini && s.data <= fim)
+    }
+    return saidas
+  }, [saidas, modoPeriodo, dataDia, mesEscolhido, periodoInicio, periodoFim])
+
   /* Ficha de entrega por colaborador: só quem já recebeu algo com o
      vínculo estruturado (worker_id) aparece aqui — saída antiga, com
      só o texto livre de destino, não dá pra amarrar com segurança a
      um colaborador específico. */
   const colaboradoresComEpi = useMemo(() => {
     const porColaborador = new Map()
-    for (const s of saidas) {
+    for (const s of saidasNoPeriodo) {
       if (!s.worker_id) continue
       if (!porColaborador.has(s.worker_id)) porColaborador.set(s.worker_id, [])
       porColaborador.get(s.worker_id).push(s)
@@ -120,7 +140,36 @@ export default function SegurancaEpi({ perfil, params = {} }) {
       .filter((c) => porColaborador.has(c.id))
       .map((c) => ({ colaborador: c, entregas: porColaborador.get(c.id) }))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'))
-  }, [saidas, dados.colaboradores])
+  }, [saidasNoPeriodo, dados.colaboradores])
+
+  /* Mesmo padrão de agrupamento da tela Cadastros (colaboradores):
+     por função agrupa pelo texto normalizado, por empresa pelo
+     vínculo de verdade. Quem não tem o dado do grupo vai pro fim,
+     num grupo à parte. */
+  const gruposColaboradoresEpi = useMemo(() => {
+    if (agrupamentoColab === 'nome') return null
+    const grupos = new Map()
+    colaboradoresComEpi.forEach((item) => {
+      let chave, rotuloSemDado, rotulo
+      if (agrupamentoColab === 'funcao') {
+        const funcao = (item.colaborador.funcao || '').trim()
+        chave = funcao ? normalizarParaCasar(funcao) : ''
+        rotuloSemDado = 'Sem função'
+        rotulo = funcao || rotuloSemDado
+      } else {
+        chave = item.colaborador.company_id || ''
+        rotuloSemDado = 'Sem empresa'
+        rotulo = item.colaborador.company_id ? dados.nomeDe(dados.empresas, item.colaborador.company_id) : rotuloSemDado
+      }
+      if (!grupos.has(chave)) grupos.set(chave, { rotulo, rotuloSemDado, itens: [] })
+      grupos.get(chave).itens.push(item)
+    })
+    return Array.from(grupos.values()).sort((a, b) => {
+      if (a.rotulo === a.rotuloSemDado) return 1
+      if (b.rotulo === b.rotuloSemDado) return -1
+      return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
+    })
+  }, [agrupamentoColab, colaboradoresComEpi, dados])
 
   useEffect(() => {
     if (!imprimindoFichaEpi) return
@@ -341,26 +390,88 @@ export default function SegurancaEpi({ perfil, params = {} }) {
       )}
 
       {aba === 'porColaborador' && (
-        colaboradoresComEpi.length === 0 ? (
-          <div className="card-flat">
-            <Vazio
-              titulo="Nenhuma entrega vinculada a colaborador ainda"
-              texto="Ao registrar uma saída, escolha o colaborador no campo próprio — daí a entrega entra na ficha dele aqui."
-            />
-          </div>
-        ) : (
-          <div className="stack-1">
-            {colaboradoresComEpi.map(({ colaborador, entregas }) => (
-              <ItemLista
-                key={colaborador.id}
-                titulo={colaborador.nome}
-                sub={`${plural(entregas.length, 'entrega', 'entregas')} · última em ${formatarDataCurta([...entregas].sort((a, b) => (a.data < b.data ? 1 : -1))[0].data)}`}
-                onClick={() => setColaboradorEpiAberto(colaborador)}
-                direita={<Icon name="avancar" size={16} />}
+        <div className="stack-2">
+          <Segmentos
+            valor={agrupamentoColab}
+            onChange={setAgrupamentoColab}
+            opcoes={[
+              { valor: 'nome', rotulo: 'Por nome' },
+              { valor: 'funcao', rotulo: 'Por função' },
+              { valor: 'empresa', rotulo: 'Por empresa' },
+            ]}
+          />
+
+          <Segmentos
+            valor={modoPeriodo}
+            onChange={setModoPeriodo}
+            opcoes={[
+              { valor: 'tudo', rotulo: 'Tudo' },
+              { valor: 'dia', rotulo: 'Dia' },
+              { valor: 'mes', rotulo: 'Mês' },
+              { valor: 'periodo', rotulo: 'Período' },
+            ]}
+          />
+          {modoPeriodo === 'dia' && (
+            <input className="ipt" type="date" value={dataDia} onChange={(e) => setDataDia(e.target.value)} />
+          )}
+          {modoPeriodo === 'mes' && (
+            <input className="ipt" type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} />
+          )}
+          {modoPeriodo === 'periodo' && (
+            <div className="row-flex">
+              <Campo label="De">
+                <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
+              </Campo>
+              <Campo label="Até">
+                <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
+              </Campo>
+            </div>
+          )}
+
+          {colaboradoresComEpi.length === 0 ? (
+            <div className="card-flat">
+              <Vazio
+                titulo={modoPeriodo === 'tudo' ? 'Nenhuma entrega vinculada a colaborador ainda' : 'Nada nesse período'}
+                texto={
+                  modoPeriodo === 'tudo'
+                    ? 'Ao registrar uma saída, escolha o colaborador no campo próprio — daí a entrega entra na ficha dele aqui.'
+                    : 'Nenhuma entrega vinculada a colaborador nesse recorte de data — troque o período.'
+                }
               />
-            ))}
-          </div>
-        )
+            </div>
+          ) : gruposColaboradoresEpi ? (
+            <div className="stack-3">
+              {gruposColaboradoresEpi.map(({ rotulo, itens }) => (
+                <div key={rotulo} className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
+                  </div>
+                  {itens.map(({ colaborador, entregas }) => (
+                    <ItemLista
+                      key={colaborador.id}
+                      titulo={colaborador.nome}
+                      sub={`${plural(entregas.length, 'entrega', 'entregas')} · última em ${formatarDataCurta([...entregas].sort((a, b) => (a.data < b.data ? 1 : -1))[0].data)}`}
+                      onClick={() => setColaboradorEpiAberto(colaborador)}
+                      direita={<Icon name="avancar" size={16} />}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="stack-1">
+              {colaboradoresComEpi.map(({ colaborador, entregas }) => (
+                <ItemLista
+                  key={colaborador.id}
+                  titulo={colaborador.nome}
+                  sub={`${plural(entregas.length, 'entrega', 'entregas')} · última em ${formatarDataCurta([...entregas].sort((a, b) => (a.data < b.data ? 1 : -1))[0].data)}`}
+                  onClick={() => setColaboradorEpiAberto(colaborador)}
+                  direita={<Icon name="avancar" size={16} />}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {(aba === 'estoqueAtual' || aba === 'historico') && (() => {
