@@ -120,13 +120,16 @@ const SELECT_APONTAMENTO = `
 `
 
 /* O Supabase corta a resposta em ~1000 linhas por padrão, em
-   silêncio — sem erro, só devolve menos linha do que existe. Pra
-   tabela que passa disso (hoje, só o catálogo de material do
-   Almoxarifado: 1500+ registros), isso significa material sumindo
-   do app sem explicação — não aparece pra escolher, e lançamento
-   antigo que aponta pra ele mostra "removido". `criarQuery` tem que
-   devolver uma query NOVA a cada chamada (não dá pra reusar depois
-   de um `.range()`), por isso recebe uma função, não a query pronta. */
+   silêncio — sem erro, só devolve menos linha do que existe. Foi o
+   que aconteceu com o catálogo de material do Almoxarifado ao passar
+   de 1500 registros: material sumindo do app sem explicação, não
+   aparecia pra escolher em lugar nenhum, e lançamento antigo que
+   apontava pra ele mostrava "removido". Por isso TODA busca de lista
+   da carga inicial passa por aqui agora, não só a que já estourou —
+   assim nenhuma tabela nova cria o mesmo problema silenciosamente
+   quando crescer. `criarQuery` tem que devolver uma query NOVA a cada
+   chamada (não dá pra reusar depois de um `.range()`), por isso
+   recebe uma função, não a query pronta. */
 async function buscarPaginado(criarQuery, tamanhoPagina = 1000) {
   let tudo = []
   let pagina = 0
@@ -203,42 +206,42 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento, treinamentosColaboradores,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
-      supabase.from('worksites').select('*').order('nome'),
-      supabase.from('profiles').select('*').order('nome'),
-      supabase.from('companies').select('*').order('nome'),
-      supabase.from('workers').select('*').order('nome'),
-      supabase.from('locations').select('*').order('ordem'),
-      supabase.from('services').select('*').order('nome'),
-      supabase.from('occurrence_types').select('*').order('ordem'),
-      supabase.from('planned_activities').select('*').order('data', { ascending: false }),
-      supabase.from('daily_reports').select(SELECT_DIARIO).order('data', { ascending: false }),
-      supabase.from('issues').select('*, fotos:issue_photos(*)').order('prazo', { nullsFirst: false }),
-      supabase.from('materials').select('*').order('usos', { ascending: false }),
-      supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false }),
-      supabase.from('schedule_items').select('*').order('data_inicio'),
-      supabase.from('reminders').select('*').order('disparar_em'),
-      supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false }),
-      supabase.from('equipment').select('*, fotos:equipment_photos(*)').order('nome'),
-      supabase.from('safety_occurrences').select('*, fotos:safety_occurrence_photos(*)').order('data', { ascending: false }),
-      supabase.from('warnings').select('*, fotos:warning_photos(*)').order('data', { ascending: false }),
-      supabase.from('project_disciplines').select('*').order('ordem'),
-      supabase.from('project_categories').select('*').order('ordem'),
-      supabase.from('project_stages').select('*').order('ordem'),
-      supabase.from('project_discipline_statuses').select('*').order('ordem'),
-      supabase.from('project_notes').select(SELECT_APONTAMENTO).order('created_at', { ascending: false }),
-      supabase.from('schedule_item_services').select('*'),
+      buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('profiles').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('companies').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('workers').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('locations').select('*').order('ordem')),
+      buscarPaginado(() => supabase.from('services').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('occurrence_types').select('*').order('ordem')),
+      buscarPaginado(() => supabase.from('planned_activities').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('daily_reports').select(SELECT_DIARIO).order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('issues').select('*, fotos:issue_photos(*)').order('prazo', { nullsFirst: false })),
+      buscarPaginado(() => supabase.from('materials').select('*').order('usos', { ascending: false })),
+      buscarPaginado(() => supabase.from('material_requests').select(SELECT_REQUISICAO).order('created_at', { ascending: false })),
+      buscarPaginado(() => supabase.from('schedule_items').select('*').order('data_inicio')),
+      buscarPaginado(() => supabase.from('reminders').select('*').order('disparar_em')),
+      buscarPaginado(() => supabase.from('whatsapp_contacts').select('*').order('created_at', { ascending: false })),
+      buscarPaginado(() => supabase.from('equipment').select('*, fotos:equipment_photos(*)').order('nome')),
+      buscarPaginado(() => supabase.from('safety_occurrences').select('*, fotos:safety_occurrence_photos(*)').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('warnings').select('*, fotos:warning_photos(*)').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('project_disciplines').select('*').order('ordem')),
+      buscarPaginado(() => supabase.from('project_categories').select('*').order('ordem')),
+      buscarPaginado(() => supabase.from('project_stages').select('*').order('ordem')),
+      buscarPaginado(() => supabase.from('project_discipline_statuses').select('*').order('ordem')),
+      buscarPaginado(() => supabase.from('project_notes').select(SELECT_APONTAMENTO).order('created_at', { ascending: false })),
+      buscarPaginado(() => supabase.from('schedule_item_services').select('*')),
       buscarPaginado(() => supabase.from('stock_materials').select('*').order('nome')),
-      supabase.from('stock_entries').select('*').order('data', { ascending: false }),
-      supabase.from('stock_exits').select('*').order('data', { ascending: false }),
-      supabase.from('meal_records').select('*').order('data', { ascending: false }),
-      supabase.from('planned_group_overrides').select('*'),
-      supabase.from('schedule_global_items').select('*').order('data_inicio'),
-      supabase.from('issue_semanas_taticas').select('*'),
-      supabase.from('epi_materials').select('*').order('nome'),
-      supabase.from('epi_entries').select('*').order('data', { ascending: false }),
-      supabase.from('epi_exits').select('*').order('data', { ascending: false }),
-      supabase.from('training_types').select('*').order('nome'),
-      supabase.from('worker_trainings').select('*').order('data_realizacao', { ascending: false }),
+      buscarPaginado(() => supabase.from('stock_entries').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('stock_exits').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('meal_records').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('planned_group_overrides').select('*')),
+      buscarPaginado(() => supabase.from('schedule_global_items').select('*').order('data_inicio')),
+      buscarPaginado(() => supabase.from('issue_semanas_taticas').select('*')),
+      buscarPaginado(() => supabase.from('epi_materials').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('epi_entries').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('epi_exits').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('training_types').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('worker_trainings').select('*').order('data_realizacao', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
