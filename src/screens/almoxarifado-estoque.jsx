@@ -896,11 +896,22 @@ function EtiquetasQR({ aberto, onFechar, materiais, gerando, onImprimir }) {
    cadastrar antes, em outro lugar, o campo de busca já deixa criar
    o material na hora, direto aqui — some do formulário de entrada,
    sobra pronto pra próxima saída. */
+/* Catálogo do Almoxarifado passa de 500 materiais — um <select> puro
+   virou uma lista impossível de rolar até achar o certo, e isso
+   levava a criar material duplicado (mais rápido clicar "Novo" que
+   procurar). A busca filtra as opções antes de escolher; o aviso no
+   formulário de criação reforça conferir antes de criar. */
 function SelecaoMaterial({ materialId, materiais, dados, onEscolher }) {
   const [criando, setCriando] = useState(false)
   const [nome, setNome] = useState('')
   const [unidade, setUnidade] = useState('unid')
   const [salvando, setSalvando] = useState(false)
+  const [busca, setBusca] = useState('')
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    return termo ? materiais.filter((m) => m.nome.toLowerCase().includes(termo)) : materiais
+  }, [materiais, busca])
 
   if (criando) {
     const criar = async () => {
@@ -916,7 +927,7 @@ function SelecaoMaterial({ materialId, materiais, dados, onEscolher }) {
       }
     }
     return (
-      <Campo label="Material novo">
+      <Campo label="Material novo" dica="Confira na busca se ele já não existe antes de criar — evita duplicar.">
         <div className="stack-1">
           <input
             className="ipt" autoFocus value={nome} onChange={(e) => setNome(e.target.value)}
@@ -941,17 +952,25 @@ function SelecaoMaterial({ materialId, materiais, dados, onEscolher }) {
 
   return (
     <Campo label="Material">
-      <div className="row-flex">
-        <select
-          className="sel grow" value={materialId}
-          onChange={(e) => onEscolher(e.target.value)}
-        >
-          <option value="">Escolha o material</option>
-          {materiais.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-        </select>
-        <button className="btn btn-secondary" onClick={() => setCriando(true)}>
-          <Icon name="mais_sinal" size={16} /> Novo
-        </button>
+      <div className="stack-1">
+        <input
+          className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar material…"
+        />
+        <div className="row-flex">
+          <select
+            className="sel grow" value={materialId}
+            onChange={(e) => onEscolher(e.target.value)}
+          >
+            <option value="">
+              {busca.trim() ? `${plural(filtrados.length, 'resultado', 'resultados')} para "${busca.trim()}"` : 'Escolha o material'}
+            </option>
+            {filtrados.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+          </select>
+          <button className="btn btn-secondary" onClick={() => setCriando(true)}>
+            <Icon name="mais_sinal" size={16} /> Novo
+          </button>
+        </div>
       </div>
     </Campo>
   )
