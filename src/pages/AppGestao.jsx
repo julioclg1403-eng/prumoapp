@@ -29,6 +29,7 @@ import Lembretes from '../screens/lembretes'
 import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
+import Suprimentos from '../screens/suprimentos'
 import Usuarios from '../screens/usuarios'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
@@ -80,6 +81,8 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Empresas, colaboradores, locais e serviços' },
     { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
       desc: 'Apontamentos entre projeto e obra, por disciplina' },
+    { chave: 'suprimentos', rotulo: 'Suprimentos', icone: 'pedidos',
+      desc: 'Pedidos de compra importados do sistema, com dashboard de prazo' },
     /* Usuários é admin-only por papel, não por módulo liberável —
        só quem já é admin cria/edita acesso de outra pessoa. Projetos
        já foi assim também; agora segue a mesma lista de módulos
@@ -154,6 +157,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'equipamentos': corpo = <Almoxarifado voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'suprimentos': corpo = <Suprimentos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={pilha.length > 1 ? voltar : null} params={rota.params} />; break

@@ -23,6 +23,7 @@ import {
   hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar,
   cronogramaGlobalCorrespondeEtapa, agruparPlanejamento, etapaCorrespondenteAoGrupo,
   descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO, calcularVencimentoTreinamento,
+  insumoCorrespondeMaterial,
 } from './dominio'
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
@@ -204,6 +205,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
+      suprimentos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -242,6 +244,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('epi_exits').select('*').order('data', { ascending: false })),
       buscarPaginado(() => supabase.from('training_types').select('*').order('nome')),
       buscarPaginado(() => supabase.from('worker_trainings').select('*').order('data_realizacao', { ascending: false })),
+      buscarPaginado(() => supabase.from('supply_orders').select('*').order('pedido', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -251,7 +254,7 @@ export function DadosProvider({ perfil, children }) {
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
-      tiposTreinamento, treinamentosColaboradores].find((r) => r.error)
+      tiposTreinamento, treinamentosColaboradores, suprimentos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -314,6 +317,7 @@ export function DadosProvider({ perfil, children }) {
       saidasEpi: saidasEpi.data || [],
       tiposTreinamento: tiposTreinamento.data || [],
       treinamentosColaboradores: treinamentosColaboradores.data || [],
+      suprimentos: suprimentos.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -408,6 +412,7 @@ export function DadosProvider({ perfil, children }) {
       saidasEpi: filtrar(tudo.saidasEpi),
       tiposTreinamento: filtrar(tudo.tiposTreinamento),
       treinamentosColaboradores: filtrar(tudo.treinamentosColaboradores),
+      suprimentos: filtrar(tudo.suprimentos),
     }
   }, [tudo, obraId])
 
@@ -1693,6 +1698,110 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  // ── Suprimentos (pedidos de compra importados do sistema) ──
+  /* Reimportar a mesma planilha (ou uma mais nova) atualiza a linha
+     que já existe em vez de duplicar — a chave é (worksite, Pedido,
+     Cód. Insumo), que bate com o unique do banco. */
+  const importarSuprimentos = useCallback(
+    async (itens) => {
+      const { organization_id, worksite_id } = escopo()
+      const agora = new Date().toISOString()
+      const linhas = itens.map((i) => ({
+        organization_id, worksite_id, autor_id: perfil.id,
+        pedido: i.pedido, cotacao: i.cotacao, codigo_insumo: i.codigo_insumo, insumo: i.insumo,
+        data_pedido: i.data_pedido, aprov_pedido: i.aprov_pedido, aprov_simulacao: i.aprov_simulacao,
+        confirm_cotacao: i.confirm_cotacao, fechamento_compra: i.fechamento_compra, data_entrega: i.data_entrega,
+        excluido: i.excluido, quantidade: i.quantidade, preco: i.preco,
+        dias_pedido_compra: i.dias_pedido_compra, dias_compra_entrega: i.dias_compra_entrega, estagio: i.estagio,
+        atualizado_em: agora,
+      }))
+      /* Em lotes — 400+ linhas de uma vez o Postgres aguenta numa boa,
+         mas separa pra não arriscar estourar o tamanho do pedido HTTP
+         numa planilha bem maior no futuro. */
+      const TAMANHO_LOTE = 500
+      let total = 0
+      for (let i = 0; i < linhas.length; i += TAMANHO_LOTE) {
+        const lote = linhas.slice(i, i + TAMANHO_LOTE)
+        const r = await supabase.from('supply_orders')
+          .upsert(lote, { onConflict: 'worksite_id,pedido,codigo_insumo' })
+          .select('id')
+        if (r.error) { checar(r, 'importar os pedidos de suprimentos'); return null }
+        total += (r.data || []).length
+      }
+      await recarregar()
+      return { importados: total }
+    },
+    [escopo, perfil.id, checar, recarregar],
+  )
+
+  /* Tenta linkar (por nome parecido) toda entrada — de estoque
+     (material de obra) e de EPI — que ainda não tenha pedido de
+     Suprimentos vinculado. Mesmo mecanismo do Planejamento Global:
+     só linka quando a candidata é única e ainda não foi usada por
+     outra entrada nesta mesma passada; ambíguo (0 ou 2+) fica pra
+     revisão manual, sem arriscar escolher errado. Busca direto no
+     banco (não do estado local) pelo mesmo motivo de lá: evitar
+     corrida logo após um import recém-feito. */
+  const vincularSuprimentoAutomaticamente = useCallback(
+    async () => {
+      const worksite_id = escopo().worksite_id
+      const [pedidosR, materiaisR, epiR, entradasR, entradasEpiR] = await Promise.all([
+        supabase.from('supply_orders').select('id, insumo').eq('worksite_id', worksite_id),
+        supabase.from('stock_materials').select('id, nome').eq('worksite_id', worksite_id),
+        supabase.from('epi_materials').select('id, nome').eq('worksite_id', worksite_id),
+        supabase.from('stock_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
+        supabase.from('epi_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
+      ])
+      if (pedidosR.error || materiaisR.error || epiR.error || entradasR.error || entradasEpiR.error) return { vinculados: 0 }
+
+      const nomeMaterial = new Map((materiaisR.data || []).map((m) => [m.id, m.nome]))
+      const nomeEpi = new Map((epiR.data || []).map((m) => [m.id, m.nome]))
+      const pedidos = pedidosR.data || []
+      const usados = new Set()
+      const atualizacoes = []
+
+      const tentar = (entradas, tabela, nomes) => {
+        for (const e of entradas) {
+          const nome = nomes.get(e.material_id)
+          if (!nome) continue
+          const candidatas = pedidos.filter((p) => !usados.has(p.id) && insumoCorrespondeMaterial(p.insumo, nome))
+          if (candidatas.length === 1) {
+            atualizacoes.push({ tabela, id: e.id, supply_order_id: candidatas[0].id })
+            usados.add(candidatas[0].id)
+          }
+        }
+      }
+      tentar(entradasR.data || [], 'stock_entries', nomeMaterial)
+      tentar(entradasEpiR.data || [], 'epi_entries', nomeEpi)
+
+      for (const a of atualizacoes) {
+        await supabase.from(a.tabela).update({ supply_order_id: a.supply_order_id }).eq('id', a.id)
+      }
+      if (atualizacoes.length) await recarregar()
+      return { vinculados: atualizacoes.length }
+    },
+    [escopo, recarregar],
+  )
+
+  /* Vínculo manual — quando o nome não bate parecido o bastante pro
+     automático achar sozinho (ou bate em mais de um pedido).
+     supplyOrderId null desvincula. `tabela` é 'estoque' ou 'epi', pra
+     saber se mexe em stock_entries ou epi_entries. */
+  const vincularEntradaSuprimento = useCallback(
+    async (tabela, entradaId, supplyOrderId) => {
+      const nomeTabela = tabela === 'epi' ? 'epi_entries' : 'stock_entries'
+      const r = await supabase.from(nomeTabela).update({ supply_order_id: supplyOrderId }).eq('id', entradaId).select('id')
+      if (r.error) { checar(r, 'vincular ao pedido de suprimentos'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não pode vincular isso.')
+        return false
+      }
+      await recarregar()
+      return true
+    },
+    [checar, avisarErro, recarregar],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -2605,6 +2714,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
+      importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
@@ -2634,6 +2744,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
+      importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,

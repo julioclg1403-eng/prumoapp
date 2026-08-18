@@ -314,6 +314,7 @@ export const MODULOS_RESTRINGIVEIS = [
   { chave: 'equipamentos', rotulo: 'Almoxarifado' },
   { chave: 'seguranca', rotulo: 'Segurança' },
   { chave: 'projetos', rotulo: 'Projetos' },
+  { chave: 'suprimentos', rotulo: 'Suprimentos' },
   { chave: 'cadastros', rotulo: 'Cadastros' },
 ]
 
@@ -1150,6 +1151,25 @@ export function cronogramaGlobalCorrespondeEtapa(descricaoGlobal, descricaoEtapa
   const maior = g.length >= e.length ? g : e
   const menor = g.length >= e.length ? e : g
   if (menor.length < 6) return false
+  return maior.includes(menor)
+}
+
+/* Mesma ideia (nome parecido, não exigir texto idêntico) pra casar o
+   "Insumo" de um pedido de Suprimentos (nome do sistema/ERP) com o
+   nome já cadastrado no Almoxarifado — usado pra vincular a entrada
+   que o almoxarife lança na hora (a nota chega antes do sistema
+   atualizar) ao pedido oficial. Limite maior que o do cronograma (8,
+   não 6): nome de material costuma ser mais técnico e curto demais
+   vira falso positivo fácil (ex.: "PREGO 17X21" dentro de "PREGO
+   17X21X25KG" já é arriscado; "TABUA 2,5" seria pior ainda). */
+export function insumoCorrespondeMaterial(nomeInsumo, nomeMaterial) {
+  const a = normalizarParaCasar(nomeInsumo)
+  const b = normalizarParaCasar(nomeMaterial)
+  if (!a || !b) return false
+  if (a === b) return true
+  const maior = a.length >= b.length ? a : b
+  const menor = a.length >= b.length ? b : a
+  if (menor.length < 8) return false
   return maior.includes(menor)
 }
 

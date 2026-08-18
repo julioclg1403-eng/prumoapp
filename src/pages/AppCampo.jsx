@@ -29,6 +29,7 @@ import Lembretes from '../screens/lembretes'
 import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
+import Suprimentos from '../screens/suprimentos'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
 /* Mesma lista/filtro do AppGestao (dominio.moduloPermitido): admin
@@ -48,6 +49,7 @@ const TODOS_ITENS = [
   { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
   { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
   { chave: 'projetos', rotulo: 'Projetos', desc: 'Apontamentos entre projeto e obra, por disciplina', icone: 'projeto' },
+  { chave: 'suprimentos', rotulo: 'Suprimentos', desc: 'Pedidos de compra importados do sistema, com dashboard de prazo', icone: 'pedidos' },
   { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
 ]
 
@@ -116,6 +118,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} params={rota.params} />; break
     case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} params={rota.params} />; break
     case 'projetos':     corpo = <Projetos goto={goto} voltar={voltar} perfil={perfil} />; break
+    case 'suprimentos':  corpo = <Suprimentos voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={voltar} params={rota.params} />; break
     case 'mais':         corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break
