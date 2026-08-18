@@ -18,6 +18,13 @@ export function linkQrMaterial(materialId, tipo = 'estoque') {
   return `${window.location.origin}${window.location.pathname}?qr=${materialId}${sufixo}`
 }
 
+/* Mesmo mecanismo do QR de material, mas pra abrir a consulta (só
+   leitura) de um colaborador — treinamentos NR e EPIs entregues. Ver
+   useAbrirQrColaborador.js pra ponta de chegada. */
+export function linkQrColaborador(workerId) {
+  return `${window.location.origin}${window.location.pathname}?qr=${workerId}&t=colaborador`
+}
+
 export async function gerarQRDataURL(texto) {
   return QRCode.toDataURL(texto, { margin: 1, width: 260 })
 }

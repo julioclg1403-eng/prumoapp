@@ -25,8 +25,11 @@ export function useAbrirQrMaterial(dados, goto) {
 
     const parametros = new URLSearchParams(window.location.search)
     const materialId = parametros.get('qr')
-    if (!materialId) { tratado.current = true; return }
-    const epi = parametros.get('t') === 'epi'
+    const tipoParam = parametros.get('t')
+    /* t=colaborador é de outro QR (useAbrirQrColaborador) — não
+       trata aqui, e não marca erro: o outro hook cuida dele. */
+    if (!materialId || tipoParam === 'colaborador') { tratado.current = true; return }
+    const epi = tipoParam === 'epi'
 
     tratado.current = true
     window.history.replaceState(null, '', window.location.pathname)

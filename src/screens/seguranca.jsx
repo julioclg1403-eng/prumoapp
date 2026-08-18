@@ -25,6 +25,7 @@ import {
   CampoFotos, VisorFoto, useLinksDeFotos,
   RelatorioFolha, SecaoRelatorio, FotosRelatorio,
 } from '../components'
+import { linkQrColaborador, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import SegurancaEpi from './seguranca-epi'
 
 /* Uma linha rótulo/valor no aviso impresso. */
@@ -661,6 +662,8 @@ function Treinamentos({ dados, perfil }) {
   const [mesEscolhido, setMesEscolhido] = useState(hojeISO().slice(0, 7))
   const [periodoInicio, setPeriodoInicio] = useState(hojeISO())
   const [periodoFim, setPeriodoFim] = useState(hojeISO())
+  const [etiquetando, setEtiquetando] = useState(false)
+  const [gerandoEtiquetas, setGerandoEtiquetas] = useState(false)
 
   const podeExcluir = perfil?.role !== 'campo'
 
@@ -669,6 +672,32 @@ function Treinamentos({ dados, perfil }) {
     [dados.tiposTreinamento],
   )
   const treinamentos = dados.treinamentosColaboradores || []
+
+  /* Lista cheia, sem os filtros de busca/período — a etiqueta é
+     independente do que está sendo olhado na hora. */
+  const todosColaboradoresAtivos = useMemo(
+    () => dados.colaboradores.filter((c) => c.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    [dados.colaboradores],
+  )
+
+  const imprimirEtiquetasColaborador = async (lista) => {
+    if (!lista.length || gerandoEtiquetas) return
+    const janela = abrirJanelaEtiquetas()
+    if (!janela) {
+      dados.avisarErro('O navegador bloqueou a janela de impressão. Libere pop-ups pra este site e tente de novo.')
+      return
+    }
+    setGerandoEtiquetas(true)
+    try {
+      const etiquetas = await Promise.all(lista.map(async (c) => ({
+        nome: c.nome,
+        dataUrl: await gerarQRDataURL(linkQrColaborador(c.id)),
+      })))
+      escreverEtiquetas(janela, etiquetas, dados.obra.nome)
+    } finally {
+      setGerandoEtiquetas(false)
+    }
+  }
 
   /* Período filtra por data de REALIZAÇÃO — "quem fez treinamento
      nesse recorte", não a validade. O status/vencimento mostrado
@@ -779,6 +808,13 @@ function Treinamentos({ dados, perfil }) {
 
   return (
     <>
+      <button
+        className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start', marginBottom: 10 }}
+        onClick={() => setEtiquetando(true)}
+      >
+        <Icon name="qrcode" size={16} /> Etiquetas QR
+      </button>
+
       {(totais.vencidos > 0 || totais.aVencer > 0) && (
         <div className="row-wrap" style={{ gap: 8, marginBottom: 10 }}>
           {totais.vencidos > 0 && <Chip tom="danger">{plural(totais.vencidos, 'treinamento vencido', 'treinamentos vencidos')}</Chip>}
@@ -972,6 +1008,104 @@ function Treinamentos({ dados, perfil }) {
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
+
+      <EtiquetasQRColaborador
+        aberto={etiquetando}
+        onFechar={() => setEtiquetando(false)}
+        colaboradores={todosColaboradoresAtivos}
+        gerando={gerandoEtiquetas}
+        onImprimir={imprimirEtiquetasColaborador}
+      />
     </>
+  )
+}
+
+/* ── Etiquetas QR do colaborador — escolhe quem imprimir ─────
+   Mesmo padrão das etiquetas de EPI (seguranca-epi.jsx): nasce com
+   tudo marcado, busca filtra a lista, cada QR aponta pra consulta
+   (só leitura) daquele colaborador — treinamentos e EPIs entregues. */
+function EtiquetasQRColaborador({ aberto, onFechar, colaboradores, gerando, onImprimir }) {
+  const [busca, setBusca] = useState('')
+  const [selecionados, setSelecionados] = useState(() => new Set())
+
+  useEffect(() => {
+    if (aberto) setSelecionados(new Set(colaboradores.map((c) => c.id)))
+    else setBusca('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto])
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    return termo ? colaboradores.filter((c) => c.nome.toLowerCase().includes(termo)) : colaboradores
+  }, [colaboradores, busca])
+
+  const alternar = (id) => setSelecionados((s) => {
+    const novo = new Set(s)
+    if (novo.has(id)) novo.delete(id); else novo.add(id)
+    return novo
+  })
+
+  const todosFiltradosMarcados = filtrados.length > 0 && filtrados.every((c) => selecionados.has(c.id))
+  const alternarTodos = () => setSelecionados((s) => {
+    const novo = new Set(s)
+    if (todosFiltradosMarcados) filtrados.forEach((c) => novo.delete(c.id))
+    else filtrados.forEach((c) => novo.add(c.id))
+    return novo
+  })
+
+  const confirmar = async () => {
+    const lista = colaboradores.filter((c) => selecionados.has(c.id))
+    await onImprimir(lista)
+    onFechar()
+  }
+
+  return (
+    <Sheet
+      aberto={aberto}
+      titulo="Etiquetas QR de colaborador"
+      onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={confirmar} disabled={gerando || selecionados.size === 0}>
+            {gerando ? 'Gerando…' : `Imprimir ${plural(selecionados.size, 'etiqueta', 'etiquetas')}`}
+          </button>
+        </div>
+      }
+    >
+      <div className="stack-2">
+        <div className="t-caption" style={{ lineHeight: 1.5 }}>
+          Cada etiqueta traz o QR Code e o nome do colaborador embaixo. Apontando a câmera do
+          celular nela, abre a consulta (só leitura) dos treinamentos NR e EPIs entregues a ele —
+          sem precisar procurar a pessoa em nenhuma lista.
+        </div>
+
+        {colaboradores.length === 0 ? (
+          <div className="t-caption">Nenhum colaborador cadastrado ainda.</div>
+        ) : (
+          <>
+            <input
+              className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar colaborador…"
+            />
+            <button className="btn btn-ghost btn-sm" onClick={alternarTodos} style={{ alignSelf: 'flex-start' }}>
+              {todosFiltradosMarcados ? 'Limpar seleção' : 'Selecionar todos'}
+            </button>
+            <div style={{ maxHeight: 360, overflowY: 'auto' }} className="stack-1">
+              {filtrados.map((c) => (
+                <label
+                  key={c.id} className="card-flat row-flex"
+                  style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                >
+                  <input type="checkbox" checked={selecionados.has(c.id)} onChange={() => alternar(c.id)} />
+                  <span className="grow">{c.nome}</span>
+                </label>
+              ))}
+              {filtrados.length === 0 && <div className="t-caption">Nada com esse nome.</div>}
+            </div>
+          </>
+        )}
+      </div>
+    </Sheet>
   )
 }

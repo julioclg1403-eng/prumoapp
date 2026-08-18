@@ -9,6 +9,7 @@ import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro, AvisoAbrirPeloIcone } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
+import { useAbrirQrColaborador } from '../lib/useAbrirQrColaborador'
 import {
   contarPendencias, pendenciasGerais, pendentesDeRevisao, contarRequisicoes, situacaoLembrete,
 } from '../lib/dominio'
@@ -29,6 +30,7 @@ import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
 import Usuarios from '../screens/usuarios'
+import ConsultaColaborador from '../screens/consulta-colaborador'
 
 export default function AppGestao({ perfil, onSair }) {
   const desktop = useDesktop()
@@ -47,6 +49,7 @@ export default function AppGestao({ perfil, onSair }) {
   const irParaAba = (chave, params = {}) => setPilha([{ screen: chave, params }])
 
   useAbrirQrMaterial(dados, goto)
+  useAbrirQrColaborador(dados, goto)
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
@@ -111,7 +114,7 @@ export default function AppGestao({ perfil, onSair }) {
      acima, então chegam direto no `goto`. `diario`/`requisicao` são
      telas de detalhe sem entrada própria no menu — herdam a permissão
      do módulo que as abre. */
-  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes' }
+  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes', consultaColaborador: 'seguranca' }
   const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
   /* Usuários é admin-only de verdade — não passa pela lista de
      módulos restringíveis, vira "sim" só pra quem é admin. Projetos
@@ -153,6 +156,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'consultaColaborador': corpo = <ConsultaColaborador voltar={pilha.length > 1 ? voltar : null} params={rota.params} />; break
     case 'mais':       corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break
     default:           corpo = <InicioGestao goto={goto} irParaAba={irParaAba} perfil={perfil} />
   }

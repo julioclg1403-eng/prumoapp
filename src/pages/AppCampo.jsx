@@ -12,6 +12,7 @@ import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro, AvisoAbrirPeloIcone, SeletorObra } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
+import { useAbrirQrColaborador } from '../lib/useAbrirQrColaborador'
 import { contarPendencias, pendenciasGerais, moduloPermitido } from '../lib/dominio'
 
 import InicioCampo from '../screens/inicio-campo'
@@ -28,6 +29,7 @@ import Lembretes from '../screens/lembretes'
 import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
+import ConsultaColaborador from '../screens/consulta-colaborador'
 
 /* Mesma lista/filtro do AppGestao (dominio.moduloPermitido): admin
    sempre vê tudo, sem modulos_permitidos definido não tem restrição,
@@ -70,6 +72,7 @@ export default function AppCampo({ perfil, onSair }) {
   const irParaAba = (chave, params = {}) => setPilha([{ screen: chave, params }])
 
   useAbrirQrMaterial(dados, goto)
+  useAbrirQrColaborador(dados, goto)
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
 
@@ -83,7 +86,7 @@ export default function AppCampo({ perfil, onSair }) {
   /* Um atalho do Início ou um link salvo não passa pela lista de
      itens acima, então chega direto no `goto` — segunda trava, além
      do menu escondido. */
-  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes' }
+  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes', consultaColaborador: 'seguranca' }
   const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
   const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || moduloPermitido(perfil, chaveDoModulo)
 
@@ -114,6 +117,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'seguranca':    corpo = <Seguranca voltar={voltar} perfil={perfil} params={rota.params} />; break
     case 'projetos':     corpo = <Projetos goto={goto} voltar={voltar} perfil={perfil} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
+    case 'consultaColaborador': corpo = <ConsultaColaborador voltar={voltar} params={rota.params} />; break
     case 'mais':         corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break
     default:             corpo = <InicioCampo goto={goto} irParaAba={irParaAba} perfil={perfil} />
   }
