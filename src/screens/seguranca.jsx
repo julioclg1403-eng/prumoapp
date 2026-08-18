@@ -14,7 +14,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, plural,
+  hojeISO, formatarData, plural, normalizarParaCasar,
   TIPOS_OCORRENCIA_SEGURANCA, ROTULO_OCORRENCIA_SEGURANCA,
   GRAVIDADES, ROTULO_GRAVIDADE, TOM_GRAVIDADE,
   TIPOS_ADVERTENCIA, ROTULO_ADVERTENCIA,
@@ -654,6 +654,13 @@ function Treinamentos({ dados, perfil }) {
   const [novoRegistro, setNovoRegistro] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [busca, setBusca] = useState('')
+  const [agrupamento, setAgrupamento] = useState('nome')
+  const [modoPeriodo, setModoPeriodo] = useState('tudo')
+  const [dataDia, setDataDia] = useState(hojeISO())
+  const [mesEscolhido, setMesEscolhido] = useState(hojeISO().slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hojeISO())
+  const [periodoFim, setPeriodoFim] = useState(hojeISO())
 
   const podeExcluir = perfil?.role !== 'campo'
 
@@ -661,11 +668,35 @@ function Treinamentos({ dados, perfil }) {
     () => (dados.tiposTreinamento || []).filter((t) => t.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
     [dados.tiposTreinamento],
   )
-  const colaboradoresAtivos = useMemo(
-    () => dados.colaboradores.filter((c) => c.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
-    [dados.colaboradores],
-  )
   const treinamentos = dados.treinamentosColaboradores || []
+
+  /* Período filtra por data de REALIZAÇÃO — "quem fez treinamento
+     nesse recorte", não a validade. O status/vencimento mostrado
+     continua vindo do treinamento mais recente de cada um, sem
+     recorte, senão filtrar por período quebraria a leitura do
+     "está em dia ou não" de quem simplesmente não renovou no
+     período escolhido. */
+  const idsComTreinamentoNoPeriodo = useMemo(() => {
+    if (modoPeriodo === 'tudo') return null
+    let doPeriodo
+    if (modoPeriodo === 'dia') doPeriodo = treinamentos.filter((t) => t.data_realizacao === dataDia)
+    else if (modoPeriodo === 'mes') doPeriodo = treinamentos.filter((t) => t.data_realizacao.slice(0, 7) === mesEscolhido)
+    else {
+      const ini = periodoInicio <= periodoFim ? periodoInicio : periodoFim
+      const fim = periodoInicio <= periodoFim ? periodoFim : periodoInicio
+      doPeriodo = treinamentos.filter((t) => t.data_realizacao >= ini && t.data_realizacao <= fim)
+    }
+    return new Set(doPeriodo.map((t) => t.worker_id))
+  }, [treinamentos, modoPeriodo, dataDia, mesEscolhido, periodoInicio, periodoFim])
+
+  const colaboradoresAtivos = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    return dados.colaboradores
+      .filter((c) => c.ativo !== false)
+      .filter((c) => !idsComTreinamentoNoPeriodo || idsComTreinamentoNoPeriodo.has(c.id))
+      .filter((c) => !termo || c.nome.toLowerCase().includes(termo) || (c.funcao || '').toLowerCase().includes(termo))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [dados.colaboradores, idsComTreinamentoNoPeriodo, busca])
 
   const resumoPorColaborador = useMemo(() => colaboradoresAtivos.map((c) => {
     const linhas = tipos.map((t) => {
@@ -683,6 +714,33 @@ function Treinamentos({ dados, perfil }) {
   const totais = useMemo(() => resumoPorColaborador.reduce((acc, r) => ({
     vencidos: acc.vencidos + r.vencidos, aVencer: acc.aVencer + r.aVencer,
   }), { vencidos: 0, aVencer: 0 }), [resumoPorColaborador])
+
+  /* Mesmo padrão de agrupamento da tela Cadastros / da ficha de EPI
+     por colaborador. */
+  const gruposTreinamento = useMemo(() => {
+    if (agrupamento === 'nome') return null
+    const grupos = new Map()
+    resumoPorColaborador.forEach((item) => {
+      let chave, rotuloSemDado, rotulo
+      if (agrupamento === 'funcao') {
+        const funcao = (item.colaborador.funcao || '').trim()
+        chave = funcao ? normalizarParaCasar(funcao) : ''
+        rotuloSemDado = 'Sem função'
+        rotulo = funcao || rotuloSemDado
+      } else {
+        chave = item.colaborador.company_id || ''
+        rotuloSemDado = 'Sem empresa'
+        rotulo = item.colaborador.company_id ? dados.nomeDe(dados.empresas, item.colaborador.company_id) : rotuloSemDado
+      }
+      if (!grupos.has(chave)) grupos.set(chave, { rotulo, rotuloSemDado, itens: [] })
+      grupos.get(chave).itens.push(item)
+    })
+    return Array.from(grupos.values()).sort((a, b) => {
+      if (a.rotulo === a.rotuloSemDado) return 1
+      if (b.rotulo === b.rotuloSemDado) return -1
+      return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
+    })
+  }, [agrupamento, resumoPorColaborador, dados])
 
   const fecharTudo = () => { setColaboradorAberto(null); setRegistrandoTipo(null); setNovoRegistro(null) }
 
@@ -728,9 +786,87 @@ function Treinamentos({ dados, perfil }) {
         </div>
       )}
 
+      <div className="stack-2" style={{ marginBottom: 10 }}>
+        <div style={{ position: 'relative' }}>
+          <Icon
+            name="busca" size={16}
+            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }}
+          />
+          <input
+            className="ipt" style={{ paddingLeft: 34, width: '100%' }}
+            value={busca} onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar colaborador por nome ou função…"
+          />
+        </div>
+
+        <Segmentos
+          valor={agrupamento}
+          onChange={setAgrupamento}
+          opcoes={[
+            { valor: 'nome', rotulo: 'Por nome' },
+            { valor: 'funcao', rotulo: 'Por função' },
+            { valor: 'empresa', rotulo: 'Por empresa' },
+          ]}
+        />
+
+        <Segmentos
+          valor={modoPeriodo}
+          onChange={setModoPeriodo}
+          opcoes={[
+            { valor: 'tudo', rotulo: 'Tudo' },
+            { valor: 'dia', rotulo: 'Dia' },
+            { valor: 'mes', rotulo: 'Mês' },
+            { valor: 'periodo', rotulo: 'Período' },
+          ]}
+        />
+        {modoPeriodo === 'dia' && (
+          <input className="ipt" type="date" value={dataDia} onChange={(e) => setDataDia(e.target.value)} />
+        )}
+        {modoPeriodo === 'mes' && (
+          <input className="ipt" type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} />
+        )}
+        {modoPeriodo === 'periodo' && (
+          <div className="row-flex">
+            <Campo label="De">
+              <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
+            </Campo>
+            <Campo label="Até">
+              <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
+            </Campo>
+          </div>
+        )}
+      </div>
+
       {colaboradoresAtivos.length === 0 ? (
         <div className="card-flat">
-          <Vazio titulo="Nenhum colaborador" texto="Cadastre colaboradores para acompanhar os treinamentos deles." />
+          <Vazio
+            titulo="Nenhum colaborador"
+            texto={
+              busca || modoPeriodo !== 'tudo'
+                ? 'Nada com esse filtro — troque a busca ou o período.'
+                : 'Cadastre colaboradores para acompanhar os treinamentos deles.'
+            }
+          />
+        </div>
+      ) : gruposTreinamento ? (
+        <div className="stack-3">
+          {gruposTreinamento.map(({ rotulo, itens }) => (
+            <div key={rotulo} className="stack-1">
+              <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
+              </div>
+              {itens.map((r) => (
+                <ItemLista
+                  key={r.colaborador.id}
+                  titulo={r.colaborador.nome}
+                  sub={r.colaborador.funcao || ''}
+                  aviso={r.pior === 'vencido'}
+                  onClick={() => setColaboradorAberto(r.colaborador)}
+                  direita={<Chip tom={TOM_STATUS_TREINAMENTO[r.pior]}>{ROTULO_STATUS_TREINAMENTO[r.pior]}</Chip>}
+                />
+              ))}
+            </div>
+          ))}
         </div>
       ) : (
         <div className="stack-1">

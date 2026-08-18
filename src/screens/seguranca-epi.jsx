@@ -49,6 +49,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [imprimindoFichaEpi, setImprimindoFichaEpi] = useState(false)
   const [buscaColaboradorSaida, setBuscaColaboradorSaida] = useState('')
   const [diaHistoricoAberto, setDiaHistoricoAberto] = useState(null)
+  const [buscaColaboradorLista, setBuscaColaboradorLista] = useState('')
   const [agrupamentoColab, setAgrupamentoColab] = useState('nome')
   const [modoPeriodo, setModoPeriodo] = useState('tudo')
   const [dataDia, setDataDia] = useState(hoje)
@@ -136,11 +137,13 @@ export default function SegurancaEpi({ perfil, params = {} }) {
       if (!porColaborador.has(s.worker_id)) porColaborador.set(s.worker_id, [])
       porColaborador.get(s.worker_id).push(s)
     }
+    const termo = buscaColaboradorLista.trim().toLowerCase()
     return dados.colaboradores
       .filter((c) => porColaborador.has(c.id))
+      .filter((c) => !termo || c.nome.toLowerCase().includes(termo))
       .map((c) => ({ colaborador: c, entregas: porColaborador.get(c.id) }))
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'))
-  }, [saidasNoPeriodo, dados.colaboradores])
+  }, [saidasNoPeriodo, dados.colaboradores, buscaColaboradorLista])
 
   /* Mesmo padrão de agrupamento da tela Cadastros (colaboradores):
      por função agrupa pelo texto normalizado, por empresa pelo
@@ -391,6 +394,18 @@ export default function SegurancaEpi({ perfil, params = {} }) {
 
       {aba === 'porColaborador' && (
         <div className="stack-2">
+          <div style={{ position: 'relative' }}>
+            <Icon
+              name="busca" size={16}
+              style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }}
+            />
+            <input
+              className="ipt" style={{ paddingLeft: 34, width: '100%' }}
+              value={buscaColaboradorLista} onChange={(e) => setBuscaColaboradorLista(e.target.value)}
+              placeholder="Buscar colaborador…"
+            />
+          </div>
+
           <Segmentos
             valor={agrupamentoColab}
             onChange={setAgrupamentoColab}
