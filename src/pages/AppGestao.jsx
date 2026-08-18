@@ -75,14 +75,14 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'O que você marcou pra não esquecer' },
     { chave: 'equipamentos', rotulo: 'Almoxarifado', icone: 'equipamento',
       desc: 'Máquinas e ferramentas, e onde cada uma está' },
-    { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
-      desc: 'Ocorrências e advertências da obra' },
-    { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
-      desc: 'Empresas, colaboradores, locais e serviços' },
-    { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
-      desc: 'Apontamentos entre projeto e obra, por disciplina' },
     { chave: 'suprimentos', rotulo: 'Suprimentos', icone: 'pedidos',
       desc: 'Pedidos de compra importados do sistema, com dashboard de prazo' },
+    { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
+      desc: 'Ocorrências e advertências da obra' },
+    { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
+      desc: 'Apontamentos entre projeto e obra, por disciplina' },
+    { chave: 'cadastros', rotulo: 'Cadastros', icone: 'cadastros',
+      desc: 'Empresas, colaboradores, locais e serviços' },
     /* Usuários é admin-only por papel, não por módulo liberável —
        só quem já é admin cria/edita acesso de outra pessoa. Projetos
        já foi assim também; agora segue a mesma lista de módulos

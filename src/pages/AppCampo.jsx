@@ -47,9 +47,9 @@ const TODOS_ITENS = [
   { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
   { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
   { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
+  { chave: 'suprimentos', rotulo: 'Suprimentos', desc: 'Pedidos de compra importados do sistema, com dashboard de prazo', icone: 'pedidos' },
   { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
   { chave: 'projetos', rotulo: 'Projetos', desc: 'Apontamentos entre projeto e obra, por disciplina', icone: 'projeto' },
-  { chave: 'suprimentos', rotulo: 'Suprimentos', desc: 'Pedidos de compra importados do sistema, com dashboard de prazo', icone: 'pedidos' },
   { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
 ]
 
