@@ -9,9 +9,12 @@
    que a permissão recusaria em silêncio.
    ============================================================ */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { STATUS_EQUIPAMENTO, ROTULO_STATUS_EQUIPAMENTO, TOM_STATUS_EQUIPAMENTO } from '../lib/dominio'
+import {
+  STATUS_EQUIPAMENTO, ROTULO_STATUS_EQUIPAMENTO, TOM_STATUS_EQUIPAMENTO,
+  pedidosEquipamentoSemCadastro, formatarDataCurta, plural,
+} from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio,
   CampoFotos, VisorFoto, useLinksDeFotos,
@@ -36,7 +39,16 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
     : filtro === 'todos' ? ativos
       : ativos.filter((e) => e.status === filtro)
 
-  const abrirNovo = () => setEditando({ status: 'disponivel', fotos: [] })
+  const abrirNovo = (nomeSugerido = '') => setEditando({ status: 'disponivel', fotos: [], nome: nomeSugerido })
+
+  /* Pedidos de Suprimentos marcados como Destino "Equipamentos" cujo
+     insumo ainda não tem nenhum equipamento cadastrado com nome
+     parecido — lembrete pra cadastrar, não é vínculo por quantidade
+     (equipamento é por unidade, não por saldo). */
+  const pendentesSuprimentos = useMemo(
+    () => pedidosEquipamentoSemCadastro(dados.suprimentos, todos),
+    [dados.suprimentos, todos],
+  )
 
   const salvar = async () => {
     if (!editando?.nome?.trim()) return
@@ -111,7 +123,7 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
           titulo="Equipamentos"
           sub="Máquinas e ferramentas da obra, e onde cada uma está"
           acao={podeEditar && (
-            <button className="btn btn-primary" onClick={abrirNovo}>
+            <button className="btn btn-primary" onClick={() => abrirNovo()}>
               <Icon name="mais_sinal" size={18} /> Novo
             </button>
           )}
@@ -132,10 +144,11 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
                 valor: s, rotulo: ROTULO_STATUS_EQUIPAMENTO[s],
                 contador: ativos.filter((e) => e.status === s).length,
               })),
+              { valor: 'suprimentos', rotulo: 'Suprimentos', contador: pendentesSuprimentos.length },
             ]}
           />
 
-          {arquivados.length > 0 && (
+          {arquivados.length > 0 && filtro !== 'suprimentos' && (
             <button
               className={`btn btn-sm ${filtro === 'arquivados' ? 'btn-dark' : 'btn-ghost'}`}
               style={{ alignSelf: 'flex-start' }}
@@ -145,7 +158,37 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
             </button>
           )}
 
-          {lista.length === 0 ? (
+          {filtro === 'suprimentos' && (
+            pendentesSuprimentos.length === 0 ? (
+              <div className="card-flat">
+                <Vazio
+                  titulo="Nada pendente"
+                  texto="Todo pedido de Suprimentos marcado como Destino Equipamentos já tem um equipamento cadastrado com nome parecido — ou ainda não tem nenhum pedido assim."
+                />
+              </div>
+            ) : (
+              <div className="stack-1">
+                {pendentesSuprimentos.map((p) => (
+                  <ItemLista
+                    key={p.insumo}
+                    titulo={p.insumo}
+                    sub={[
+                      `${plural(p.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                      p.ultimaEntrega ? `última em ${formatarDataCurta(p.ultimaEntrega)}` : null,
+                      `qtde total ${p.quantidade}`,
+                    ].filter(Boolean).join(' · ')}
+                    direita={podeEditar && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => abrirNovo(p.insumo)}>
+                        Cadastrar equipamento
+                      </button>
+                    )}
+                  />
+                ))}
+              </div>
+            )
+          )}
+
+          {filtro === 'suprimentos' ? null : lista.length === 0 ? (
             <div className="card-flat">
               <Vazio
                 titulo="Nada por aqui"
@@ -155,7 +198,7 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
                     : 'Nenhum equipamento neste filtro.'
                 }
                 acao={podeEditar && filtro !== 'arquivados' && (
-                  <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar equipamento</button>
+                  <button className="btn btn-primary" onClick={() => abrirNovo()}>Cadastrar equipamento</button>
                 )}
               />
             </div>

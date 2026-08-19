@@ -1763,15 +1763,16 @@ export function DadosProvider({ perfil, children }) {
   const vincularSuprimentoAutomaticamente = useCallback(
     async () => {
       const worksite_id = escopo().worksite_id
-      const [pedidosR, materiaisR, epiR, entradasR, entradasEpiR, semDestinoR] = await Promise.all([
+      const [pedidosR, materiaisR, epiR, equipR, entradasR, entradasEpiR, semDestinoR] = await Promise.all([
         supabase.from('supply_orders').select('id, insumo').eq('worksite_id', worksite_id).is('entrada_id', null),
         supabase.from('stock_materials').select('id, nome').eq('worksite_id', worksite_id),
         supabase.from('epi_materials').select('id, nome').eq('worksite_id', worksite_id),
+        supabase.from('equipment').select('id, nome').eq('worksite_id', worksite_id),
         supabase.from('stock_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
         supabase.from('epi_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
         supabase.from('supply_orders').select('insumo').eq('worksite_id', worksite_id).is('destino', null),
       ])
-      if (pedidosR.error || materiaisR.error || epiR.error || entradasR.error || entradasEpiR.error || semDestinoR.error) {
+      if (pedidosR.error || materiaisR.error || epiR.error || equipR.error || entradasR.error || entradasEpiR.error || semDestinoR.error) {
         return { vinculados: 0, destinosDetectados: 0 }
       }
 
@@ -1812,13 +1813,18 @@ export function DadosProvider({ perfil, children }) {
 
       const nomesMateriais = [...nomeMaterial.values()]
       const nomesEpi = [...nomeEpi.values()]
+      const nomesEquipamentos = (equipR.data || []).map((e) => e.nome)
       const insumosSemDestino = [...new Set((semDestinoR.data || []).map((p) => p.insumo))]
       const destinoPorInsumo = new Map()
       for (const insumo of insumosSemDestino) {
         const bateAlmoxarifado = nomesMateriais.some((n) => insumoCorrespondeMaterial(insumo, n))
         const bateEpi = nomesEpi.some((n) => insumoCorrespondeMaterial(insumo, n))
-        if (bateAlmoxarifado && !bateEpi) destinoPorInsumo.set(insumo, 'almoxarifado')
-        else if (bateEpi && !bateAlmoxarifado) destinoPorInsumo.set(insumo, 'epi')
+        const bateEquipamento = nomesEquipamentos.some((n) => insumoCorrespondeMaterial(insumo, n))
+        const bateram = [bateAlmoxarifado, bateEpi, bateEquipamento].filter(Boolean).length
+        if (bateram !== 1) continue
+        if (bateAlmoxarifado) destinoPorInsumo.set(insumo, 'almoxarifado')
+        else if (bateEpi) destinoPorInsumo.set(insumo, 'epi')
+        else destinoPorInsumo.set(insumo, 'equipamentos')
       }
       let destinosDetectados = 0
       for (const [insumo, destino] of destinoPorInsumo) {

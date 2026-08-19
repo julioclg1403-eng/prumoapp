@@ -1330,6 +1330,29 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
     .sort((a, b) => Math.abs(b.diferenca) - Math.abs(a.diferenca))
 }
 
+/* Mesma ideia do resumoRecebidoSuprimentos, mas pro Destino
+   "Equipamentos" — que não tem entrada/saída por quantidade como
+   material e EPI, é cadastro individual (cada unidade é um registro
+   próprio, com status). Aqui não dá pra "somar e bater diferença";
+   o que interessa é achar pedido cujo insumo ainda não tem NENHUM
+   equipamento cadastrado com nome parecido, pra lembrar de cadastrar. */
+export function pedidosEquipamentoSemCadastro(pedidos, equipamentos) {
+  const porInsumo = new Map()
+  for (const p of (pedidos || [])) {
+    if (p.destino !== 'equipamentos' || !p.data_entrega) continue
+    const atual = porInsumo.get(p.insumo) || { quantidade: 0, ultimaEntrega: null, pedidos: 0 }
+    atual.quantidade += Number(p.quantidade || 0)
+    atual.pedidos += 1
+    if (!atual.ultimaEntrega || p.data_entrega > atual.ultimaEntrega) atual.ultimaEntrega = p.data_entrega
+    porInsumo.set(p.insumo, atual)
+  }
+
+  return [...porInsumo.entries()]
+    .filter(([insumo]) => !(equipamentos || []).some((eq) => insumoCorrespondeMaterial(insumo, eq.nome)))
+    .map(([insumo, info]) => ({ insumo, ...info }))
+    .sort((a, b) => (a.ultimaEntrega < b.ultimaEntrega ? 1 : -1))
+}
+
 /* ── Controle de refeições (Almoxarifado) ─────────────────────
    As duas planilhas do Julio (terceirizado e próprio) são a MESMA
    coisa — data × empresa × quantidade — só que a de terceirizado
