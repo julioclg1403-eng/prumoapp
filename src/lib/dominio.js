@@ -59,6 +59,27 @@ export function diffDias(isoA, isoB) {
   return Math.round(ms / 86400000)
 }
 
+/* Filtro de período genérico — mesmo recorte "Tudo/Dia/Mês/Período"
+   usado em várias telas (Por Colaborador do EPI/Material/Equipamentos),
+   só que reutilizável em vez de reescrever a cada lugar novo.
+   `obterData(item)` devolve a data ISO do item (ou null/undefined, que
+   aí nunca entra em Dia/Mês/Período — só aparece em "Tudo"). "Período"
+   aceita início depois do fim (a pessoa pode digitar fora de ordem sem
+   querer); normaliza sozinho. */
+export function filtrarPorPeriodo(itens, modo, datas, obterData) {
+  if (modo === 'dia') return itens.filter((i) => obterData(i) === datas.dia)
+  if (modo === 'mes') return itens.filter((i) => (obterData(i) || '').slice(0, 7) === datas.mes)
+  if (modo === 'periodo') {
+    const ini = datas.inicio <= datas.fim ? datas.inicio : datas.fim
+    const fim = datas.inicio <= datas.fim ? datas.fim : datas.inicio
+    return itens.filter((i) => {
+      const d = obterData(i)
+      return d && d >= ini && d <= fim
+    })
+  }
+  return itens
+}
+
 export function formatarData(iso) {
   if (!iso) return '—'
   return deISO(iso).toLocaleDateString('pt-BR')

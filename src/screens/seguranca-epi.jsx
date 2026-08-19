@@ -12,7 +12,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos,
-  insumoCorrespondeMaterial,
+  insumoCorrespondeMaterial, filtrarPorPeriodo,
 } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
@@ -31,6 +31,55 @@ function baixarCSV(nomeArquivo, cabecalho, linhas) {
   a.download = nomeArquivo
   document.body.appendChild(a); a.click(); a.remove()
   URL.revokeObjectURL(url)
+}
+
+/* Seção que nasce fechada — clique no cabeçalho pra abrir — usada
+   pro Histórico de movimentação e pros Pedidos de Suprimentos
+   vinculados, dentro de Editar EPI: lista comprida não fica sempre
+   estourada na tela. */
+function SecaoRecolhivel({ titulo, contador, aberto, onToggle, children }) {
+  return (
+    <div>
+      <button
+        className="row-between" style={{ width: '100%', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer' }}
+        onClick={onToggle}
+      >
+        <span className="t-micro">{titulo}{contador != null ? ` (${contador})` : ''}</span>
+        <Icon name="avancar" size={14} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s' }} />
+      </button>
+      {aberto && <div className="stack-2" style={{ marginTop: 6 }}>{children}</div>}
+    </div>
+  )
+}
+
+/* Mesmo filtro Tudo/Dia/Mês/Período de "Por Colaborador", só que
+   como componente reutilizável em vez de repetir o JSX de novo. */
+function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio, fim, onFim }) {
+  return (
+    <div className="stack-1">
+      <Segmentos
+        valor={modo} onChange={onModo}
+        opcoes={[
+          { valor: 'tudo', rotulo: 'Tudo' },
+          { valor: 'dia', rotulo: 'Dia' },
+          { valor: 'mes', rotulo: 'Mês' },
+          { valor: 'periodo', rotulo: 'Período' },
+        ]}
+      />
+      {modo === 'dia' && <input className="ipt" type="date" value={dia} onChange={(e) => onDia(e.target.value)} />}
+      {modo === 'mes' && <input className="ipt" type="month" value={mes} onChange={(e) => onMes(e.target.value)} />}
+      {modo === 'periodo' && (
+        <div className="row-flex">
+          <Campo label="De">
+            <input className="ipt" type="date" value={inicio} onChange={(e) => onInicio(e.target.value)} />
+          </Campo>
+          <Campo label="Até">
+            <input className="ipt" type="date" value={fim} onChange={(e) => onFim(e.target.value)} />
+          </Campo>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function SegurancaEpi({ perfil, params = {} }) {
@@ -62,6 +111,18 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [mesEscolhido, setMesEscolhido] = useState(hoje.slice(0, 7))
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
+  const [historicoAberto, setHistoricoAberto] = useState(false)
+  const [historicoPeriodo, setHistoricoPeriodo] = useState('tudo')
+  const [historicoDia, setHistoricoDia] = useState(hoje)
+  const [historicoMes, setHistoricoMes] = useState(hoje.slice(0, 7))
+  const [historicoInicio, setHistoricoInicio] = useState(hoje)
+  const [historicoFim, setHistoricoFim] = useState(hoje)
+  const [pedidosVinculadosAberto, setPedidosVinculadosAberto] = useState(false)
+  const [pedidosPeriodo, setPedidosPeriodo] = useState('tudo')
+  const [pedidosDia, setPedidosDia] = useState(hoje)
+  const [pedidosMes, setPedidosMes] = useState(hoje.slice(0, 7))
+  const [pedidosInicio, setPedidosInicio] = useState(hoje)
+  const [pedidosFim, setPedidosFim] = useState(hoje)
 
   const materiais = useMemo(
     () => (dados.materiaisEpi || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -136,6 +197,29 @@ export default function SegurancaEpi({ perfil, params = {} }) {
       .filter((p) => insumoCorrespondeMaterial(p.insumo, editandoMaterial.nome))
       .sort((a, b) => b.pedido - a.pedido)
   }, [editandoMaterial, dados.suprimentos])
+
+  /* As duas seções de dentro de Editar EPI nascem fechadas — clique
+     pra abrir — e cada uma tem seu próprio filtro de período, um pelo
+     `data` da entrada/saída, outro pela data de entrega (ou de
+     pedido, quando ainda não tem entrega) do pedido de Suprimentos. */
+  useEffect(() => { setHistoricoAberto(false); setPedidosVinculadosAberto(false) }, [editandoMaterial?.id])
+
+  const historicoFiltrado = useMemo(
+    () => filtrarPorPeriodo(
+      historicoMaterial, historicoPeriodo,
+      { dia: historicoDia, mes: historicoMes, inicio: historicoInicio, fim: historicoFim },
+      (h) => h.data,
+    ),
+    [historicoMaterial, historicoPeriodo, historicoDia, historicoMes, historicoInicio, historicoFim],
+  )
+  const pedidosVinculadosFiltrados = useMemo(
+    () => filtrarPorPeriodo(
+      pedidosVinculadosMaterial, pedidosPeriodo,
+      { dia: pedidosDia, mes: pedidosMes, inicio: pedidosInicio, fim: pedidosFim },
+      (p) => p.data_entrega || p.data_pedido,
+    ),
+    [pedidosVinculadosMaterial, pedidosPeriodo, pedidosDia, pedidosMes, pedidosInicio, pedidosFim],
+  )
 
   const nomeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.nome || 'EPI removido'
   const unidadeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.unidade || ''
@@ -970,13 +1054,24 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               <Icon name="qrcode" size={16} /> {gerandoEtiquetas ? 'Gerando…' : 'Imprimir etiqueta QR deste EPI'}
             </button>
 
-            <div>
-              <div className="t-micro" style={{ marginBottom: 8 }}>Histórico de movimentação</div>
-              {historicoMaterial.length === 0 ? (
-                <div className="t-caption">Nenhuma entrada ou saída lançada ainda pra este EPI.</div>
+            <SecaoRecolhivel
+              titulo="Histórico de movimentação" contador={historicoMaterial.length}
+              aberto={historicoAberto} onToggle={() => setHistoricoAberto((v) => !v)}
+            >
+              <FiltroPeriodo
+                modo={historicoPeriodo} onModo={setHistoricoPeriodo}
+                dia={historicoDia} onDia={setHistoricoDia}
+                mes={historicoMes} onMes={setHistoricoMes}
+                inicio={historicoInicio} onInicio={setHistoricoInicio}
+                fim={historicoFim} onFim={setHistoricoFim}
+              />
+              {historicoFiltrado.length === 0 ? (
+                <div className="t-caption">
+                  {historicoMaterial.length === 0 ? 'Nenhuma entrada ou saída lançada ainda pra este EPI.' : 'Nada nesse período.'}
+                </div>
               ) : (
                 <div className="stack-1">
-                  {historicoMaterial.map((h) => {
+                  {historicoFiltrado.map((h) => {
                     const aberto = diaHistoricoAberto === h.chave
                     const clicavel = h.tipo === 'saida' && h.pessoas.length > 0
                     return (
@@ -1024,15 +1119,28 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   })}
                 </div>
               )}
-            </div>
+            </SecaoRecolhivel>
 
-            <div>
-              <div className="t-micro" style={{ marginBottom: 8 }}>Pedidos de Suprimentos vinculados</div>
-              {pedidosVinculadosMaterial.length === 0 ? (
-                <div className="t-caption">Nenhum pedido de Suprimentos com esse nome ainda — nem Almoxarifado, nem EPI.</div>
+            <SecaoRecolhivel
+              titulo="Pedidos de Suprimentos vinculados" contador={pedidosVinculadosMaterial.length}
+              aberto={pedidosVinculadosAberto} onToggle={() => setPedidosVinculadosAberto((v) => !v)}
+            >
+              <FiltroPeriodo
+                modo={pedidosPeriodo} onModo={setPedidosPeriodo}
+                dia={pedidosDia} onDia={setPedidosDia}
+                mes={pedidosMes} onMes={setPedidosMes}
+                inicio={pedidosInicio} onInicio={setPedidosInicio}
+                fim={pedidosFim} onFim={setPedidosFim}
+              />
+              {pedidosVinculadosFiltrados.length === 0 ? (
+                <div className="t-caption">
+                  {pedidosVinculadosMaterial.length === 0
+                    ? 'Nenhum pedido de Suprimentos com esse nome ainda — nem Almoxarifado, nem EPI.'
+                    : 'Nada nesse período.'}
+                </div>
               ) : (
                 <div className="stack-1">
-                  {pedidosVinculadosMaterial.map((p) => (
+                  {pedidosVinculadosFiltrados.map((p) => (
                     <div key={p.id} className="card-flat" style={{ padding: 10 }}>
                       <div className="row-between">
                         <span className="t-strong" style={{ fontSize: 14 }}>Pedido {p.pedido}</span>
@@ -1048,7 +1156,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   ))}
                 </div>
               )}
-            </div>
+            </SecaoRecolhivel>
 
             <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => pedirArquivarMaterial(editandoMaterial)}>
               Arquivar EPI
