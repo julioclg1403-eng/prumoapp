@@ -205,7 +205,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
-      suprimentos,
+      suprimentos, entregasEquipamento,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -245,6 +245,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('training_types').select('*').order('nome')),
       buscarPaginado(() => supabase.from('worker_trainings').select('*').order('data_realizacao', { ascending: false })),
       buscarPaginado(() => supabase.from('supply_orders').select('*').order('pedido', { ascending: false })),
+      buscarPaginado(() => supabase.from('equipment_deliveries').select('*').order('data', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -254,7 +255,7 @@ export function DadosProvider({ perfil, children }) {
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
-      tiposTreinamento, treinamentosColaboradores, suprimentos].find((r) => r.error)
+      tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -318,6 +319,7 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento: tiposTreinamento.data || [],
       treinamentosColaboradores: treinamentosColaboradores.data || [],
       suprimentos: suprimentos.data || [],
+      entregasEquipamento: entregasEquipamento.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -413,6 +415,7 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento: filtrar(tudo.tiposTreinamento),
       treinamentosColaboradores: filtrar(tudo.treinamentosColaboradores),
       suprimentos: filtrar(tudo.suprimentos),
+      entregasEquipamento: filtrar(tudo.entregasEquipamento),
     }
   }, [tudo, obraId])
 
@@ -1086,6 +1089,67 @@ export function DadosProvider({ perfil, children }) {
     [avisarErro],
   )
 
+  /* Entrega de equipamento a um colaborador — histórico completo,
+     igual ao EPI: cada entrega vira uma linha própria (não sobrescreve
+     a anterior), pra dar pra ver depois quem usou o quê e quando.
+
+     Cuidado: `equipment.responsavel_id` referencia `profiles` (quem
+     da gestão/engenharia é o responsável pelo equipamento) — é um
+     campo diferente, não mexe aqui. Colaborador (workers) é outra
+     coisa: quem está com o equipamento na mão agora, mostrado na
+     lista a partir da entrega mais recente, não de uma coluna própria.
+     Só o status muda pra "em_uso" — o resto do estado atual vem do
+     histórico de entregas mesmo. */
+  const salvarEntregaEquipamento = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        equipment_id: item.equipment_id,
+        worker_id: item.worker_id,
+        data: item.data,
+        observacao: item.observacao || null,
+        autor_id: perfil.id,
+      }
+      const salvo = checar(
+        await supabase.from('equipment_deliveries').insert(linha).select('*').single(),
+        'registrar a entrega do equipamento',
+      )
+      if (!salvo) return null
+
+      const equipamentoAtualizado = checar(
+        await supabase.from('equipment')
+          .update({ status: 'em_uso' })
+          .eq('id', item.equipment_id).select('*').single(),
+        'atualizar o status do equipamento',
+      )
+
+      setTudo((t) => t && ({
+        ...t,
+        entregasEquipamento: [salvo, ...t.entregasEquipamento],
+        equipamentos: equipamentoAtualizado
+          ? t.equipamentos.map((e) => (e.id === equipamentoAtualizado.id ? { ...equipamentoAtualizado, fotos: e.fotos || [] } : e))
+          : t.equipamentos,
+      }))
+      return salvo
+    },
+    [perfil.id, escopo, checar],
+  )
+
+  const excluirEntregaEquipamento = useCallback(
+    async (id) => {
+      const r = await supabase.from('equipment_deliveries').delete().eq('id', id).select('id')
+      if (r.error) { checar(r, 'excluir a entrega do equipamento'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para excluir. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, entregasEquipamento: t.entregasEquipamento.filter((e) => e.id !== id) }))
+      return true
+    },
+    [checar, avisarErro],
+  )
+
   const excluirAdvertencia = useCallback(
     async (id) => {
       const r = await supabase.from('warnings').delete().eq('id', id).select('id')
@@ -1524,6 +1588,7 @@ export function DadosProvider({ perfil, children }) {
         data: item.data,
         quantidade: Number(item.quantidade),
         destino: item.destino || null,
+        worker_id: item.worker_id || null,
         autor_id: perfil.id,
       }
       if (item.id) linha.id = item.id
@@ -2825,6 +2890,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia, adicionarFotoEquipamento, removerFotoEquipamento,
+      salvarEntregaEquipamento, excluirEntregaEquipamento,
       salvarApontamento, mudarStatusApontamento, abrirApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,
@@ -2855,6 +2921,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
       adicionarFotoAdvertencia, removerFotoAdvertencia, adicionarFotoEquipamento, removerFotoEquipamento,
+      salvarEntregaEquipamento, excluirEntregaEquipamento,
       salvarApontamento, mudarStatusApontamento, abrirApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
       salvarComentarioApontamento, apagarComentarioApontamento,

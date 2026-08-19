@@ -14,10 +14,13 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, resumoRecebidoSuprimentos } from '../lib/dominio'
+import {
+  hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, resumoRecebidoSuprimentos, normalizarParaCasar,
+} from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
+  RelatorioFolha, SecaoRelatorio,
 } from '../components'
 
 /* Baixa CSV no mesmo layout de colunas da planilha do almoxarife
@@ -56,6 +59,16 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const [salvando, setSalvando] = useState(false)
   const [etiquetando, setEtiquetando] = useState(false)
   const [gerandoEtiquetas, setGerandoEtiquetas] = useState(false)
+  const [colaboradorMaterialAberto, setColaboradorMaterialAberto] = useState(null)
+  const [imprimindoFichaMaterial, setImprimindoFichaMaterial] = useState(false)
+  const [buscaColaboradorSaida, setBuscaColaboradorSaida] = useState('')
+  const [buscaColaboradorLista, setBuscaColaboradorLista] = useState('')
+  const [agrupamentoColab, setAgrupamentoColab] = useState('nome')
+  const [modoPeriodo, setModoPeriodo] = useState('tudo')
+  const [dataDia, setDataDia] = useState(hoje)
+  const [mesEscolhido, setMesEscolhido] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
 
   const materiais = useMemo(
     () => (dados.materiaisEstoque || []).filter((m) => m.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
@@ -118,6 +131,74 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const nomeMaterial = (id) => dados.materiaisEstoque?.find((m) => m.id === id)?.nome || 'Material removido'
   const unidadeMaterial = (id) => dados.materiaisEstoque?.find((m) => m.id === id)?.unidade || ''
 
+  /* Recorte por período — só afeta a aba Por Colaborador. "Período"
+     aceita início depois do fim (a pessoa pode digitar fora de ordem
+     sem querer); normaliza sozinho. */
+  const saidasNoPeriodo = useMemo(() => {
+    if (modoPeriodo === 'dia') return saidas.filter((s) => s.data === dataDia)
+    if (modoPeriodo === 'mes') return saidas.filter((s) => s.data.slice(0, 7) === mesEscolhido)
+    if (modoPeriodo === 'periodo') {
+      const ini = periodoInicio <= periodoFim ? periodoInicio : periodoFim
+      const fim = periodoInicio <= periodoFim ? periodoFim : periodoInicio
+      return saidas.filter((s) => s.data >= ini && s.data <= fim)
+    }
+    return saidas
+  }, [saidas, modoPeriodo, dataDia, mesEscolhido, periodoInicio, periodoFim])
+
+  /* Ficha de entrega por colaborador: só quem já recebeu algo com o
+     vínculo estruturado (worker_id) aparece aqui — saída antiga, com
+     só o texto livre de destino, não dá pra amarrar com segurança a
+     um colaborador específico. */
+  const colaboradoresComMaterial = useMemo(() => {
+    const porColaborador = new Map()
+    for (const s of saidasNoPeriodo) {
+      if (!s.worker_id) continue
+      if (!porColaborador.has(s.worker_id)) porColaborador.set(s.worker_id, [])
+      porColaborador.get(s.worker_id).push(s)
+    }
+    const termo = buscaColaboradorLista.trim().toLowerCase()
+    return dados.colaboradores
+      .filter((c) => porColaborador.has(c.id))
+      .filter((c) => !termo || c.nome.toLowerCase().includes(termo))
+      .map((c) => ({ colaborador: c, entregas: porColaborador.get(c.id) }))
+      .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'))
+  }, [saidasNoPeriodo, dados.colaboradores, buscaColaboradorLista])
+
+  /* Mesmo padrão de agrupamento da tela Cadastros (colaboradores):
+     por função agrupa pelo texto normalizado, por empresa pelo
+     vínculo de verdade. Quem não tem o dado do grupo vai pro fim,
+     num grupo à parte. */
+  const gruposColaboradoresMaterial = useMemo(() => {
+    if (agrupamentoColab === 'nome') return null
+    const grupos = new Map()
+    colaboradoresComMaterial.forEach((item) => {
+      let chave, rotuloSemDado, rotulo
+      if (agrupamentoColab === 'funcao') {
+        const funcao = (item.colaborador.funcao || '').trim()
+        chave = funcao ? normalizarParaCasar(funcao) : ''
+        rotuloSemDado = 'Sem função'
+        rotulo = funcao || rotuloSemDado
+      } else {
+        chave = item.colaborador.company_id || ''
+        rotuloSemDado = 'Sem empresa'
+        rotulo = item.colaborador.company_id ? dados.nomeDe(dados.empresas, item.colaborador.company_id) : rotuloSemDado
+      }
+      if (!grupos.has(chave)) grupos.set(chave, { rotulo, rotuloSemDado, itens: [] })
+      grupos.get(chave).itens.push(item)
+    })
+    return Array.from(grupos.values()).sort((a, b) => {
+      if (a.rotulo === a.rotuloSemDado) return 1
+      if (b.rotulo === b.rotuloSemDado) return -1
+      return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
+    })
+  }, [agrupamentoColab, colaboradoresComMaterial, dados])
+
+  useEffect(() => {
+    if (!imprimindoFichaMaterial) return
+    const id = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(id)
+  }, [imprimindoFichaMaterial])
+
   /* Mesmo ponto de partida pro botão "Nova entrada" do topo, pro
      "Lançar entrada" de dentro de Editar material, e pro "Lançar
      entrada" da aba Suprimentos — só muda o que já vem preenchido
@@ -132,8 +213,24 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     nomeSugerido,
   })
 
-  const abrirNovaSaida = (materialId = '') => setNovaSaida({
-    data: hoje, material_id: materialId, quantidade: '', destino: '',
+  const abrirNovaSaida = (materialId = '') => {
+    setBuscaColaboradorSaida('')
+    setNovaSaida({ data: hoje, material_id: materialId, quantidade: '', destino: '', worker_ids: [], quantidadesPorColaborador: {} })
+  }
+
+  /* Cada colaborador marcado tem sua própria quantidade (não dá pra
+     dividir 3 sacos de cimento entre 2 pessoas igualzinho) —
+     desmarcar limpa a quantidade dele; marcar começa em 1, ajustável
+     na hora. */
+  const alternarColaboradorSaida = (id) => setNovaSaida((p) => {
+    const atual = p.worker_ids || []
+    const marcado = atual.includes(id)
+    const novo = marcado ? atual.filter((x) => x !== id) : [...atual, id]
+    const quantidadesPorColaborador = { ...(p.quantidadesPorColaborador || {}) }
+    if (marcado) delete quantidadesPorColaborador[id]
+    else if (quantidadesPorColaborador[id] == null) quantidadesPorColaborador[id] = '1'
+    const destino = novo.length === 1 ? (dados.colaboradores.find((c) => c.id === novo[0])?.nome || '') : p.destino
+    return { ...p, worker_ids: novo, quantidadesPorColaborador, destino }
   })
 
   /* Chegada por QR Code: a etiqueta da prateleira já traz a pessoa
@@ -152,12 +249,41 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     if (ok) setNovaEntrada(null)
   }
 
+  /* Com 1+ colaboradores marcados, cada um vira sua própria linha de
+     saída, com a quantidade que a pessoa digitou pra ele — não dá
+     pra dividir 3 sacos entre 2 colaboradores em número quebrado, por
+     isso a quantidade é manual por pessoa, não um total repartido
+     igual. É o que também faz a ficha por colaborador (aba Por
+     Colaborador) mostrar certinho quem recebeu o quê. Sem nenhum
+     colaborador marcado, continua uma linha só com o campo
+     Quantidade de cima, igual sempre foi. */
+  const saidaValida = (() => {
+    if (!novaSaida?.material_id || !novaSaida?.data) return false
+    const workerIds = novaSaida.worker_ids || []
+    return workerIds.length > 0
+      ? workerIds.every((id) => Number(novaSaida.quantidadesPorColaborador?.[id]) > 0)
+      : Number(novaSaida.quantidade) > 0
+  })()
+
   const salvarSaida = async () => {
-    if (!novaSaida?.material_id || !novaSaida?.data || !Number(novaSaida?.quantidade)) return
+    if (!saidaValida) return
     setSalvando(true)
-    const ok = await dados.salvarSaidaEstoque(novaSaida)
-    setSalvando(false)
-    if (ok) setNovaSaida(null)
+    const workerIds = novaSaida.worker_ids || []
+    if (workerIds.length > 0) {
+      let ok = true
+      for (const workerId of workerIds) {
+        const nome = dados.colaboradores.find((c) => c.id === workerId)?.nome || ''
+        const quantidade = novaSaida.quantidadesPorColaborador[workerId]
+        const r = await dados.salvarSaidaEstoque({ ...novaSaida, worker_id: workerId, quantidade, destino: nome })
+        if (!r) { ok = false; break }
+      }
+      setSalvando(false)
+      if (ok) setNovaSaida(null)
+    } else {
+      const ok = await dados.salvarSaidaEstoque({ ...novaSaida, worker_id: '' })
+      setSalvando(false)
+      if (ok) setNovaSaida(null)
+    }
   }
 
   const salvarMaterial = async () => {
@@ -282,20 +408,120 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
           { valor: 'suprimentos', rotulo: 'Suprimentos', contador: resumoSuprimentos.length },
+          { valor: 'porColaborador', rotulo: 'Por Colaborador', contador: colaboradoresComMaterial.length },
         ]}
       />
 
-      <div className="row-between">
-        <div className="t-caption">
-          {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'material', 'materiais')} nesta lista`}
-          {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
-          {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
-          {aba === 'suprimentos' && `${plural(resumoSuprimentos.length, 'insumo recebido', 'insumos recebidos')} marcados como Almoxarifado`}
+      {aba !== 'porColaborador' && (
+        <div className="row-between">
+          <div className="t-caption">
+            {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'material', 'materiais')} nesta lista`}
+            {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
+            {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
+            {aba === 'suprimentos' && `${plural(resumoSuprimentos.length, 'insumo recebido', 'insumos recebidos')} marcados como Almoxarifado`}
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
+            <Icon name="baixar" size={15} /> Baixar planilha
+          </button>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
-          <Icon name="baixar" size={15} /> Baixar planilha
-        </button>
-      </div>
+      )}
+
+      {aba === 'porColaborador' && (
+        <div className="stack-2">
+          <div style={{ position: 'relative' }}>
+            <Icon
+              name="busca" size={16}
+              style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }}
+            />
+            <input
+              className="ipt" style={{ paddingLeft: 34, width: '100%' }}
+              value={buscaColaboradorLista} onChange={(e) => setBuscaColaboradorLista(e.target.value)}
+              placeholder="Buscar colaborador…"
+            />
+          </div>
+
+          <Segmentos
+            valor={agrupamentoColab}
+            onChange={setAgrupamentoColab}
+            opcoes={[
+              { valor: 'nome', rotulo: 'Por nome' },
+              { valor: 'funcao', rotulo: 'Por função' },
+              { valor: 'empresa', rotulo: 'Por empresa' },
+            ]}
+          />
+
+          <Segmentos
+            valor={modoPeriodo}
+            onChange={setModoPeriodo}
+            opcoes={[
+              { valor: 'tudo', rotulo: 'Tudo' },
+              { valor: 'dia', rotulo: 'Dia' },
+              { valor: 'mes', rotulo: 'Mês' },
+              { valor: 'periodo', rotulo: 'Período' },
+            ]}
+          />
+          {modoPeriodo === 'dia' && (
+            <input className="ipt" type="date" value={dataDia} onChange={(e) => setDataDia(e.target.value)} />
+          )}
+          {modoPeriodo === 'mes' && (
+            <input className="ipt" type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} />
+          )}
+          {modoPeriodo === 'periodo' && (
+            <div className="row-flex">
+              <Campo label="De">
+                <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
+              </Campo>
+              <Campo label="Até">
+                <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
+              </Campo>
+            </div>
+          )}
+
+          {colaboradoresComMaterial.length === 0 ? (
+            <div className="card-flat">
+              <Vazio
+                titulo={modoPeriodo === 'tudo' ? 'Nenhuma entrega vinculada a colaborador ainda' : 'Nada nesse período'}
+                texto={
+                  modoPeriodo === 'tudo'
+                    ? 'Ao registrar uma saída, escolha o colaborador no campo próprio — daí a entrega entra na ficha dele aqui.'
+                    : 'Nenhuma entrega vinculada a colaborador nesse recorte de data — troque o período.'
+                }
+              />
+            </div>
+          ) : gruposColaboradoresMaterial ? (
+            <div className="stack-3">
+              {gruposColaboradoresMaterial.map(({ rotulo, itens }) => (
+                <div key={rotulo} className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
+                  </div>
+                  {itens.map(({ colaborador, entregas }) => (
+                    <ItemLista
+                      key={colaborador.id}
+                      titulo={colaborador.nome}
+                      sub={`${plural(entregas.length, 'entrega', 'entregas')} · última em ${formatarDataCurta([...entregas].sort((a, b) => (a.data < b.data ? 1 : -1))[0].data)}`}
+                      onClick={() => setColaboradorMaterialAberto(colaborador)}
+                      direita={<Icon name="avancar" size={16} />}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="stack-1">
+              {colaboradoresComMaterial.map(({ colaborador, entregas }) => (
+                <ItemLista
+                  key={colaborador.id}
+                  titulo={colaborador.nome}
+                  sub={`${plural(entregas.length, 'entrega', 'entregas')} · última em ${formatarDataCurta([...entregas].sort((a, b) => (a.data < b.data ? 1 : -1))[0].data)}`}
+                  onClick={() => setColaboradorMaterialAberto(colaborador)}
+                  direita={<Icon name="avancar" size={16} />}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {aba === 'estoqueAtual' && (() => {
         const lista = emEstoque
@@ -591,7 +817,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
             <button className="btn btn-secondary grow" onClick={() => setNovaSaida(null)}>Cancelar</button>
             <button
               className="btn btn-primary grow" onClick={salvarSaida}
-              disabled={salvando || !novaSaida?.material_id || !novaSaida?.data || !Number(novaSaida?.quantidade)}
+              disabled={salvando || !saidaValida}
             >
               {salvando ? 'Salvando…' : 'Salvar'}
             </button>
@@ -612,13 +838,15 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
               </div>
             )}
             <div className="row-flex">
-              <Campo label="Quantidade">
-                <input
-                  className="ipt" type="number" inputMode="decimal" min="0" step="any"
-                  value={novaSaida.quantidade}
-                  onChange={(e) => setNovaSaida((p) => ({ ...p, quantidade: e.target.value }))}
-                />
-              </Campo>
+              {(novaSaida.worker_ids || []).length === 0 && (
+                <Campo label="Quantidade">
+                  <input
+                    className="ipt" type="number" inputMode="decimal" min="0" step="any"
+                    value={novaSaida.quantidade}
+                    onChange={(e) => setNovaSaida((p) => ({ ...p, quantidade: e.target.value }))}
+                  />
+                </Campo>
+              )}
               <Campo label="Data">
                 <input
                   className="ipt" type="date" value={novaSaida.data}
@@ -626,13 +854,58 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                 />
               </Campo>
             </div>
-            <Campo label="Destino" dica="Pra onde foi — obra, empresa, pessoa.">
+            <Campo
+              label="Colaboradores"
+              dica="Marque um ou mais — cada um ganha um campo de quantidade próprio, pra dividir do jeito que saiu de verdade (ex.: 2 pra um, 1 pra outro)."
+            >
               <input
-                className="ipt" value={novaSaida.destino}
-                onChange={(e) => setNovaSaida((p) => ({ ...p, destino: e.target.value }))}
-                placeholder="Bloco Vendas, Equipe própria…"
+                className="ipt" value={buscaColaboradorSaida} onChange={(e) => setBuscaColaboradorSaida(e.target.value)}
+                placeholder="Buscar colaborador…" style={{ marginBottom: 8 }}
               />
+              <div className="stack-1" style={{ maxHeight: 280, overflowY: 'auto' }}>
+                {dados.colaboradores
+                  .filter((c) => c.ativo !== false)
+                  .filter((c) => !buscaColaboradorSaida.trim() || c.nome.toLowerCase().includes(buscaColaboradorSaida.trim().toLowerCase()))
+                  .map((c) => {
+                    const marcado = (novaSaida.worker_ids || []).includes(c.id)
+                    return (
+                      <div key={c.id} className="card-flat row-between" style={{ alignItems: 'center', gap: 10 }}>
+                        <label className="row-flex grow" style={{ alignItems: 'center', gap: 10, cursor: 'pointer', minWidth: 0 }}>
+                          <input type="checkbox" checked={marcado} onChange={() => alternarColaboradorSaida(c.id)} />
+                          <span className="grow">{c.nome}</span>
+                        </label>
+                        {marcado && (
+                          <input
+                            className="ipt" type="number" inputMode="decimal" min="0" step="any"
+                            style={{ width: 72, flex: 'none' }}
+                            value={novaSaida.quantidadesPorColaborador?.[c.id] ?? ''}
+                            onChange={(e) => setNovaSaida((p) => ({
+                              ...p,
+                              quantidadesPorColaborador: { ...(p.quantidadesPorColaborador || {}), [c.id]: e.target.value },
+                            }))}
+                            placeholder="Qtd"
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+              {(novaSaida.worker_ids || []).length > 0 && (
+                <div className="t-caption" style={{ marginTop: 8 }}>
+                  Total do estoque: {novaSaida.worker_ids.reduce((s, id) => s + (Number(novaSaida.quantidadesPorColaborador?.[id]) || 0), 0)}
+                  {' '}{unidadeMaterial(novaSaida.material_id)} ({plural(novaSaida.worker_ids.length, 'colaborador', 'colaboradores')})
+                </div>
+              )}
             </Campo>
+            {(novaSaida.worker_ids || []).length === 0 && (
+              <Campo label="Destino" dica="Pra onde foi — obra, empresa, ou marque um colaborador acima em vez disso.">
+                <input
+                  className="ipt" value={novaSaida.destino}
+                  onChange={(e) => setNovaSaida((p) => ({ ...p, destino: e.target.value }))}
+                  placeholder="Bloco Vendas, Equipe própria…"
+                />
+              </Campo>
+            )}
           </div>
         )}
       </Sheet>
@@ -740,6 +1013,72 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           </div>
         )}
       </Sheet>
+
+      {/* ── Ficha de material por colaborador ── */}
+      <Sheet
+        aberto={Boolean(colaboradorMaterialAberto)}
+        titulo={colaboradorMaterialAberto?.nome}
+        onFechar={() => setColaboradorMaterialAberto(null)}
+        rodape={
+          <button className="btn btn-primary btn-block" onClick={() => setImprimindoFichaMaterial(true)}>
+            <Icon name="relatorio" size={16} /> Imprimir ficha
+          </button>
+        }
+      >
+        {colaboradorMaterialAberto && (
+          <div className="stack-1">
+            {(colaboradoresComMaterial.find((c) => c.colaborador.id === colaboradorMaterialAberto.id)?.entregas || [])
+              .map((s) => (
+                <div key={s.id} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
+                  <div>
+                    <div className="t-strong" style={{ fontSize: 14 }}>{nomeMaterial(s.material_id)}</div>
+                    <div className="t-caption" style={{ marginTop: 2 }}>{formatarDataCurta(s.data)}</div>
+                  </div>
+                  <span className="t-strong" style={{ fontSize: 14 }}>{s.quantidade} {unidadeMaterial(s.material_id)}</span>
+                </div>
+              ))}
+          </div>
+        )}
+      </Sheet>
+
+      {imprimindoFichaMaterial && colaboradorMaterialAberto && (
+        <RelatorioFolha
+          titulo="Ficha de entrega de material"
+          sub={colaboradorMaterialAberto.nome}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio titulo="Materiais recebidos">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #18181B', padding: '4px 6px' }}>Data</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #18181B', padding: '4px 6px' }}>Material</th>
+                  <th style={{ textAlign: 'right', borderBottom: '1px solid #18181B', padding: '4px 6px' }}>Quantidade</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(colaboradoresComMaterial.find((c) => c.colaborador.id === colaboradorMaterialAberto.id)?.entregas || [])
+                  .map((s) => (
+                    <tr key={s.id}>
+                      <td style={{ padding: '4px 6px', borderBottom: '1px solid #E4E4E7' }}>{formatarData(s.data)}</td>
+                      <td style={{ padding: '4px 6px', borderBottom: '1px solid #E4E4E7' }}>{nomeMaterial(s.material_id)}</td>
+                      <td style={{ padding: '4px 6px', borderBottom: '1px solid #E4E4E7', textAlign: 'right' }}>
+                        {s.quantidade} {unidadeMaterial(s.material_id)}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </SecaoRelatorio>
+          <div style={{ marginTop: 36, fontSize: 12, lineHeight: 1.6 }}>
+            Declaro ter recebido os materiais acima, em perfeito estado.
+            <div style={{ display: 'flex', gap: 40, marginTop: 34 }}>
+              <div style={{ flex: 1, borderTop: '1px solid #18181B', paddingTop: 4 }}>Assinatura do colaborador</div>
+              <div style={{ width: 140, borderTop: '1px solid #18181B', paddingTop: 4 }}>Data</div>
+            </div>
+          </div>
+        </RelatorioFolha>
+      )}
 
       <Confirmar
         aberto={Boolean(confirmar)}
