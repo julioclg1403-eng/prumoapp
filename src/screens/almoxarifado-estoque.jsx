@@ -45,6 +45,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
 
   const [aba, setAba] = useState('estoqueAtual')
   const [busca, setBusca] = useState('')
+  const [buscaSuprimentos, setBuscaSuprimentos] = useState('')
   const [novaEntrada, setNovaEntrada] = useState(null)
   const [novaSaida, setNovaSaida] = useState(null)
   const [editandoMaterial, setEditandoMaterial] = useState(null)
@@ -92,6 +93,10 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     () => resumoRecebidoSuprimentos(dados.suprimentos, 'almoxarifado', dados.materiaisEstoque, dados.entradasEstoque),
     [dados.suprimentos, dados.materiaisEstoque, dados.entradasEstoque],
   )
+  const resumoSuprimentosFiltrado = useMemo(() => {
+    const termo = buscaSuprimentos.trim().toLowerCase()
+    return termo ? resumoSuprimentos.filter((r) => r.insumo.toLowerCase().includes(termo)) : resumoSuprimentos
+  }, [resumoSuprimentos, buscaSuprimentos])
 
   /* Histórico de movimentação de UM material (dentro de Editar
      material) — entrada e saída juntas, mais recente primeiro, pra
@@ -411,40 +416,50 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
             />
           </div>
         ) : (
-          <div className="stack-1">
-            {resumoSuprimentos.map((r) => (
-              <ItemLista
-                key={r.insumo}
-                titulo={r.insumo}
-                sub={[
-                  `${plural(r.pedidos, 'pedido entregue', 'pedidos entregues')}`,
-                  r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
-                  r.material ? null : 'sem material correspondente no catálogo',
-                ].filter(Boolean).join(' · ')}
-                direita={
-                  <div style={{ textAlign: 'right' }}>
-                    <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
-                    {r.diferenca !== 0 && (
-                      <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
-                        {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
-                      </Chip>
-                    )}
-                    {r.diferenca > 0 && (
-                      <div style={{ marginTop: 4 }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => abrirNovaEntrada({
-                            materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
-                          })}
-                        >
-                          Lançar entrada
-                        </button>
+          <div className="stack-2">
+            <input
+              className="ipt" value={buscaSuprimentos} onChange={(e) => setBuscaSuprimentos(e.target.value)}
+              placeholder="Buscar insumo…"
+            />
+            {resumoSuprimentosFiltrado.length === 0 ? (
+              <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
+            ) : (
+              <div className="stack-1">
+                {resumoSuprimentosFiltrado.map((r) => (
+                  <ItemLista
+                    key={r.insumo}
+                    titulo={r.insumo}
+                    sub={[
+                      `${plural(r.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                      r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
+                      r.material ? null : 'sem material correspondente no catálogo',
+                    ].filter(Boolean).join(' · ')}
+                    direita={
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
+                        {r.diferenca !== 0 && (
+                          <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
+                            {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
+                          </Chip>
+                        )}
+                        {r.diferenca > 0 && (
+                          <div style={{ marginTop: 4 }}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => abrirNovaEntrada({
+                                materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
+                              })}
+                            >
+                              Lançar entrada
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                }
-              />
-            ))}
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )
       )}

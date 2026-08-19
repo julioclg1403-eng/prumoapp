@@ -23,6 +23,7 @@ import {
 export default function AlmoxarifadoEquipamentos({ perfil }) {
   const dados = useDados()
   const [filtro, setFiltro] = useState('todos')
+  const [buscaSuprimentos, setBuscaSuprimentos] = useState('')
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
@@ -49,6 +50,10 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
     () => pedidosEquipamentoSemCadastro(dados.suprimentos, todos),
     [dados.suprimentos, todos],
   )
+  const pendentesSuprimentosFiltrado = useMemo(() => {
+    const termo = buscaSuprimentos.trim().toLowerCase()
+    return termo ? pendentesSuprimentos.filter((p) => p.insumo.toLowerCase().includes(termo)) : pendentesSuprimentos
+  }, [pendentesSuprimentos, buscaSuprimentos])
 
   const salvar = async () => {
     if (!editando?.nome?.trim()) return
@@ -167,23 +172,33 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
                 />
               </div>
             ) : (
-              <div className="stack-1">
-                {pendentesSuprimentos.map((p) => (
-                  <ItemLista
-                    key={p.insumo}
-                    titulo={p.insumo}
-                    sub={[
-                      `${plural(p.pedidos, 'pedido entregue', 'pedidos entregues')}`,
-                      p.ultimaEntrega ? `última em ${formatarDataCurta(p.ultimaEntrega)}` : null,
-                      `qtde total ${p.quantidade}`,
-                    ].filter(Boolean).join(' · ')}
-                    direita={podeEditar && (
-                      <button className="btn btn-secondary btn-sm" onClick={() => abrirNovo(p.insumo)}>
-                        Cadastrar equipamento
-                      </button>
-                    )}
-                  />
-                ))}
+              <div className="stack-2">
+                <input
+                  className="ipt" value={buscaSuprimentos} onChange={(e) => setBuscaSuprimentos(e.target.value)}
+                  placeholder="Buscar insumo…"
+                />
+                {pendentesSuprimentosFiltrado.length === 0 ? (
+                  <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
+                ) : (
+                  <div className="stack-1">
+                    {pendentesSuprimentosFiltrado.map((p) => (
+                      <ItemLista
+                        key={p.insumo}
+                        titulo={p.insumo}
+                        sub={[
+                          `${plural(p.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                          p.ultimaEntrega ? `última em ${formatarDataCurta(p.ultimaEntrega)}` : null,
+                          `qtde total ${p.quantidade}`,
+                        ].filter(Boolean).join(' · ')}
+                        direita={podeEditar && (
+                          <button className="btn btn-secondary btn-sm" onClick={() => abrirNovo(p.insumo)}>
+                            Cadastrar equipamento
+                          </button>
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )
           )}
