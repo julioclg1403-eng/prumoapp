@@ -1706,6 +1706,16 @@ export function DadosProvider({ perfil, children }) {
     async (itens) => {
       const { organization_id, worksite_id } = escopo()
       const agora = new Date().toISOString()
+
+      /* Pedido recorrente não muda o nome do insumo no sistema deles —
+         então o Destino (Almoxarifado/EPI) marcado manualmente uma vez
+         pra um nome já vale pra sempre: toda reimportação herda sozinha
+         o destino de qualquer pedido anterior com o mesmo nome, sem
+         perguntar de novo. */
+      const destinosR = await supabase.from('supply_orders')
+        .select('insumo, destino').eq('worksite_id', worksite_id).not('destino', 'is', null)
+      const destinoPorInsumo = new Map((destinosR.data || []).map((d) => [d.insumo, d.destino]))
+
       const linhas = itens.map((i) => ({
         organization_id, worksite_id, autor_id: perfil.id,
         pedido: i.pedido, cotacao: i.cotacao, codigo_insumo: i.codigo_insumo, insumo: i.insumo,
@@ -1713,6 +1723,7 @@ export function DadosProvider({ perfil, children }) {
         confirm_cotacao: i.confirm_cotacao, fechamento_compra: i.fechamento_compra, data_entrega: i.data_entrega,
         excluido: i.excluido, quantidade: i.quantidade, preco: i.preco,
         dias_pedido_compra: i.dias_pedido_compra, dias_compra_entrega: i.dias_compra_entrega, estagio: i.estagio,
+        destino: destinoPorInsumo.get(i.insumo) || null,
         atualizado_em: agora,
       }))
       /* Em lotes — 400+ linhas de uma vez o Postgres aguenta numa boa,
@@ -1800,6 +1811,27 @@ export function DadosProvider({ perfil, children }) {
       return true
     },
     [checar, avisarErro, recarregar],
+  )
+
+  /* Marca o Destino (Almoxarifado/EPI) de um insumo — sempre pelo
+     NOME, não só do pedido clicado: aplica em todo pedido (passado
+     e futuro, via importarSuprimentos) com esse mesmo nome no
+     sistema deles, porque pedido recorrente não muda o nome.
+     destino null limpa a marcação. */
+  const definirDestinoSuprimento = useCallback(
+    async (supplyOrderId, destino) => {
+      const worksite_id = escopo().worksite_id
+      const alvo = await supabase.from('supply_orders').select('insumo').eq('id', supplyOrderId).maybeSingle()
+      if (alvo.error || !alvo.data) { checar(alvo, 'definir o destino deste pedido'); return false }
+      const r = await supabase.from('supply_orders')
+        .update({ destino })
+        .eq('worksite_id', worksite_id).eq('insumo', alvo.data.insumo)
+        .select('id')
+      if (r.error) { checar(r, 'definir o destino deste pedido'); return false }
+      await recarregar()
+      return { atualizados: (r.data || []).length }
+    },
+    [escopo, checar, recarregar],
   )
 
   // ── Controle de refeições (Almoxarifado) ───────────────────
@@ -2714,7 +2746,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
-      importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento,
+      importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
@@ -2744,7 +2776,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
-      importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento,
+      importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,

@@ -26,6 +26,7 @@ import { formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorres
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio } from '../components'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
+const ROTULO_DESTINO = { almoxarifado: 'Almoxarifado', epi: 'EPI' }
 
 function formatarDias(dias) {
   if (dias == null) return '—'
@@ -134,7 +135,7 @@ export default function Suprimentos({ voltar, perfil }) {
             </div>
           ) : (
             <>
-              {aba === 'dados' && <AbaDados pedidos={pedidos} />}
+              {aba === 'dados' && <AbaDados pedidos={pedidos} dados={dados} podeEditar={podeEditar} />}
               {aba === 'dashboard' && <AbaDashboard pedidos={pedidos} />}
               {aba === 'vinculos' && (
                 <AbaVinculos
@@ -155,9 +156,10 @@ export default function Suprimentos({ voltar, perfil }) {
 
 /* ── Todos os dados ────────────────────────────────────────── */
 
-function AbaDados({ pedidos }) {
+function AbaDados({ pedidos, dados, podeEditar }) {
   const [busca, setBusca] = useState('')
   const [estagio, setEstagio] = useState('todos')
+  const [destinoFiltro, setDestinoFiltro] = useState('todos')
   const [detalhe, setDetalhe] = useState(null)
 
   const estagios = useMemo(() => [...new Set(pedidos.map((p) => p.estagio).filter(Boolean))].sort(), [pedidos])
@@ -166,9 +168,14 @@ function AbaDados({ pedidos }) {
     const b = busca.trim().toLowerCase()
     return pedidos
       .filter((p) => estagio === 'todos' || p.estagio === estagio)
+      .filter((p) => destinoFiltro === 'todos' || (destinoFiltro === 'sem' ? !p.destino : p.destino === destinoFiltro))
       .filter((p) => !b || p.insumo.toLowerCase().includes(b) || String(p.pedido).includes(b) || (p.codigo_insumo || '').toLowerCase().includes(b))
       .sort((a, b2) => (b2.pedido - a.pedido) || String(a.insumo).localeCompare(String(b2.insumo)))
-  }, [pedidos, busca, estagio])
+  }, [pedidos, busca, estagio, destinoFiltro])
+
+  /* Reabre o detalhe com o dado mais fresco depois de salvar o
+     destino (a lista `pedidos` já veio atualizada do recarregar). */
+  const detalheAtual = detalhe ? lista.find((p) => p.id === detalhe.id) || pedidos.find((p) => p.id === detalhe.id) : null
 
   return (
     <div className="stack-2">
@@ -190,15 +197,23 @@ function AbaDados({ pedidos }) {
         </div>
       )}
 
+      <div className="row-wrap" style={{ gap: 6 }}>
+        <span className="t-caption" style={{ alignSelf: 'center', marginRight: 2 }}>Destino:</span>
+        <button className={`btn btn-sm ${destinoFiltro === 'todos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('todos')}>Todos</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'almoxarifado' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('almoxarifado')}>Almoxarifado</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'epi' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('epi')}>EPI</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
+      </div>
+
       {lista.length === 0 ? (
-        <div className="card-flat"><Vazio titulo="Nada com esse filtro" texto="Troque a busca ou o estágio." /></div>
+        <div className="card-flat"><Vazio titulo="Nada com esse filtro" texto="Troque a busca, o estágio ou o destino." /></div>
       ) : (
         <div className="card-flat scroll-x" style={{ padding: 0 }}>
           <table className="tbl">
             <thead>
               <tr>
                 <th>Pedido</th><th>Cotação</th><th>Cód.</th><th>Insumo</th><th>Qtde</th><th>Preço</th>
-                <th>Pedido em</th><th>Entrega</th><th>Ped→Compra</th><th>Compra→Ent</th><th>Estágio</th>
+                <th>Pedido em</th><th>Entrega</th><th>Ped→Compra</th><th>Compra→Ent</th><th>Estágio</th><th>Destino</th>
               </tr>
             </thead>
             <tbody>
@@ -220,6 +235,7 @@ function AbaDados({ pedidos }) {
                   <td className="t-num">{p.dias_pedido_compra ?? '—'}</td>
                   <td className="t-num">{p.dias_compra_entrega ?? '—'}</td>
                   <td><Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || '—'}</Chip></td>
+                  <td>{p.destino ? <Chip tom="info">{ROTULO_DESTINO[p.destino]}</Chip> : <span className="t-caption">—</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -227,7 +243,7 @@ function AbaDados({ pedidos }) {
         </div>
       )}
 
-      <DetalhePedido pedido={detalhe} onFechar={() => setDetalhe(null)} />
+      <DetalhePedido pedido={detalheAtual} onFechar={() => setDetalhe(null)} dados={dados} podeEditar={podeEditar} />
     </div>
   )
 }
@@ -237,7 +253,19 @@ function AbaDados({ pedidos }) {
    excluído, e as seis datas do fluxo (Pedido → Aprovação do Pedido →
    Aprovação da Simulação → Confirmação da Cotação → Fechamento da
    Compra → Entrega), não só o resumo que cabe na tabela. */
-function DetalhePedido({ pedido, onFechar }) {
+function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
+  const [salvando, setSalvando] = useState(false)
+
+  const escolherDestino = async (destino) => {
+    if (!pedido) return
+    setSalvando(true)
+    try {
+      await dados.definirDestinoSuprimento(pedido.id, destino)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   return (
     <Sheet aberto={Boolean(pedido)} titulo={pedido ? `Pedido ${pedido.pedido}` : ''} onFechar={onFechar}>
       {pedido && (
@@ -250,6 +278,37 @@ function DetalhePedido({ pedido, onFechar }) {
           <div className="row-wrap" style={{ gap: 8 }}>
             <Chip tom={TOM_ESTAGIO[pedido.estagio] || ''}>{pedido.estagio || 'Sem estágio'}</Chip>
             {pedido.excluido && pedido.excluido !== '0 - Não' && <Chip tom="danger">Excluído</Chip>}
+          </div>
+
+          <div className="card-flat stack-1">
+            <div className="t-micro">Destino (Almoxarifado ou EPI)</div>
+            <div className="t-caption" style={{ lineHeight: 1.4 }}>
+              Marca uma vez pra esse insumo — pedido repetido com o mesmo nome já entra classificado sozinho, na
+              hora de importar de novo.
+            </div>
+            {podeEditar ? (
+              <div className="row-wrap" style={{ gap: 6, marginTop: 2 }}>
+                <button
+                  className={`btn btn-sm ${pedido.destino === 'almoxarifado' ? 'btn-dark' : 'btn-secondary'}`}
+                  onClick={() => escolherDestino('almoxarifado')} disabled={salvando}
+                >
+                  Almoxarifado
+                </button>
+                <button
+                  className={`btn btn-sm ${pedido.destino === 'epi' ? 'btn-dark' : 'btn-secondary'}`}
+                  onClick={() => escolherDestino('epi')} disabled={salvando}
+                >
+                  EPI
+                </button>
+                {pedido.destino && (
+                  <button className="btn btn-sm btn-secondary" onClick={() => escolherDestino(null)} disabled={salvando}>
+                    Limpar
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div>{pedido.destino ? <Chip tom="info">{ROTULO_DESTINO[pedido.destino]}</Chip> : <span className="t-caption">Sem destino definido</span>}</div>
+            )}
           </div>
 
           <div className="row-wrap" style={{ gap: 10 }}>

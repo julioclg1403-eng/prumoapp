@@ -14,7 +14,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, resumoRecebidoSuprimentos } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
@@ -86,6 +86,15 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const saidas = useMemo(
     () => [...(dados.saidasEstoque || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
     [dados.saidasEstoque],
+  )
+
+  /* Compara o que o Suprimentos (planilha do ERP) diz que já chegou
+     — marcado com Destino "Almoxarifado" — contra o que foi lançado
+     na mão em Entradas, pra achar o que chegou e ninguém lançou
+     ainda (ou lançou quantidade diferente). Não mexe no saldo. */
+  const resumoSuprimentos = useMemo(
+    () => resumoRecebidoSuprimentos(dados.suprimentos, 'almoxarifado', dados.materiaisEstoque, dados.entradasEstoque),
+    [dados.suprimentos, dados.materiaisEstoque, dados.entradasEstoque],
   )
 
   /* Histórico de movimentação de UM material (dentro de Editar
@@ -266,6 +275,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
           { valor: 'historico', rotulo: 'Histórico Estoque', contador: semEstoque.length },
+          { valor: 'suprimentos', rotulo: 'Suprimentos', contador: resumoSuprimentos.length },
         ]}
       />
 
@@ -275,6 +285,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
           {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
           {aba === 'historico' && `${plural(semEstoque.length, 'material sem estoque', 'materiais sem estoque')}`}
+          {aba === 'suprimentos' && `${plural(resumoSuprimentos.length, 'insumo recebido', 'insumos recebidos')} marcados como Almoxarifado`}
         </div>
         <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
           <Icon name="baixar" size={15} /> Baixar planilha
@@ -386,6 +397,41 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                       <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirSaida(s)} aria-label="Excluir">
                         <Icon name="x" size={15} />
                       </button>
+                    )}
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        )
+      )}
+
+      {aba === 'suprimentos' && (
+        resumoSuprimentos.length === 0 ? (
+          <div className="card-flat">
+            <Vazio
+              titulo="Nada marcado como Almoxarifado ainda"
+              texto="Vá em Suprimentos, abra um pedido já entregue e marque o Destino como Almoxarifado — pedido repetido com o mesmo nome entra sozinho depois."
+            />
+          </div>
+        ) : (
+          <div className="stack-1">
+            {resumoSuprimentos.map((r) => (
+              <ItemLista
+                key={r.insumo}
+                titulo={r.insumo}
+                sub={[
+                  `${plural(r.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                  r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
+                  r.material ? null : 'sem material correspondente no catálogo',
+                ].filter(Boolean).join(' · ')}
+                direita={
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
+                    {r.diferenca !== 0 && (
+                      <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
+                        {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
+                      </Chip>
                     )}
                   </div>
                 }

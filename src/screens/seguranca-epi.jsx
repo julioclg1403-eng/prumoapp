@@ -10,7 +10,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
@@ -82,6 +82,14 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const saidas = useMemo(
     () => [...(dados.saidasEpi || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
     [dados.saidasEpi],
+  )
+
+  /* Mesma reconciliação do Almoxarifado, só que pro lado EPI: o que o
+     Suprimentos diz que já chegou (Destino "EPI") contra o que foi
+     lançado na mão em Entradas. Não mexe no saldo. */
+  const resumoSuprimentos = useMemo(
+    () => resumoRecebidoSuprimentos(dados.suprimentos, 'epi', dados.materiaisEpi, dados.entradasEpi),
+    [dados.suprimentos, dados.materiaisEpi, dados.entradasEpi],
   )
 
   /* Saída agrupada por dia — uma linha só com o total do dia, clicável
@@ -374,6 +382,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
           { valor: 'historico', rotulo: 'Histórico Estoque', contador: semEstoque.length },
+          { valor: 'suprimentos', rotulo: 'Suprimentos', contador: resumoSuprimentos.length },
           { valor: 'porColaborador', rotulo: 'Por Colaborador', contador: colaboradoresComEpi.length },
         ]}
       />
@@ -385,6 +394,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
             {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
             {aba === 'historico' && `${plural(semEstoque.length, 'EPI sem estoque', 'EPIs sem estoque')}`}
+            {aba === 'suprimentos' && `${plural(resumoSuprimentos.length, 'insumo recebido', 'insumos recebidos')} marcados como EPI`}
           </div>
           <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
             <Icon name="baixar" size={15} /> Baixar planilha
@@ -594,6 +604,41 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                       <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirSaida(s)} aria-label="Excluir">
                         <Icon name="x" size={15} />
                       </button>
+                    )}
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        )
+      )}
+
+      {aba === 'suprimentos' && (
+        resumoSuprimentos.length === 0 ? (
+          <div className="card-flat">
+            <Vazio
+              titulo="Nada marcado como EPI ainda"
+              texto="Vá em Suprimentos, abra um pedido já entregue e marque o Destino como EPI — pedido repetido com o mesmo nome entra sozinho depois."
+            />
+          </div>
+        ) : (
+          <div className="stack-1">
+            {resumoSuprimentos.map((r) => (
+              <ItemLista
+                key={r.insumo}
+                titulo={r.insumo}
+                sub={[
+                  `${plural(r.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                  r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
+                  r.material ? null : 'sem EPI correspondente no catálogo',
+                ].filter(Boolean).join(' · ')}
+                direita={
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
+                    {r.diferenca !== 0 && (
+                      <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
+                        {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
+                      </Chip>
                     )}
                   </div>
                 }

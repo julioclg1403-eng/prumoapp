@@ -1289,6 +1289,47 @@ export function saldoEstoque(materiais, entradas, saidas) {
   })
 }
 
+/* Reconciliação Suprimentos × estoque lançado na mão: agrupa os
+   pedidos JÁ ENTREGUES (data_entrega preenchida) de um Destino
+   (almoxarifado/epi) por nome de insumo, soma a quantidade que a
+   planilha diz que chegou, e bate contra o total lançado manualmente
+   em "Registrar entrada" pro material/EPI correspondente (mesmo
+   casamento por nome de insumoCorrespondeMaterial). Não mexe no
+   saldo — só ajuda a achar o que chegou pela planilha e ninguém
+   lançou ainda (ou lançou quantidade diferente). */
+export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas) {
+  const quantidadeManualPorMaterial = new Map()
+  for (const e of (entradas || [])) {
+    quantidadeManualPorMaterial.set(e.material_id, (quantidadeManualPorMaterial.get(e.material_id) || 0) + Number(e.quantidade || 0))
+  }
+
+  const porInsumo = new Map()
+  for (const p of (pedidos || [])) {
+    if (p.destino !== destino || !p.data_entrega) continue
+    const atual = porInsumo.get(p.insumo) || { qtdeSuprimentos: 0, ultimaEntrega: null, pedidos: 0 }
+    atual.qtdeSuprimentos += Number(p.quantidade || 0)
+    atual.pedidos += 1
+    if (!atual.ultimaEntrega || p.data_entrega > atual.ultimaEntrega) atual.ultimaEntrega = p.data_entrega
+    porInsumo.set(p.insumo, atual)
+  }
+
+  return [...porInsumo.entries()]
+    .map(([insumo, info]) => {
+      const material = (materiais || []).find((m) => insumoCorrespondeMaterial(insumo, m.nome))
+      const qtdeManual = material ? (quantidadeManualPorMaterial.get(material.id) || 0) : 0
+      return {
+        insumo,
+        material,
+        pedidos: info.pedidos,
+        ultimaEntrega: info.ultimaEntrega,
+        qtdeSuprimentos: info.qtdeSuprimentos,
+        qtdeManual,
+        diferenca: info.qtdeSuprimentos - qtdeManual,
+      }
+    })
+    .sort((a, b) => Math.abs(b.diferenca) - Math.abs(a.diferenca))
+}
+
 /* ── Controle de refeições (Almoxarifado) ─────────────────────
    As duas planilhas do Julio (terceirizado e próprio) são a MESMA
    coisa — data × empresa × quantidade — só que a de terceirizado
