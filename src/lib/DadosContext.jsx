@@ -1752,18 +1752,28 @@ export function DadosProvider({ perfil, children }) {
      outra entrada nesta mesma passada; ambíguo (0 ou 2+) fica pra
      revisão manual, sem arriscar escolher errado. Busca direto no
      banco (não do estado local) pelo mesmo motivo de lá: evitar
-     corrida logo após um import recém-feito. */
+     corrida logo após um import recém-feito.
+
+     Além disso, tenta detectar sozinho o Destino (Almoxarifado/EPI)
+     de todo pedido ainda sem Destino: bate o nome do insumo contra
+     os dois catálogos (mesmo insumoCorrespondeMaterial de sempre) —
+     só aplica quando bate em UM catálogo só; bate nos dois, ou não
+     bate em nenhum, fica pendente pra marcar na mão no detalhe do
+     pedido (mesma regra de nunca arriscar escolher errado). */
   const vincularSuprimentoAutomaticamente = useCallback(
     async () => {
       const worksite_id = escopo().worksite_id
-      const [pedidosR, materiaisR, epiR, entradasR, entradasEpiR] = await Promise.all([
+      const [pedidosR, materiaisR, epiR, entradasR, entradasEpiR, semDestinoR] = await Promise.all([
         supabase.from('supply_orders').select('id, insumo').eq('worksite_id', worksite_id).is('entrada_id', null),
         supabase.from('stock_materials').select('id, nome').eq('worksite_id', worksite_id),
         supabase.from('epi_materials').select('id, nome').eq('worksite_id', worksite_id),
         supabase.from('stock_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
         supabase.from('epi_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
+        supabase.from('supply_orders').select('insumo').eq('worksite_id', worksite_id).is('destino', null),
       ])
-      if (pedidosR.error || materiaisR.error || epiR.error || entradasR.error || entradasEpiR.error) return { vinculados: 0 }
+      if (pedidosR.error || materiaisR.error || epiR.error || entradasR.error || entradasEpiR.error || semDestinoR.error) {
+        return { vinculados: 0, destinosDetectados: 0 }
+      }
 
       const nomeMaterial = new Map((materiaisR.data || []).map((m) => [m.id, m.nome]))
       const nomeEpi = new Map((epiR.data || []).map((m) => [m.id, m.nome]))
@@ -1777,7 +1787,10 @@ export function DadosProvider({ perfil, children }) {
           if (!nome) continue
           const candidatas = pedidos.filter((p) => !usados.has(p.id) && insumoCorrespondeMaterial(p.insumo, nome))
           if (candidatas.length === 1) {
-            atualizacoes.push({ tabela, id: e.id, supply_order_id: candidatas[0].id })
+            atualizacoes.push({
+              tabela, id: e.id, supply_order_id: candidatas[0].id,
+              material_id: e.material_id, insumo: candidatas[0].insumo,
+            })
             usados.add(candidatas[0].id)
           }
         }
@@ -1785,11 +1798,38 @@ export function DadosProvider({ perfil, children }) {
       tentar(entradasR.data || [], 'stock_entries', nomeMaterial)
       tentar(entradasEpiR.data || [], 'epi_entries', nomeEpi)
 
+      /* Padroniza o nome do material/EPI pelo nome oficial do insumo
+         no Suprimentos assim que vincula sozinho — o material costuma
+         ter sido criado com um nome informal na hora do lançamento
+         manual; a planilha do sistema tem o nome de verdade. */
+      const tabelaDoMaterial = { stock_entries: 'stock_materials', epi_entries: 'epi_materials' }
       for (const a of atualizacoes) {
         await supabase.from(a.tabela).update({ supply_order_id: a.supply_order_id }).eq('id', a.id)
+        if (a.insumo && a.material_id) {
+          await supabase.from(tabelaDoMaterial[a.tabela]).update({ nome: a.insumo }).eq('id', a.material_id)
+        }
       }
-      if (atualizacoes.length) await recarregar()
-      return { vinculados: atualizacoes.length }
+
+      const nomesMateriais = [...nomeMaterial.values()]
+      const nomesEpi = [...nomeEpi.values()]
+      const insumosSemDestino = [...new Set((semDestinoR.data || []).map((p) => p.insumo))]
+      const destinoPorInsumo = new Map()
+      for (const insumo of insumosSemDestino) {
+        const bateAlmoxarifado = nomesMateriais.some((n) => insumoCorrespondeMaterial(insumo, n))
+        const bateEpi = nomesEpi.some((n) => insumoCorrespondeMaterial(insumo, n))
+        if (bateAlmoxarifado && !bateEpi) destinoPorInsumo.set(insumo, 'almoxarifado')
+        else if (bateEpi && !bateAlmoxarifado) destinoPorInsumo.set(insumo, 'epi')
+      }
+      let destinosDetectados = 0
+      for (const [insumo, destino] of destinoPorInsumo) {
+        const r = await supabase.from('supply_orders')
+          .update({ destino }).eq('worksite_id', worksite_id).eq('insumo', insumo).is('destino', null)
+          .select('id')
+        if (!r.error) destinosDetectados += (r.data || []).length
+      }
+
+      if (atualizacoes.length || destinosDetectados) await recarregar()
+      return { vinculados: atualizacoes.length, destinosDetectados }
     },
     [escopo, recarregar],
   )
@@ -1808,10 +1848,16 @@ export function DadosProvider({ perfil, children }) {
      ficam em supply_orders.entrada_id/entrada_tabela, apontando de
      volta pra essa mesma entrada — não são um segundo FK de verdade,
      só o suficiente pra sair da fila de "sem pedido" e a soma bater
-     na hora de olhar os dois juntos. */
+     na hora de olhar os dois juntos.
+
+     Vincular também padroniza o nome do material/EPI pelo nome
+     oficial do insumo no pedido principal — mesma ideia do vínculo
+     automático: o material nasceu com o nome informal do lançamento
+     manual, a planilha do sistema tem o nome de verdade. */
   const vincularEntradaSuprimento = useCallback(
     async (tabela, entradaId, supplyOrderIds) => {
       const nomeTabela = tabela === 'epi' ? 'epi_entries' : 'stock_entries'
+      const nomeTabelaMaterial = tabela === 'epi' ? 'epi_materials' : 'stock_materials'
       const ids = (Array.isArray(supplyOrderIds) ? supplyOrderIds : [supplyOrderIds]).filter(Boolean)
       const [principal, ...extras] = ids
 
@@ -1820,7 +1866,7 @@ export function DadosProvider({ perfil, children }) {
         .eq('entrada_id', entradaId).eq('entrada_tabela', tabela)
       if (limpezaR.error) { checar(limpezaR, 'vincular ao pedido de suprimentos'); return false }
 
-      const r = await supabase.from(nomeTabela).update({ supply_order_id: principal || null }).eq('id', entradaId).select('id')
+      const r = await supabase.from(nomeTabela).update({ supply_order_id: principal || null }).eq('id', entradaId).select('id, material_id')
       if (r.error) { checar(r, 'vincular ao pedido de suprimentos'); return false }
       if (!r.data || r.data.length === 0) {
         avisarErro('Seu perfil não pode vincular isso.')
@@ -1832,6 +1878,14 @@ export function DadosProvider({ perfil, children }) {
           .update({ entrada_id: entradaId, entrada_tabela: tabela })
           .in('id', extras)
         if (r2.error) { checar(r2, 'vincular os pedidos extras'); return false }
+      }
+
+      if (principal) {
+        const materialId = r.data[0].material_id
+        const pedidoR = await supabase.from('supply_orders').select('insumo').eq('id', principal).maybeSingle()
+        if (!pedidoR.error && pedidoR.data?.insumo && materialId) {
+          await supabase.from(nomeTabelaMaterial).update({ nome: pedidoR.data.insumo }).eq('id', materialId)
+        }
       }
 
       await recarregar()

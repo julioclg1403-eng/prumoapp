@@ -78,15 +78,17 @@ export default function Suprimentos({ voltar, perfil }) {
 
   const ambiguos = entradasSemVinculo.filter((e) => (candidatasPorEntrada.get(e.id) || []).length > 1).length
   const semCandidata = entradasSemVinculo.filter((e) => (candidatasPorEntrada.get(e.id) || []).length === 0).length
+  const semDestino = pedidos.filter((p) => !p.destino).length
 
-  /* Toda vez que a tela abre, tenta linkar de novo sozinho — mesma
-     ideia do Planejamento Global: pega pedido importado depois da
-     última vez, sem exigir que a pessoa lembre de clicar no botão. */
+  /* Toda vez que a tela abre, tenta linkar (entrada↔pedido) e
+     detectar o Destino de novo sozinho — mesma ideia do Planejamento
+     Global: pega pedido importado depois da última vez, sem exigir
+     que a pessoa lembre de clicar no botão. */
   const jaTentouAoAbrir = useRef(false)
   useEffect(() => {
     if (jaTentouAoAbrir.current || !podeEditar) return
     jaTentouAoAbrir.current = true
-    if (entradasSemVinculo.length > 0) dados.vincularSuprimentoAutomaticamente()
+    if (entradasSemVinculo.length > 0 || semDestino > 0) dados.vincularSuprimentoAutomaticamente()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -644,7 +646,7 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
       const r = await dados.importarSuprimentos(resultado.itens)
       if (!r) return
       const vinc = await dados.vincularSuprimentoAutomaticamente()
-      setFeito({ ...r, novos, atualizados, vinculados: vinc?.vinculados || 0 })
+      setFeito({ ...r, novos, atualizados, vinculados: vinc?.vinculados || 0, destinosDetectados: vinc?.destinosDetectados || 0 })
     } finally {
       setImportandoAgora(false)
     }
@@ -659,6 +661,7 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
               {plural(feito.novos, 'pedido novo importado', 'pedidos novos importados')} e{' '}
               {plural(feito.atualizados, 'atualizado', 'atualizados')}.
               {feito.vinculados > 0 && ` ${plural(feito.vinculados, 'entrada vinculada', 'entradas vinculadas')} automaticamente pelo nome.`}
+              {feito.destinosDetectados > 0 && ` ${plural(feito.destinosDetectados, 'pedido teve', 'pedidos tiveram')} o Destino detectado sozinho.`}
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
