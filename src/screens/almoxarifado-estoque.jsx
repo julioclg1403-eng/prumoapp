@@ -46,6 +46,8 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const [aba, setAba] = useState('estoqueAtual')
   const [busca, setBusca] = useState('')
   const [buscaSuprimentos, setBuscaSuprimentos] = useState('')
+  const [buscaEntradas, setBuscaEntradas] = useState('')
+  const [buscaSaidas, setBuscaSaidas] = useState('')
   const [novaEntrada, setNovaEntrada] = useState(null)
   const [novaSaida, setNovaSaida] = useState(null)
   const [editandoMaterial, setEditandoMaterial] = useState(null)
@@ -356,27 +358,41 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           <div className="card-flat">
             <Vazio titulo="Nenhuma entrada lançada" texto="Toda vez que chegar material na obra, lança aqui — o saldo atualiza sozinho." />
           </div>
-        ) : (
-          <div className="stack-1">
-            {entradas.map((e) => (
-              <ItemLista
-                key={e.id}
-                titulo={nomeMaterial(e.material_id)}
-                sub={[formatarDataCurta(e.data), e.fornecedor, e.nota_fiscal ? `NF ${e.nota_fiscal}` : null, e.recebido_por ? `recebido por ${e.recebido_por}` : null].filter(Boolean).join(' · ')}
-                direita={
-                  <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
-                    <span className="t-strong" style={{ fontSize: 14 }}>+{e.quantidade} {unidadeMaterial(e.material_id)}</span>
-                    {podeExcluir && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirEntrada(e)} aria-label="Excluir">
-                        <Icon name="x" size={15} />
-                      </button>
-                    )}
-                  </div>
-                }
+        ) : (() => {
+          const termo = buscaEntradas.trim().toLowerCase()
+          const filtradas = termo ? entradas.filter((e) => nomeMaterial(e.material_id).toLowerCase().includes(termo)) : entradas
+          return (
+            <div className="stack-2">
+              <input
+                className="ipt" value={buscaEntradas} onChange={(e) => setBuscaEntradas(e.target.value)}
+                placeholder="Buscar material…"
               />
-            ))}
-          </div>
-        )
+              {filtradas.length === 0 ? (
+                <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
+              ) : (
+                <div className="stack-1">
+                  {filtradas.map((e) => (
+                    <ItemLista
+                      key={e.id}
+                      titulo={nomeMaterial(e.material_id)}
+                      sub={[formatarDataCurta(e.data), e.fornecedor, e.nota_fiscal ? `NF ${e.nota_fiscal}` : null, e.recebido_por ? `recebido por ${e.recebido_por}` : null].filter(Boolean).join(' · ')}
+                      direita={
+                        <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+                          <span className="t-strong" style={{ fontSize: 14 }}>+{e.quantidade} {unidadeMaterial(e.material_id)}</span>
+                          {podeExcluir && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirEntrada(e)} aria-label="Excluir">
+                              <Icon name="x" size={15} />
+                            </button>
+                          )}
+                        </div>
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()
       )}
 
       {aba === 'saidas' && (
@@ -384,27 +400,41 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           <div className="card-flat">
             <Vazio titulo="Nenhuma saída lançada" texto="Toda vez que um material sair do almoxarifado, lança aqui — o saldo atualiza sozinho." />
           </div>
-        ) : (
-          <div className="stack-1">
-            {saidas.map((s) => (
-              <ItemLista
-                key={s.id}
-                titulo={nomeMaterial(s.material_id)}
-                sub={[formatarDataCurta(s.data), s.destino].filter(Boolean).join(' · ')}
-                direita={
-                  <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
-                    <span className="t-strong" style={{ fontSize: 14 }}>−{s.quantidade} {unidadeMaterial(s.material_id)}</span>
-                    {podeExcluir && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirSaida(s)} aria-label="Excluir">
-                        <Icon name="x" size={15} />
-                      </button>
-                    )}
-                  </div>
-                }
+        ) : (() => {
+          const termo = buscaSaidas.trim().toLowerCase()
+          const filtradas = termo ? saidas.filter((s) => nomeMaterial(s.material_id).toLowerCase().includes(termo)) : saidas
+          return (
+            <div className="stack-2">
+              <input
+                className="ipt" value={buscaSaidas} onChange={(e) => setBuscaSaidas(e.target.value)}
+                placeholder="Buscar material…"
               />
-            ))}
-          </div>
-        )
+              {filtradas.length === 0 ? (
+                <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
+              ) : (
+                <div className="stack-1">
+                  {filtradas.map((s) => (
+                    <ItemLista
+                      key={s.id}
+                      titulo={nomeMaterial(s.material_id)}
+                      sub={[formatarDataCurta(s.data), s.destino].filter(Boolean).join(' · ')}
+                      direita={
+                        <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+                          <span className="t-strong" style={{ fontSize: 14 }}>−{s.quantidade} {unidadeMaterial(s.material_id)}</span>
+                          {podeExcluir && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirSaida(s)} aria-label="Excluir">
+                              <Icon name="x" size={15} />
+                            </button>
+                          )}
+                        </div>
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()
       )}
 
       {aba === 'suprimentos' && (
