@@ -73,7 +73,6 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const abaixoDoMinimo = saldos.filter((s) => s.abaixoDoMinimo).length
 
   const emEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo > 0), [saldosFiltrados])
-  const semEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo <= 0), [saldosFiltrados])
 
   const entradas = useMemo(
     () => [...(dados.entradasEpi || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -316,12 +315,11 @@ export default function SegurancaEpi({ perfil, params = {} }) {
 
   const baixarPlanilha = () => {
     const sigla = dados.obra.sigla || 'obra'
-    if (aba === 'estoqueAtual' || aba === 'historico') {
-      const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
+    if (aba === 'estoqueAtual') {
       baixarCSV(
-        `${aba === 'estoqueAtual' ? 'estoque-epi' : 'historico-epi'}-${sigla}-${hoje}.csv`,
+        `estoque-epi-${sigla}-${hoje}.csv`,
         ['EPI', 'Unidade', 'Quantidade', 'Custo Unitário Médio', 'Custo Total', 'Quantidade de Saída', 'Estoque', 'Estoque regulador'],
-        lista.map((s) => [
+        emEstoque.map((s) => [
           s.material.nome, s.material.unidade, s.quantidadeEntrada,
           s.custoMedio.toFixed(2), s.custoTotal.toFixed(2), s.quantidadeSaida, s.saldo,
           s.material.estoque_minimo ?? '',
@@ -381,7 +379,6 @@ export default function SegurancaEpi({ perfil, params = {} }) {
           { valor: 'estoqueAtual', rotulo: 'Estoque Atual', contador: emEstoque.length },
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
-          { valor: 'historico', rotulo: 'Histórico Estoque', contador: semEstoque.length },
           { valor: 'suprimentos', rotulo: 'Suprimentos', contador: resumoSuprimentos.length },
           { valor: 'porColaborador', rotulo: 'Por Colaborador', contador: colaboradoresComEpi.length },
         ]}
@@ -393,7 +390,6 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'EPI', 'EPIs')} nesta lista`}
             {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
             {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
-            {aba === 'historico' && `${plural(semEstoque.length, 'EPI sem estoque', 'EPIs sem estoque')}`}
             {aba === 'suprimentos' && `${plural(resumoSuprimentos.length, 'insumo recebido', 'insumos recebidos')} marcados como EPI`}
           </div>
           <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
@@ -499,8 +495,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
         </div>
       )}
 
-      {(aba === 'estoqueAtual' || aba === 'historico') && (() => {
-        const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
+      {aba === 'estoqueAtual' && (() => {
+        const lista = emEstoque
         return (
           <div className="stack-2">
             {materiais.length > 0 && (
@@ -516,9 +512,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   texto={
                     materiais.length === 0
                       ? 'Cadastre o primeiro EPI lançando uma entrada — não precisa de passo separado.'
-                      : aba === 'estoqueAtual'
-                        ? 'Nenhum EPI com saldo ainda — lance uma entrada, ou troque a busca.'
-                        : 'Nenhum EPI sem estoque com esse nome — troque a busca ou limpe o campo.'
+                      : 'Nenhum EPI com saldo ainda — lance uma entrada, ou troque a busca.'
                   }
                   acao={materiais.length === 0 && (
                     <button className="btn btn-primary" onClick={() => abrirNovaEntrada()}>

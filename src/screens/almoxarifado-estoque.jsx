@@ -69,15 +69,11 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   }, [saldos, busca])
   const abaixoDoMinimo = saldos.filter((s) => s.abaixoDoMinimo).length
 
-  /* Estoque Atual e Histórico Estoque são a MESMA lista de saldos,
-     só separada pelo saldo ser maior que zero ou não — material
-     recém-cadastrado (importado da planilha, ou criado na hora)
-     nasce com saldo zero, fica no Histórico até a primeira entrada;
-     a partir daí o saldo recalcula sozinho (dominio.saldoEstoque) e
-     ele passa a aparecer no Estoque Atual, sem precisar mover nada
-     na mão. */
+  /* Material recém-cadastrado (importado da planilha, ou criado na
+     hora) nasce com saldo zero — a partir da primeira entrada o
+     saldo recalcula sozinho (dominio.saldoEstoque) e ele passa a
+     aparecer aqui, sem precisar mover nada na mão. */
   const emEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo > 0), [saldosFiltrados])
-  const semEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo <= 0), [saldosFiltrados])
 
   const entradas = useMemo(
     () => [...(dados.entradasEstoque || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -209,12 +205,11 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
 
   const baixarPlanilha = () => {
     const sigla = dados.obra.sigla || 'obra'
-    if (aba === 'estoqueAtual' || aba === 'historico') {
-      const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
+    if (aba === 'estoqueAtual') {
       baixarCSV(
-        `${aba === 'estoqueAtual' ? 'estoque' : 'historico-estoque'}-${sigla}-${hoje}.csv`,
+        `estoque-${sigla}-${hoje}.csv`,
         ['Material', 'Unidade', 'Quantidade', 'Custo Unitário Médio', 'Custo Total', 'Quantidade de Saída', 'Estoque', 'Estoque regulador'],
-        lista.map((s) => [
+        emEstoque.map((s) => [
           s.material.nome, s.material.unidade, s.quantidadeEntrada,
           s.custoMedio.toFixed(2), s.custoTotal.toFixed(2), s.quantidadeSaida, s.saldo,
           s.material.estoque_minimo ?? '',
@@ -274,7 +269,6 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           { valor: 'estoqueAtual', rotulo: 'Estoque Atual', contador: emEstoque.length },
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
-          { valor: 'historico', rotulo: 'Histórico Estoque', contador: semEstoque.length },
           { valor: 'suprimentos', rotulo: 'Suprimentos', contador: resumoSuprimentos.length },
         ]}
       />
@@ -284,7 +278,6 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
           {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'material', 'materiais')} nesta lista`}
           {aba === 'entradas' && `${plural(entradas.length, 'entrada lançada', 'entradas lançadas')}`}
           {aba === 'saidas' && `${plural(saidas.length, 'saída lançada', 'saídas lançadas')}`}
-          {aba === 'historico' && `${plural(semEstoque.length, 'material sem estoque', 'materiais sem estoque')}`}
           {aba === 'suprimentos' && `${plural(resumoSuprimentos.length, 'insumo recebido', 'insumos recebidos')} marcados como Almoxarifado`}
         </div>
         <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
@@ -292,8 +285,8 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
         </button>
       </div>
 
-      {(aba === 'estoqueAtual' || aba === 'historico') && (() => {
-        const lista = aba === 'estoqueAtual' ? emEstoque : semEstoque
+      {aba === 'estoqueAtual' && (() => {
+        const lista = emEstoque
         return (
           <div className="stack-2">
             {materiais.length > 0 && (
@@ -309,9 +302,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                   texto={
                     materiais.length === 0
                       ? 'Cadastre o primeiro material lançando uma entrada — não precisa de passo separado.'
-                      : aba === 'estoqueAtual'
-                        ? 'Nenhum material com saldo ainda — lance uma entrada, ou troque a busca.'
-                        : 'Nenhum material sem estoque com esse nome — troque a busca ou limpe o campo.'
+                      : 'Nenhum material com saldo ainda — lance uma entrada, ou troque a busca.'
                   }
                   acao={materiais.length === 0 && (
                     <button className="btn btn-primary" onClick={() => abrirNovaEntrada()}>
