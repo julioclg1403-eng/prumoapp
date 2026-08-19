@@ -71,7 +71,7 @@ export default function Suprimentos({ voltar, perfil }) {
   const candidatasPorEntrada = useMemo(() => {
     const mapa = new Map()
     for (const e of entradasSemVinculo) {
-      mapa.set(e.id, pedidos.filter((p) => insumoCorrespondeMaterial(p.insumo, e.nomeMaterial)))
+      mapa.set(e.id, pedidos.filter((p) => !p.entrada_id && insumoCorrespondeMaterial(p.insumo, e.nomeMaterial)))
     }
     return mapa
   }, [entradasSemVinculo, pedidos])
@@ -518,9 +518,15 @@ function AbaVinculos({ dados, podeEditar, entradas, candidatasPorEntrada, ambigu
   )
 }
 
+/* Seleção múltipla — quando dois pedidos separados do mesmo material
+   chegaram juntos numa entrada só, marca os dois e a quantidade soma
+   (dados.vincularEntradaSuprimento aceita um array). */
 function VincularPedido({ entrada, onFechar, dados, candidatas }) {
   const [busca, setBusca] = useState('')
+  const [selecionados, setSelecionados] = useState([])
   const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => { setSelecionados([]) }, [entrada?.id])
 
   const opcoes = useMemo(() => {
     const b = busca.trim().toLowerCase()
@@ -528,10 +534,12 @@ function VincularPedido({ entrada, onFechar, dados, candidatas }) {
     return base.filter((p) => !b || p.insumo.toLowerCase().includes(b) || String(p.pedido).includes(b)).slice(0, 50)
   }, [candidatas, dados.suprimentos, busca])
 
-  const escolher = async (supplyOrderId) => {
+  const alternar = (id) => setSelecionados((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  const confirmar = async () => {
     setSalvando(true)
     try {
-      if (entrada && await dados.vincularEntradaSuprimento(entrada.tabela, entrada.id, supplyOrderId)) onFechar()
+      if (entrada && await dados.vincularEntradaSuprimento(entrada.tabela, entrada.id, selecionados)) onFechar()
     } finally {
       setSalvando(false)
     }
@@ -543,6 +551,13 @@ function VincularPedido({ entrada, onFechar, dados, candidatas }) {
         <div className="stack-2">
           <div className="t-caption">{entrada.nomeMaterial} · entrada de {formatarData(entrada.data)}</div>
 
+          {candidatas.length > 1 && (
+            <div className="alert info">
+              Achou {candidatas.length} pedidos parecidos — se essa entrada juntou mais de um pedido do mesmo
+              material, marque todos que se aplicam e a quantidade soma.
+            </div>
+          )}
+
           <input
             className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por insumo ou número do pedido…"
@@ -551,18 +566,28 @@ function VincularPedido({ entrada, onFechar, dados, candidatas }) {
           <div className="stack-1" style={{ maxHeight: 360, overflowY: 'auto' }}>
             {opcoes.length === 0 ? (
               <div className="t-caption">Nenhum pedido encontrado.</div>
-            ) : opcoes.map((p) => (
-              <button
-                key={p.id} className="card-flat" style={{ textAlign: 'left', width: '100%', cursor: 'pointer' }}
-                onClick={() => escolher(p.id)} disabled={salvando}
-              >
-                <div className="t-strong" style={{ fontSize: 14 }}>{p.insumo}</div>
-                <div className="t-caption" style={{ marginTop: 2 }}>
-                  Pedido {p.pedido} · {p.quantidade ?? '—'} · {p.estagio || '—'}
-                </div>
-              </button>
-            ))}
+            ) : opcoes.map((p) => {
+              const marcado = selecionados.includes(p.id)
+              return (
+                <button
+                  key={p.id} className="card-flat row-between" style={{ textAlign: 'left', width: '100%', cursor: 'pointer', alignItems: 'center', border: marcado ? '2px solid var(--primary)' : undefined }}
+                  onClick={() => alternar(p.id)} disabled={salvando}
+                >
+                  <div>
+                    <div className="t-strong" style={{ fontSize: 14 }}>{p.insumo}</div>
+                    <div className="t-caption" style={{ marginTop: 2 }}>
+                      Pedido {p.pedido} · {p.quantidade ?? '—'} · {p.estagio || '—'}
+                    </div>
+                  </div>
+                  {marcado && <Icon name="check" size={18} />}
+                </button>
+              )
+            })}
           </div>
+
+          <button className="btn btn-primary btn-block" onClick={confirmar} disabled={salvando || selecionados.length === 0}>
+            {salvando ? 'Vinculando…' : selecionados.length > 1 ? `Vincular ${selecionados.length} pedidos` : 'Vincular'}
+          </button>
         </div>
       )}
     </Sheet>

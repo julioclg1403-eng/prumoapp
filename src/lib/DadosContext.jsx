@@ -1757,7 +1757,7 @@ export function DadosProvider({ perfil, children }) {
     async () => {
       const worksite_id = escopo().worksite_id
       const [pedidosR, materiaisR, epiR, entradasR, entradasEpiR] = await Promise.all([
-        supabase.from('supply_orders').select('id, insumo').eq('worksite_id', worksite_id),
+        supabase.from('supply_orders').select('id, insumo').eq('worksite_id', worksite_id).is('entrada_id', null),
         supabase.from('stock_materials').select('id, nome').eq('worksite_id', worksite_id),
         supabase.from('epi_materials').select('id, nome').eq('worksite_id', worksite_id),
         supabase.from('stock_entries').select('id, material_id').eq('worksite_id', worksite_id).is('supply_order_id', null),
@@ -1795,18 +1795,45 @@ export function DadosProvider({ perfil, children }) {
   )
 
   /* Vínculo manual — quando o nome não bate parecido o bastante pro
-     automático achar sozinho (ou bate em mais de um pedido).
-     supplyOrderId null desvincula. `tabela` é 'estoque' ou 'epi', pra
-     saber se mexe em stock_entries ou epi_entries. */
+     automático achar sozinho, ou bate em mais de um pedido (dois
+     pedidos separados do mesmo material que chegaram juntos: nesse
+     caso a pessoa marca os dois e a quantidade soma). `tabela` é
+     'estoque' ou 'epi', pra saber se mexe em stock_entries ou
+     epi_entries. `supplyOrderIds` aceita um id só, um array, ou
+     vazio/null pra desvincular tudo.
+
+     Só existe UMA coluna de FK (stock_entries.supply_order_id /
+     epi_entries.supply_order_id) — o primeiro id vira o vínculo
+     "principal" ali. Os demais (quando a pessoa marca mais de um)
+     ficam em supply_orders.entrada_id/entrada_tabela, apontando de
+     volta pra essa mesma entrada — não são um segundo FK de verdade,
+     só o suficiente pra sair da fila de "sem pedido" e a soma bater
+     na hora de olhar os dois juntos. */
   const vincularEntradaSuprimento = useCallback(
-    async (tabela, entradaId, supplyOrderId) => {
+    async (tabela, entradaId, supplyOrderIds) => {
       const nomeTabela = tabela === 'epi' ? 'epi_entries' : 'stock_entries'
-      const r = await supabase.from(nomeTabela).update({ supply_order_id: supplyOrderId }).eq('id', entradaId).select('id')
+      const ids = (Array.isArray(supplyOrderIds) ? supplyOrderIds : [supplyOrderIds]).filter(Boolean)
+      const [principal, ...extras] = ids
+
+      const limpezaR = await supabase.from('supply_orders')
+        .update({ entrada_id: null, entrada_tabela: null })
+        .eq('entrada_id', entradaId).eq('entrada_tabela', tabela)
+      if (limpezaR.error) { checar(limpezaR, 'vincular ao pedido de suprimentos'); return false }
+
+      const r = await supabase.from(nomeTabela).update({ supply_order_id: principal || null }).eq('id', entradaId).select('id')
       if (r.error) { checar(r, 'vincular ao pedido de suprimentos'); return false }
       if (!r.data || r.data.length === 0) {
         avisarErro('Seu perfil não pode vincular isso.')
         return false
       }
+
+      if (extras.length) {
+        const r2 = await supabase.from('supply_orders')
+          .update({ entrada_id: entradaId, entrada_tabela: tabela })
+          .in('id', extras)
+        if (r2.error) { checar(r2, 'vincular os pedidos extras'); return false }
+      }
+
       await recarregar()
       return true
     },
