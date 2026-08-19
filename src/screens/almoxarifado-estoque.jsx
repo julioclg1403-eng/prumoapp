@@ -460,13 +460,19 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                     key={r.insumo}
                     titulo={r.insumo}
                     sub={[
-                      `${plural(r.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                      `${plural(r.pedidos, 'pedido confirmado', 'pedidos confirmados')}`,
                       r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
                       r.material ? null : 'sem material correspondente no catálogo',
                     ].filter(Boolean).join(' · ')}
                     direita={
                       <div style={{ textAlign: 'right' }}>
                         <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
+                        {r.pedidosSemData > 0 && (
+                          <div className="t-caption" style={{ color: 'var(--text-2)', maxWidth: 220 }}>
+                            {plural(r.pedidosSemData, 'pedido confirmado sem data', 'pedidos confirmados sem data')} de entrega —
+                            provavelmente já chegou na obra, o Suprimentos ainda não atualizou
+                          </div>
+                        )}
                         {r.diferenca !== 0 && (
                           <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
                             {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}

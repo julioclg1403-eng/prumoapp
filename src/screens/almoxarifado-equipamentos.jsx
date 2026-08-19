@@ -186,7 +186,7 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
                         key={p.insumo}
                         titulo={p.insumo}
                         sub={[
-                          `${plural(p.pedidos, 'pedido entregue', 'pedidos entregues')}`,
+                          `${plural(p.pedidos, 'pedido confirmado', 'pedidos confirmados')}`,
                           p.ultimaEntrega ? `última em ${formatarDataCurta(p.ultimaEntrega)}` : null,
                           `qtde total ${p.quantidade}`,
                         ].filter(Boolean).join(' · ')}

@@ -1290,13 +1290,21 @@ export function saldoEstoque(materiais, entradas, saidas) {
 }
 
 /* Reconciliação Suprimentos × estoque lançado na mão: agrupa os
-   pedidos JÁ ENTREGUES (data_entrega preenchida) de um Destino
-   (almoxarifado/epi) por nome de insumo, soma a quantidade que a
-   planilha diz que chegou, e bate contra o total lançado manualmente
-   em "Registrar entrada" pro material/EPI correspondente (mesmo
+   pedidos JÁ CONFIRMADOS ("5 - Confirmado") de um Destino (almoxari-
+   fado/epi) por nome de insumo, soma a quantidade que a planilha diz
+   que chegou, e bate contra o total lançado manualmente em
+   "Registrar entrada" pro material/EPI correspondente (mesmo
    casamento por nome de insumoCorrespondeMaterial). Não mexe no
    saldo — só ajuda a achar o que chegou pela planilha e ninguém
-   lançou ainda (ou lançou quantidade diferente). */
+   lançou ainda (ou lançou quantidade diferente).
+
+   Pedido confirmado sem Data Entrega preenchida (a nota chega na
+   obra antes de o sistema deles atualizar essa data) continua
+   contando pra aparecer na lista — nunca some — mas a quantidade só
+   entra na soma de "quanto chegou" quando a data existir de verdade;
+   nunca inventa número que a planilha não confirmou. `pedidosSemData`
+   marca quantos desses pedidos ainda estão nessa situação, pra tela
+   mostrar o aviso "lançado, aguardando o Suprimentos atualizar". */
 export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas) {
   const quantidadeManualPorMaterial = new Map()
   for (const e of (entradas || [])) {
@@ -1305,11 +1313,15 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
 
   const porInsumo = new Map()
   for (const p of (pedidos || [])) {
-    if (p.destino !== destino || !p.data_entrega) continue
-    const atual = porInsumo.get(p.insumo) || { qtdeSuprimentos: 0, ultimaEntrega: null, pedidos: 0 }
-    atual.qtdeSuprimentos += Number(p.quantidade || 0)
+    if (p.destino !== destino || p.estagio !== '5 - Confirmado') continue
+    const atual = porInsumo.get(p.insumo) || { qtdeSuprimentos: 0, ultimaEntrega: null, pedidos: 0, pedidosSemData: 0 }
     atual.pedidos += 1
-    if (!atual.ultimaEntrega || p.data_entrega > atual.ultimaEntrega) atual.ultimaEntrega = p.data_entrega
+    if (p.data_entrega) {
+      atual.qtdeSuprimentos += Number(p.quantidade || 0)
+      if (!atual.ultimaEntrega || p.data_entrega > atual.ultimaEntrega) atual.ultimaEntrega = p.data_entrega
+    } else {
+      atual.pedidosSemData += 1
+    }
     porInsumo.set(p.insumo, atual)
   }
 
@@ -1321,6 +1333,7 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
         insumo,
         material,
         pedidos: info.pedidos,
+        pedidosSemData: info.pedidosSemData,
         ultimaEntrega: info.ultimaEntrega,
         qtdeSuprimentos: info.qtdeSuprimentos,
         qtdeManual,
@@ -1339,7 +1352,7 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
 export function pedidosEquipamentoSemCadastro(pedidos, equipamentos) {
   const porInsumo = new Map()
   for (const p of (pedidos || [])) {
-    if (p.destino !== 'equipamentos' || !p.data_entrega) continue
+    if (p.destino !== 'equipamentos' || p.estagio !== '5 - Confirmado') continue
     const atual = porInsumo.get(p.insumo) || { quantidade: 0, ultimaEntrega: null, pedidos: 0 }
     atual.quantidade += Number(p.quantidade || 0)
     atual.pedidos += 1
