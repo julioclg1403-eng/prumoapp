@@ -26,7 +26,7 @@ import { formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorres
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio } from '../components'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
-const ROTULO_DESTINO = { almoxarifado: 'Almoxarifado', epi: 'EPI' }
+const ROTULO_DESTINO = { almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração' }
 
 function formatarDias(dias) {
   if (dias == null) return '—'
@@ -204,6 +204,7 @@ function AbaDados({ pedidos, dados, podeEditar }) {
         <button className={`btn btn-sm ${destinoFiltro === 'todos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('todos')}>Todos</button>
         <button className={`btn btn-sm ${destinoFiltro === 'almoxarifado' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('almoxarifado')}>Almoxarifado</button>
         <button className={`btn btn-sm ${destinoFiltro === 'epi' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('epi')}>EPI</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'administracao' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('administracao')}>Administração</button>
         <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
       </div>
 
@@ -283,10 +284,11 @@ function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
           </div>
 
           <div className="card-flat stack-1">
-            <div className="t-micro">Destino (Almoxarifado ou EPI)</div>
+            <div className="t-micro">Destino</div>
             <div className="t-caption" style={{ lineHeight: 1.4 }}>
               Marca uma vez pra esse insumo — pedido repetido com o mesmo nome já entra classificado sozinho, na
-              hora de importar de novo.
+              hora de importar de novo. "Administração" é pra item que não entra no controle de estoque (material
+              de escritório, limpeza administrativa etc.) — só pra ele sair da fila de pendente.
             </div>
             {podeEditar ? (
               <div className="row-wrap" style={{ gap: 6, marginTop: 2 }}>
@@ -301,6 +303,12 @@ function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
                   onClick={() => escolherDestino('epi')} disabled={salvando}
                 >
                   EPI
+                </button>
+                <button
+                  className={`btn btn-sm ${pedido.destino === 'administracao' ? 'btn-dark' : 'btn-secondary'}`}
+                  onClick={() => escolherDestino('administracao')} disabled={salvando}
+                >
+                  Administração
                 </button>
                 {pedido.destino && (
                   <button className="btn btn-sm btn-secondary" onClick={() => escolherDestino(null)} disabled={salvando}>
