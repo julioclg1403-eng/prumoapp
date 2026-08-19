@@ -189,9 +189,10 @@ export default function SegurancaEpi({ perfil, params = {} }) {
 
   useEffect(() => { setDiaHistoricoAberto(null) }, [editandoMaterial?.id])
 
-  const abrirNovaEntrada = (materialId = '') => setNovaEntrada({
-    data: hoje, material_id: materialId, quantidade: '',
+  const abrirNovaEntrada = ({ materialId = '', quantidade = '', nomeSugerido = '' } = {}) => setNovaEntrada({
+    data: hoje, material_id: materialId, quantidade,
     fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
+    nomeSugerido,
   })
 
   const abrirNovaSaida = (materialId = '') => {
@@ -634,6 +635,18 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                         {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
                       </Chip>
                     )}
+                    {r.diferenca > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => abrirNovaEntrada({
+                            materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
+                          })}
+                        >
+                          Lançar entrada
+                        </button>
+                      </div>
+                    )}
                   </div>
                 }
               />
@@ -665,6 +678,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               materialId={novaEntrada.material_id}
               materiais={materiais}
               dados={dados}
+              nomeSugerido={novaEntrada.nomeSugerido}
               onEscolher={(id) => setNovaEntrada((p) => ({ ...p, material_id: id }))}
             />
             <div className="row-flex">
@@ -876,7 +890,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             <div className="row-flex">
               <button
                 className="btn btn-secondary grow"
-                onClick={() => { const id = editandoMaterial.id; setEditandoMaterial(null); abrirNovaEntrada(id) }}
+                onClick={() => { const id = editandoMaterial.id; setEditandoMaterial(null); abrirNovaEntrada({ materialId: id }) }}
               >
                 <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Lançar entrada
               </button>
@@ -1284,9 +1298,9 @@ function EtiquetasQR({ aberto, onFechar, materiais, gerando, onImprimir }) {
 /* ── Escolha de EPI, com criação rápida embutida ─────────────
    Mesmo padrão do Estoque de material: em vez de mandar cadastrar
    antes, o campo de busca já deixa criar o EPI na hora. */
-function SelecaoMaterial({ materialId, materiais, dados, onEscolher }) {
+function SelecaoMaterial({ materialId, materiais, dados, onEscolher, nomeSugerido = '' }) {
   const [criando, setCriando] = useState(false)
-  const [nome, setNome] = useState('')
+  const [nome, setNome] = useState(nomeSugerido)
   const [unidade, setUnidade] = useState('unid')
   const [salvando, setSalvando] = useState(false)
 

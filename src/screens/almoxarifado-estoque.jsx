@@ -111,13 +111,18 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const nomeMaterial = (id) => dados.materiaisEstoque?.find((m) => m.id === id)?.nome || 'Material removido'
   const unidadeMaterial = (id) => dados.materiaisEstoque?.find((m) => m.id === id)?.unidade || ''
 
-  /* Mesmo ponto de partida pro botão "Nova entrada" do topo e pro
-     "Lançar entrada" de dentro de Editar material — só muda se o
-     material já vem escolhido (pulando o seletor, que com 752
-     opções não é rápido de navegar de novo). */
-  const abrirNovaEntrada = (materialId = '') => setNovaEntrada({
-    data: hoje, material_id: materialId, quantidade: '',
+  /* Mesmo ponto de partida pro botão "Nova entrada" do topo, pro
+     "Lançar entrada" de dentro de Editar material, e pro "Lançar
+     entrada" da aba Suprimentos — só muda o que já vem preenchido
+     (pulando o seletor, que com 752 opções não é rápido de navegar
+     de novo). `nomeSugerido` é só o nome pra pré-preencher a busca/
+     "Material novo" quando o insumo do Suprimentos ainda não tem
+     material correspondente cadastrado — não é salvo, é descartado
+     assim que o material é escolhido/criado. */
+  const abrirNovaEntrada = ({ materialId = '', quantidade = '', nomeSugerido = '' } = {}) => setNovaEntrada({
+    data: hoje, material_id: materialId, quantidade,
     fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
+    nomeSugerido,
   })
 
   const abrirNovaSaida = (materialId = '') => setNovaSaida({
@@ -424,6 +429,18 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                         {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
                       </Chip>
                     )}
+                    {r.diferenca > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => abrirNovaEntrada({
+                            materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
+                          })}
+                        >
+                          Lançar entrada
+                        </button>
+                      </div>
+                    )}
                   </div>
                 }
               />
@@ -455,6 +472,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
               materialId={novaEntrada.material_id}
               materiais={materiais}
               dados={dados}
+              nomeSugerido={novaEntrada.nomeSugerido}
               onEscolher={(id) => setNovaEntrada((p) => ({ ...p, material_id: id }))}
             />
             <div className="row-flex">
@@ -619,7 +637,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
             <div className="row-flex">
               <button
                 className="btn btn-secondary grow"
-                onClick={() => { const id = editandoMaterial.id; setEditandoMaterial(null); abrirNovaEntrada(id) }}
+                onClick={() => { const id = editandoMaterial.id; setEditandoMaterial(null); abrirNovaEntrada({ materialId: id }) }}
               >
                 <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Lançar entrada
               </button>
@@ -938,12 +956,12 @@ function EtiquetasQR({ aberto, onFechar, materiais, gerando, onImprimir }) {
    levava a criar material duplicado (mais rápido clicar "Novo" que
    procurar). A busca filtra as opções antes de escolher; o aviso no
    formulário de criação reforça conferir antes de criar. */
-function SelecaoMaterial({ materialId, materiais, dados, onEscolher }) {
+function SelecaoMaterial({ materialId, materiais, dados, onEscolher, nomeSugerido = '' }) {
   const [criando, setCriando] = useState(false)
-  const [nome, setNome] = useState('')
+  const [nome, setNome] = useState(nomeSugerido)
   const [unidade, setUnidade] = useState('unid')
   const [salvando, setSalvando] = useState(false)
-  const [busca, setBusca] = useState('')
+  const [busca, setBusca] = useState(nomeSugerido)
 
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
