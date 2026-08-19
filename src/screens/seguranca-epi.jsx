@@ -10,7 +10,10 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos } from '../lib/dominio'
+import {
+  hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos,
+  insumoCorrespondeMaterial,
+} from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
@@ -122,6 +125,17 @@ export default function SegurancaEpi({ perfil, params = {} }) {
 
     return [...ents, ...sais].sort((a, b) => (a.data < b.data ? 1 : -1))
   }, [editandoMaterial, entradas, saidas])
+
+  /* Todo pedido de Suprimentos (Almoxarifado ou EPI, qualquer Destino
+     — inclusive sem Destino ainda) cujo nome bate com este EPI, pra
+     dentro de Editar EPI dar pra ver de onde ele veio sem precisar
+     ir até a tela de Suprimentos e buscar na mão. */
+  const pedidosVinculadosMaterial = useMemo(() => {
+    if (!editandoMaterial?.nome) return []
+    return (dados.suprimentos || [])
+      .filter((p) => insumoCorrespondeMaterial(p.insumo, editandoMaterial.nome))
+      .sort((a, b) => b.pedido - a.pedido)
+  }, [editandoMaterial, dados.suprimentos])
 
   const nomeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.nome || 'EPI removido'
   const unidadeMaterial = (id) => dados.materiaisEpi?.find((m) => m.id === id)?.unidade || ''
@@ -536,19 +550,14 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                     key={s.material.id}
                     titulo={s.material.nome}
                     sub={[s.material.categoria, s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null].filter(Boolean).join(' · ')}
+                    onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
                     direita={
                       <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
                         {s.abaixoDoMinimo && <Chip tom="danger">Abaixo do mínimo</Chip>}
                         <span className="t-strong" style={{ fontSize: 15, minWidth: 70, textAlign: 'right' }}>
                           {s.saldo} {s.material.unidade}
                         </span>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
-                          aria-label="Editar EPI"
-                        >
-                          <Icon name="editar" size={16} />
-                        </button>
+                        <Icon name="avancar" size={16} />
                       </div>
                     }
                   />
@@ -1013,6 +1022,30 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                       </div>
                     )
                   })}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="t-micro" style={{ marginBottom: 8 }}>Pedidos de Suprimentos vinculados</div>
+              {pedidosVinculadosMaterial.length === 0 ? (
+                <div className="t-caption">Nenhum pedido de Suprimentos com esse nome ainda — nem Almoxarifado, nem EPI.</div>
+              ) : (
+                <div className="stack-1">
+                  {pedidosVinculadosMaterial.map((p) => (
+                    <div key={p.id} className="card-flat" style={{ padding: 10 }}>
+                      <div className="row-between">
+                        <span className="t-strong" style={{ fontSize: 14 }}>Pedido {p.pedido}</span>
+                        <Chip tom={p.destino === 'almoxarifado' ? 'success' : p.destino === 'epi' ? 'info' : ''}>
+                          {p.destino ? (p.destino === 'almoxarifado' ? 'Almoxarifado' : p.destino === 'epi' ? 'EPI' : p.destino) : 'Sem destino'}
+                        </Chip>
+                      </div>
+                      <div className="t-caption" style={{ marginTop: 2 }}>{p.insumo}</div>
+                      <div className="t-caption" style={{ marginTop: 2 }}>
+                        {p.quantidade ?? '—'} · {p.data_entrega ? formatarDataCurta(p.data_entrega) : 'sem data de entrega'} · {p.estagio || 'sem estágio'}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
