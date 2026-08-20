@@ -30,6 +30,7 @@ import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
 import Suprimentos from '../screens/suprimentos'
+import Contratos from '../screens/contratos'
 import Usuarios from '../screens/usuarios'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
@@ -77,6 +78,8 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Máquinas e ferramentas, e onde cada uma está' },
     { chave: 'suprimentos', rotulo: 'Suprimentos', icone: 'pedidos',
       desc: 'Pedidos de compra importados do sistema, com dashboard de prazo' },
+    { chave: 'contratos', rotulo: 'Contratos', icone: 'relatorio',
+      desc: 'Contratos importados do sistema, com cruzamento de itens entre eles' },
     { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
       desc: 'Ocorrências e advertências da obra' },
     { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
@@ -158,6 +161,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'seguranca':  corpo = <Seguranca voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'projetos':   corpo = <Projetos goto={goto} voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'suprimentos': corpo = <Suprimentos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
+    case 'contratos':  corpo = <Contratos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={pilha.length > 1 ? voltar : null} params={rota.params} />; break

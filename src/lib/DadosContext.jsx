@@ -205,7 +205,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
-      suprimentos, entregasEquipamento,
+      suprimentos, entregasEquipamento, contratos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -246,6 +246,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('worker_trainings').select('*').order('data_realizacao', { ascending: false })),
       buscarPaginado(() => supabase.from('supply_orders').select('*').order('pedido', { ascending: false })),
       buscarPaginado(() => supabase.from('equipment_deliveries').select('*').order('data', { ascending: false })),
+      buscarPaginado(() => supabase.from('contract_items').select('*').order('cod_contrato')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -255,7 +256,7 @@ export function DadosProvider({ perfil, children }) {
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
-      tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento].find((r) => r.error)
+      tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -320,6 +321,7 @@ export function DadosProvider({ perfil, children }) {
       treinamentosColaboradores: treinamentosColaboradores.data || [],
       suprimentos: suprimentos.data || [],
       entregasEquipamento: entregasEquipamento.data || [],
+      contratos: contratos.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -416,6 +418,7 @@ export function DadosProvider({ perfil, children }) {
       treinamentosColaboradores: filtrar(tudo.treinamentosColaboradores),
       suprimentos: filtrar(tudo.suprimentos),
       entregasEquipamento: filtrar(tudo.entregasEquipamento),
+      contratos: filtrar(tudo.contratos),
     }
   }, [tudo, obraId])
 
@@ -1986,6 +1989,45 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, recarregar],
   )
 
+  // ── Contratos (itens de contrato importados do sistema) ────
+  /* Mesmo padrão do Suprimentos: reimportar a mesma planilha (ou uma
+     mais nova, com as medições atualizadas) atualiza a linha que já
+     existe em vez de duplicar — a chave é (worksite, CHAVECONTRATO),
+     que já vem única de fábrica lá do sistema deles. */
+  const importarContratos = useCallback(
+    async (itens) => {
+      const { organization_id, worksite_id } = escopo()
+      const agora = new Date().toISOString()
+
+      const linhas = itens.map((i) => ({
+        organization_id, worksite_id, autor_id: perfil.id,
+        chave: i.chave, cod_contrato: i.cod_contrato, objeto_contrato: i.objeto_contrato,
+        fornecedor: i.fornecedor, cod_fornecedor: i.cod_fornecedor,
+        status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
+        total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
+        valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
+        item_num: i.item_num, codigo_servico: i.codigo_servico, descricao_item: i.descricao_item,
+        unidade: i.unidade, qtde_item: i.qtde_item, preco_item: i.preco_item, subtotal_item: i.subtotal_item,
+        qtde_medida: i.qtde_medida, valor_medido_item: i.valor_medido_item,
+        qtde_a_medir: i.qtde_a_medir, valor_a_medir: i.valor_a_medir,
+        atualizado_em: agora,
+      }))
+      const TAMANHO_LOTE = 500
+      let total = 0
+      for (let i = 0; i < linhas.length; i += TAMANHO_LOTE) {
+        const lote = linhas.slice(i, i + TAMANHO_LOTE)
+        const r = await supabase.from('contract_items')
+          .upsert(lote, { onConflict: 'worksite_id,chave' })
+          .select('id')
+        if (r.error) { checar(r, 'importar os contratos'); return null }
+        total += (r.data || []).length
+      }
+      await recarregar()
+      return { importados: total }
+    },
+    [escopo, perfil.id, checar, recarregar],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -2900,6 +2942,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
+      importarContratos,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
@@ -2931,6 +2974,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
+      importarContratos,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,

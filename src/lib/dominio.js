@@ -336,6 +336,7 @@ export const MODULOS_RESTRINGIVEIS = [
   { chave: 'seguranca', rotulo: 'Segurança' },
   { chave: 'projetos', rotulo: 'Projetos' },
   { chave: 'suprimentos', rotulo: 'Suprimentos' },
+  { chave: 'contratos', rotulo: 'Contratos' },
   { chave: 'cadastros', rotulo: 'Cadastros' },
 ]
 
