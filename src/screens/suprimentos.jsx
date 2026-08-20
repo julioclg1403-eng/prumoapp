@@ -69,6 +69,12 @@ function formatarDias(dias) {
   return `${dias.toFixed(1)} dia${dias >= 1.95 ? 's' : ''}`
 }
 
+function diferencaDiasSimples(dataInicioISO, dataFimISO) {
+  const inicio = new Date(`${dataInicioISO}T00:00:00Z`)
+  const fim = new Date(`${dataFimISO}T00:00:00Z`)
+  return Math.round((fim - inicio) / 86400000)
+}
+
 /* Ordem oficial do fluxo da planilha: Pedido → Aprovação do Pedido →
    Aprovação da Simulação → Confirmação da Cotação → Fechamento da
    Compra → Entrega. Mesmos seis campos que o sistema (ERP) calcula
@@ -535,6 +541,32 @@ function AbaDashboard({ pedidos }) {
   }, [pedidosFiltrados])
   const maxBarraValor = Math.max(1, ...porInsumoValor.map((i) => i.valor))
 
+  /* Ranking de materiais que ainda não chegaram — pedido sem Data
+     Entrega preenchida, agrupado por insumo. Ordenado por quantos dias
+     o pedido mais antigo desse insumo já está esperando, é o "quem tá
+     travado há mais tempo" que interessa olhar primeiro. */
+  const materiaisNaoChegaram = useMemo(() => {
+    const hoje = hojeISO()
+    const mapa = new Map()
+    for (const p of pedidosFiltrados) {
+      if (p.data_entrega) continue
+      const atual = mapa.get(p.insumo) || { quantidade: 0, valor: 0, dataMaisAntiga: null }
+      atual.quantidade += 1
+      const v = valorItem(p)
+      if (v != null) atual.valor += v
+      if (p.data_pedido && (!atual.dataMaisAntiga || p.data_pedido < atual.dataMaisAntiga)) atual.dataMaisAntiga = p.data_pedido
+      mapa.set(p.insumo, atual)
+    }
+    return [...mapa.entries()]
+      .map(([insumo, info]) => ({
+        insumo, ...info,
+        diasEsperando: info.dataMaisAntiga ? diferencaDiasSimples(info.dataMaisAntiga, hoje) : null,
+      }))
+      .sort((a, b) => (b.diasEsperando ?? -1) - (a.diasEsperando ?? -1))
+      .slice(0, 20)
+  }, [pedidosFiltrados])
+  const totalNaoChegaram = pedidosFiltrados.filter((p) => !p.data_entrega).length
+
   /* Busca por um material específico — pega todos os pedidos que
      batem (não só os do top 15) e resume tudo dele: quantidade,
      valor, os três tempos e a lista de cada pedido individual. */
@@ -773,6 +805,39 @@ function AbaDashboard({ pedidos }) {
                     <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
                       <div style={{ width: `${(i.valor / maxBarraValor) * 100}%`, height: '100%', background: 'var(--primary)' }} />
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card-flat stack-2">
+            <div className="t-micro">
+              Materiais que ainda não chegaram (top 20 de {plural(totalNaoChegaram, 'pedido', 'pedidos')} sem Data Entrega)
+            </div>
+            {materiaisNaoChegaram.length === 0 ? (
+              <div className="t-caption">Nada pendente — todo pedido nesse filtro já tem Data Entrega.</div>
+            ) : (
+              <div className="stack-1">
+                {materiaisNaoChegaram.map((i) => (
+                  <div key={i.insumo}>
+                    <div className="row-between" style={{ marginBottom: 3 }}>
+                      <span className="t-caption" style={{ maxWidth: '60%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
+                      <span style={{ textAlign: 'right' }}>
+                        <span className="t-caption t-strong">{i.diasEsperando != null ? `${i.diasEsperando} dia${i.diasEsperando === 1 ? '' : 's'} esperando` : 'sem data do pedido'}</span>
+                        {i.valor > 0 && <div className="t-caption">{formatarDinheiro(i.valor)}</div>}
+                      </span>
+                    </div>
+                    {i.diasEsperando != null && (
+                      <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            width: `${(i.diasEsperando / Math.max(1, ...materiaisNaoChegaram.map((m) => m.diasEsperando ?? 0))) * 100}%`,
+                            height: '100%', background: 'var(--danger)',
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
