@@ -22,12 +22,46 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio } from '../components'
+import {
+  hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial, filtrarPorPeriodo,
+} from '../lib/dominio'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio } from '../components'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
 const ROTULO_DESTINO = {
   almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração', equipamentos: 'Equipamentos',
+}
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
+/* Mesmo filtro Tudo/Dia/Mês/Período usado no Almoxarifado e na
+   Segurança — componente local pra não criar dependência cruzada
+   entre telas por um pedaço de UI tão pequeno. */
+function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio, fim, onFim }) {
+  return (
+    <div className="stack-1">
+      <Segmentos
+        valor={modo} onChange={onModo}
+        opcoes={[
+          { valor: 'tudo', rotulo: 'Tudo' },
+          { valor: 'dia', rotulo: 'Dia' },
+          { valor: 'mes', rotulo: 'Mês' },
+          { valor: 'periodo', rotulo: 'Período' },
+        ]}
+      />
+      {modo === 'dia' && <input className="ipt" type="date" value={dia} onChange={(e) => onDia(e.target.value)} />}
+      {modo === 'mes' && <input className="ipt" type="month" value={mes} onChange={(e) => onMes(e.target.value)} />}
+      {modo === 'periodo' && (
+        <div className="row-flex">
+          <Campo label="De">
+            <input className="ipt" type="date" value={inicio} onChange={(e) => onInicio(e.target.value)} />
+          </Campo>
+          <Campo label="Até">
+            <input className="ipt" type="date" value={fim} onChange={(e) => onFim(e.target.value)} />
+          </Campo>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function formatarDias(dias) {
@@ -387,23 +421,88 @@ function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
 /* ── Dashboard ──────────────────────────────────────────────── */
 
 function AbaDashboard({ pedidos }) {
+  const hoje = hojeISO()
+  const [periodoModo, setPeriodoModo] = useState('tudo')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
+  const [destinoFiltro, setDestinoFiltro] = useState('todos')
+
+  /* Filtro de período olha a data do Pedido — é o marco que sempre
+     existe (Entrega às vezes não), e é o que faz sentido pra "quanto
+     eu pedi em tal mês". */
+  const pedidosPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      pedidos, periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (p) => p.data_pedido,
+    ),
+    [pedidos, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+  const pedidosFiltrados = useMemo(
+    () => (destinoFiltro === 'todos'
+      ? pedidosPeriodo
+      : pedidosPeriodo.filter((p) => (destinoFiltro === 'sem' ? !p.destino : p.destino === destinoFiltro))),
+    [pedidosPeriodo, destinoFiltro],
+  )
+
   const media = (itens, campo) => {
     const doGrupo = itens.filter((p) => p[campo] != null)
     return doGrupo.length ? doGrupo.reduce((s, p) => s + p[campo], 0) / doGrupo.length : null
   }
+  const valorItem = (p) => (p.preco != null && p.quantidade != null ? p.preco * p.quantidade : null)
+  const somaValor = (itens) => itens.reduce((s, p) => { const v = valorItem(p); return v != null ? s + v : s }, 0)
 
-  const mediaPedidoCompra = media(pedidos, 'dias_pedido_compra')
-  const mediaCompraEntrega = media(pedidos, 'dias_compra_entrega')
-  const comAmbos = pedidos.filter((p) => p.dias_pedido_compra != null && p.dias_compra_entrega != null)
+  const mediaPedidoCompra = media(pedidosFiltrados, 'dias_pedido_compra')
+  const mediaCompraEntrega = media(pedidosFiltrados, 'dias_compra_entrega')
+  const comAmbos = pedidosFiltrados.filter((p) => p.dias_pedido_compra != null && p.dias_compra_entrega != null)
   const mediaTotal = comAmbos.length
     ? comAmbos.reduce((s, p) => s + p.dias_pedido_compra + p.dias_compra_entrega, 0) / comAmbos.length
     : null
+
+  /* Funil por estágio — onde os pedidos estão travando dentro do
+     período/tipo escolhido. */
+  const porEstagio = useMemo(() => {
+    const mapa = new Map()
+    for (const p of pedidosFiltrados) mapa.set(p.estagio || 'Sem estágio', (mapa.get(p.estagio || 'Sem estágio') || 0) + 1)
+    return [...mapa.entries()].map(([estagio, quantidade]) => ({ estagio, quantidade })).sort((a, b) => b.quantidade - a.quantidade)
+  }, [pedidosFiltrados])
+  const maxEstagio = Math.max(1, ...porEstagio.map((e) => e.quantidade))
+
+  /* Por tipo de material (Destino) — sempre olha o período inteiro,
+     ignorando o filtro de tipo abaixo, senão o comparativo entre
+     tipos perde sentido (compararia um tipo com ele mesmo). */
+  const porDestino = useMemo(() => {
+    const grupos = { almoxarifado: [], epi: [], equipamentos: [], administracao: [], sem: [] }
+    for (const p of pedidosPeriodo) grupos[p.destino || 'sem'].push(p)
+    return Object.entries(grupos)
+      .map(([destino, itens]) => ({ destino, quantidade: itens.length, valor: somaValor(itens) }))
+      .filter((d) => d.quantidade > 0)
+  }, [pedidosPeriodo])
+  const valorTotalPeriodo = porDestino.reduce((s, d) => s + d.valor, 0)
+
+  /* Evolução mensal (quantidade e valor gasto por mês do Pedido). */
+  const evolucaoMensal = useMemo(() => {
+    const mapa = new Map()
+    for (const p of pedidosFiltrados) {
+      if (!p.data_pedido) continue
+      const mes = p.data_pedido.slice(0, 7)
+      const atual = mapa.get(mes) || { quantidade: 0, valor: 0 }
+      atual.quantidade += 1
+      const v = valorItem(p)
+      if (v != null) atual.valor += v
+      mapa.set(mes, atual)
+    }
+    return [...mapa.entries()].map(([mes, info]) => ({ mes, ...info })).sort((a, b) => a.mes.localeCompare(b.mes))
+  }, [pedidosFiltrados])
+  const maxEvolucaoQtde = Math.max(1, ...evolucaoMensal.map((m) => m.quantidade))
 
   /* Por insumo — só entram quem já tem os dois tempos calculados
      (Estágio Confirmado), pra não misturar pedido ainda em aberto
      com pedido que já rodou o fluxo inteiro. Top 15 que mais
      demoram, é o "quem trava a compra" que interessa olhar. */
-  const porInsumo = useMemo(() => {
+  const porInsumoTempo = useMemo(() => {
     const mapa = new Map()
     for (const p of comAmbos) {
       if (!mapa.has(p.insumo)) mapa.set(p.insumo, [])
@@ -412,53 +511,181 @@ function AbaDashboard({ pedidos }) {
     return [...mapa.entries()]
       .map(([insumo, itens]) => ({
         insumo, quantidade: itens.length,
-        pedidoCompra: media(itens, 'dias_pedido_compra'),
-        compraEntrega: media(itens, 'dias_compra_entrega'),
         total: media(itens.map((i) => ({ t: i.dias_pedido_compra + i.dias_compra_entrega })), 't'),
       }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 15)
   }, [comAmbos])
+  const maxBarraTempo = Math.max(1, ...porInsumoTempo.map((i) => i.total))
 
-  const maxBarra = Math.max(1, ...porInsumo.map((i) => i.total))
+  /* Top 15 por valor gasto — "onde está indo o dinheiro", não só o
+     tempo. Conta todo pedido com preço lançado, não só os confirmados. */
+  const porInsumoValor = useMemo(() => {
+    const mapa = new Map()
+    for (const p of pedidosFiltrados) {
+      const v = valorItem(p)
+      if (v == null) continue
+      const atual = mapa.get(p.insumo) || { quantidade: 0, valor: 0 }
+      atual.quantidade += 1
+      atual.valor += v
+      mapa.set(p.insumo, atual)
+    }
+    return [...mapa.entries()].map(([insumo, info]) => ({ insumo, ...info })).sort((a, b) => b.valor - a.valor).slice(0, 15)
+  }, [pedidosFiltrados])
+  const maxBarraValor = Math.max(1, ...porInsumoValor.map((i) => i.valor))
 
   return (
     <div className="stack-2">
-      <div className="row-wrap" style={{ gap: 10 }}>
-        <div className="card-flat" style={{ flex: '1 1 160px' }}>
-          <div className="t-caption">Pedido → Compra</div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaPedidoCompra)}</div>
-        </div>
-        <div className="card-flat" style={{ flex: '1 1 160px' }}>
-          <div className="t-caption">Compra → Entrega</div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaCompraEntrega)}</div>
-        </div>
-        <div className="card-flat" style={{ flex: '1 1 160px' }}>
-          <div className="t-caption">Total (pedido até chegar)</div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaTotal)}</div>
-        </div>
+      <div className="card-flat stack-1">
+        <div className="t-micro">Período (data do pedido)</div>
+        <FiltroPeriodo
+          modo={periodoModo} onModo={setPeriodoModo}
+          dia={periodoDia} onDia={setPeriodoDia}
+          mes={periodoMes} onMes={setPeriodoMes}
+          inicio={periodoInicio} onInicio={setPeriodoInicio}
+          fim={periodoFim} onFim={setPeriodoFim}
+        />
       </div>
 
-      <div className="card-flat stack-2">
-        <div className="t-micro">Insumos que mais demoram (top 15, tempo total médio)</div>
-        {porInsumo.length === 0 ? (
-          <div className="t-caption">Nenhum pedido com os dois tempos calculados ainda.</div>
-        ) : (
-          <div className="stack-1">
-            {porInsumo.map((i) => (
-              <div key={i.insumo}>
-                <div className="row-between" style={{ marginBottom: 3 }}>
-                  <span className="t-caption" style={{ maxWidth: '70%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
-                  <span className="t-caption t-strong">{formatarDias(i.total)}</span>
-                </div>
-                <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                  <div style={{ width: `${(i.total / maxBarra) * 100}%`, height: '100%', background: 'var(--primary)' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="row-wrap" style={{ gap: 6 }}>
+        <span className="t-caption" style={{ alignSelf: 'center', marginRight: 2 }}>Tipo de material:</span>
+        <button className={`btn btn-sm ${destinoFiltro === 'todos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('todos')}>Todos</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'almoxarifado' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('almoxarifado')}>Almoxarifado</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'epi' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('epi')}>EPI</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'equipamentos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('equipamentos')}>Equipamentos</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'administracao' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('administracao')}>Administração</button>
+        <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
       </div>
+
+      {pedidosFiltrados.length === 0 ? (
+        <div className="card-flat"><Vazio titulo="Nada nesse filtro" texto="Troque o período ou o tipo de material." /></div>
+      ) : (
+        <>
+          <div className="row-wrap" style={{ gap: 10 }}>
+            <div className="card-flat" style={{ flex: '1 1 140px' }}>
+              <div className="t-caption">Pedidos (itens)</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{pedidosFiltrados.length}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 140px' }}>
+              <div className="t-caption">Valor total</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(somaValor(pedidosFiltrados))}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 140px' }}>
+              <div className="t-caption">Pedido → Compra</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaPedidoCompra)}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 140px' }}>
+              <div className="t-caption">Compra → Entrega</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaCompraEntrega)}</div>
+            </div>
+            <div className="card-flat" style={{ flex: '1 1 140px' }}>
+              <div className="t-caption">Total (pedido até chegar)</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaTotal)}</div>
+            </div>
+          </div>
+
+          {porDestino.length > 0 && (
+            <div className="card-flat stack-2">
+              <div className="t-micro">Por tipo de material (no período acima)</div>
+              <div className="stack-1">
+                {porDestino.map((d) => (
+                  <div key={d.destino}>
+                    <div className="row-between" style={{ marginBottom: 3 }}>
+                      <span className="t-caption">{ROTULO_DESTINO[d.destino] || 'Sem destino'} <span style={{ opacity: 0.6 }}>({d.quantidade})</span></span>
+                      <span className="t-caption t-strong">{formatarDinheiro(d.valor)}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${valorTotalPeriodo ? (d.valor / valorTotalPeriodo) * 100 : 0}%`, height: '100%', background: 'var(--primary)' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="card-flat stack-2">
+            <div className="t-micro">Funil por estágio</div>
+            <div className="stack-1">
+              {porEstagio.map((e) => (
+                <div key={e.estagio}>
+                  <div className="row-between" style={{ marginBottom: 3 }}>
+                    <span className="t-caption">{e.estagio}</span>
+                    <span className="t-caption t-strong">{e.quantidade}</span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${(e.quantidade / maxEstagio) * 100}%`, height: '100%', background: 'var(--primary)' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {evolucaoMensal.length > 1 && (
+            <div className="card-flat stack-2">
+              <div className="t-micro">Evolução mensal (pela data do pedido)</div>
+              <div className="row" style={{ gap: 6, alignItems: 'flex-end', height: 100, overflowX: 'auto' }}>
+                {evolucaoMensal.map((m) => {
+                  const [ano, mesNum] = m.mes.split('-')
+                  return (
+                    <div key={m.mes} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 32 }}>
+                      <span className="t-caption" style={{ fontSize: 10 }}>{m.quantidade}</span>
+                      <div style={{
+                        width: 18, height: Math.max(3, (m.quantidade / maxEvolucaoQtde) * 70),
+                        background: 'var(--primary)', borderRadius: 2,
+                      }} />
+                      <span className="t-caption" style={{ fontSize: 10, color: 'var(--text-2)' }}>
+                        {MESES_ABREV[Number(mesNum) - 1]}/{ano.slice(2)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="card-flat stack-2">
+            <div className="t-micro">Insumos que mais demoram (top 15, tempo total médio)</div>
+            {porInsumoTempo.length === 0 ? (
+              <div className="t-caption">Nenhum pedido com os dois tempos calculados ainda.</div>
+            ) : (
+              <div className="stack-1">
+                {porInsumoTempo.map((i) => (
+                  <div key={i.insumo}>
+                    <div className="row-between" style={{ marginBottom: 3 }}>
+                      <span className="t-caption" style={{ maxWidth: '70%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
+                      <span className="t-caption t-strong">{formatarDias(i.total)}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${(i.total / maxBarraTempo) * 100}%`, height: '100%', background: 'var(--primary)' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card-flat stack-2">
+            <div className="t-micro">Insumos com maior gasto (top 15)</div>
+            {porInsumoValor.length === 0 ? (
+              <div className="t-caption">Nenhum pedido com preço lançado ainda.</div>
+            ) : (
+              <div className="stack-1">
+                {porInsumoValor.map((i) => (
+                  <div key={i.insumo}>
+                    <div className="row-between" style={{ marginBottom: 3 }}>
+                      <span className="t-caption" style={{ maxWidth: '70%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
+                      <span className="t-caption t-strong">{formatarDinheiro(i.valor)}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${(i.valor / maxBarraValor) * 100}%`, height: '100%', background: 'var(--primary)' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
