@@ -14,6 +14,7 @@ import {
   curvaFisica, pontosDaCurvaS, contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
+import { GraficoColunas, RankingBarras } from '../components/charts'
 
 export default function InicioGestao({ goto, irParaAba, perfil }) {
   const dados = useDados()
@@ -42,8 +43,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     const dia = semana.dias.find((d) => d.data === data)
     return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
   })
-  const pico = Math.max(1, ...barras.map((b) => b.total))
-
   const ultimosDiarios = [...dados.diarios].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 4)
 
   /* ── Painel geral ── */
@@ -67,8 +66,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     etapa, rotulo: ROTULO_REQUISICAO[etapa],
     total: dados.requisicoes.filter((r) => r.status === etapa).length,
   }))
-  const maxEtapaPedido = Math.max(1, ...porEtapaPedido.map((e) => e.total))
-
   return (
     <>
       <div className="topbar">
@@ -151,22 +148,14 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                 <div className="t-micro">Efetivo por dia</div>
                 <span className="t-caption">pico {semana.pico}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 92 }}>
-                {barras.map((b) => (
-                  <div key={b.data} className="grow" style={{ textAlign: 'center' }}>
-                    <div
-                      title={`${formatarData(b.data)}: ${b.total}`}
-                      style={{
-                        height: Math.max(3, (b.total / pico) * 68),
-                        background: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
-                        borderRadius: 4, marginBottom: 6,
-                      }}
-                    />
-                    <div className="t-num" style={{ fontSize: 12, fontWeight: 600 }}>{b.total || '—'}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{nomeDiaSemana(b.data)}</div>
-                  </div>
-                ))}
-              </div>
+              <GraficoColunas
+                itens={barras.map((b) => ({
+                  chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
+                  cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
+                }))}
+                formatarValor={(v) => v || '—'}
+                alturaMax={68}
+              />
               <button
                 className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
                 onClick={() => irParaAba('efetivo')}
@@ -323,17 +312,10 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                   <div className="t-caption" style={{ padding: '20px 0' }}>Nenhuma requisição ainda.</div>
                 ) : (
                   <div className="stack-1">
-                    {porEtapaPedido.map((e) => (
-                      <div key={e.etapa} className="row-between" style={{ gap: 8, alignItems: 'center' }}>
-                        <span className="t-caption" style={{ width: 84, flex: 'none' }}>{e.rotulo}</span>
-                        <div className="grow" style={{ height: 8, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden' }}>
-                          <div style={{ width: `${(e.total / maxEtapaPedido) * 100}%`, height: '100%', background: 'var(--graphite)' }} />
-                        </div>
-                        <span className="t-num" style={{ width: 20, textAlign: 'right', fontSize: 12, fontWeight: 600 }}>
-                          {e.total}
-                        </span>
-                      </div>
-                    ))}
+                    <RankingBarras
+                      itens={porEtapaPedido.map((e) => ({ chave: e.etapa, rotulo: e.rotulo, valor: e.total }))}
+                      formatarValor={(v) => String(v)}
+                    />
                     {contPedidos.atrasadas > 0 && (
                       <div className="t-caption" style={{ color: 'var(--danger)', marginTop: 4 }}>
                         {plural(contPedidos.atrasadas, 'requisição atrasada', 'requisições atrasadas')}
