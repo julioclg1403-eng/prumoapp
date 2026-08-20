@@ -256,7 +256,7 @@ function AbaDados({ itens }) {
                     <table className="tbl">
                       <thead>
                         <tr>
-                          <th>Item</th><th>Unid</th><th>Qtde</th><th>Medida</th><th>Saldo</th><th>Valor medido</th>
+                          <th>Item</th><th>Unid</th><th>Qtde</th><th>Medida</th><th>Saldo</th><th>Preço unit.</th><th>Valor medido</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -267,6 +267,7 @@ function AbaDados({ itens }) {
                             <td className="t-num">{formatarNumero(i.qtde_item)}</td>
                             <td className="t-num">{formatarNumero(i.qtde_medida)}</td>
                             <td className="t-num">{formatarNumero(i.qtde_a_medir)}</td>
+                            <td className="t-num">{formatarDinheiro(i.preco_item)}</td>
                             <td className="t-num">{formatarDinheiro(i.valor_medido_item)}</td>
                           </tr>
                         ))}
