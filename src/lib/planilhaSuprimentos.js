@@ -83,6 +83,23 @@ function celInteiro(cell) {
   return n == null ? null : Math.round(n)
 }
 
+/* Às vezes o UAU exporta "*Ped/Compra (dias)" e "**Compra/Ent (dias)" em
+   branco mesmo quando as datas que dariam pra calcular essa diferença
+   estão preenchidas na planilha (visto num export real da Sede: as duas
+   colunas de dias vieram 100% vazias nos 498 itens, mas Aprov. Pedido,
+   Fech. Compra e Data Entrega estavam lá). Nesse caso o Prumo calcula
+   ele mesmo — mesma fórmula que as notas de rodapé da própria planilha
+   descrevem, confirmada batendo 100% contra linhas onde o UAU já tinha
+   calculado (Fech.Compra − Aprov.Pedido, e Entrega − Fech.Compra). Só
+   entra em ação quando o valor de origem está ausente — nunca sobrescreve
+   um número que a planilha já trouxe. */
+function diferencaDias(dataInicioISO, dataFimISO) {
+  if (!dataInicioISO || !dataFimISO) return null
+  const inicio = new Date(`${dataInicioISO}T00:00:00Z`)
+  const fim = new Date(`${dataFimISO}T00:00:00Z`)
+  return Math.round((fim - inicio) / 86400000)
+}
+
 export async function lerPlanilhaSuprimentos(arquivo) {
   const XLSX = await import('xlsx')
   const buffer = await arquivo.arrayBuffer()
@@ -139,6 +156,13 @@ export async function lerPlanilhaSuprimentos(arquivo) {
       continue
     }
     vaziasSeguidas = 0
+    const aprovPedido = colunas.aprovPedido >= 0 ? celParaISO(cel(r, colunas.aprovPedido)) : null
+    const fechamentoCompra = colunas.fechamentoCompra >= 0 ? celParaISO(cel(r, colunas.fechamentoCompra)) : null
+    const dataEntrega = colunas.dataEntrega >= 0 ? celParaISO(cel(r, colunas.dataEntrega)) : null
+    const diasPedidoCompra = (colunas.diasPedidoCompra >= 0 ? celInteiro(cel(r, colunas.diasPedidoCompra)) : null)
+      ?? diferencaDias(aprovPedido, fechamentoCompra)
+    const diasCompraEntrega = (colunas.diasCompraEntrega >= 0 ? celInteiro(cel(r, colunas.diasCompraEntrega)) : null)
+      ?? diferencaDias(fechamentoCompra, dataEntrega)
     itens.push({
       linha: r + 1,
       pedido,
@@ -146,16 +170,16 @@ export async function lerPlanilhaSuprimentos(arquivo) {
       codigo_insumo: celTexto(cel(r, colunas.codigoInsumo)) || String(pedido),
       insumo,
       data_pedido: colunas.dataPedido >= 0 ? celParaISO(cel(r, colunas.dataPedido)) : null,
-      aprov_pedido: colunas.aprovPedido >= 0 ? celParaISO(cel(r, colunas.aprovPedido)) : null,
+      aprov_pedido: aprovPedido,
       aprov_simulacao: colunas.aprovSimulacao >= 0 ? celParaISO(cel(r, colunas.aprovSimulacao)) : null,
       confirm_cotacao: colunas.confirmCotacao >= 0 ? celParaISO(cel(r, colunas.confirmCotacao)) : null,
-      fechamento_compra: colunas.fechamentoCompra >= 0 ? celParaISO(cel(r, colunas.fechamentoCompra)) : null,
-      data_entrega: colunas.dataEntrega >= 0 ? celParaISO(cel(r, colunas.dataEntrega)) : null,
+      fechamento_compra: fechamentoCompra,
+      data_entrega: dataEntrega,
       excluido: colunas.excluido >= 0 ? (celTexto(cel(r, colunas.excluido)) || null) : null,
       quantidade: colunas.quantidade >= 0 ? celNumero(cel(r, colunas.quantidade)) : null,
       preco: colunas.preco >= 0 ? celNumero(cel(r, colunas.preco)) : null,
-      dias_pedido_compra: colunas.diasPedidoCompra >= 0 ? celInteiro(cel(r, colunas.diasPedidoCompra)) : null,
-      dias_compra_entrega: colunas.diasCompraEntrega >= 0 ? celInteiro(cel(r, colunas.diasCompraEntrega)) : null,
+      dias_pedido_compra: diasPedidoCompra,
+      dias_compra_entrega: diasCompraEntrega,
       estagio: colunas.estagio >= 0 ? (celTexto(cel(r, colunas.estagio)) || null) : null,
     })
   }
