@@ -25,7 +25,8 @@ import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial, filtrarPorPeriodo,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador } from '../components'
+import { RankingBarras, GraficoColunas, GraficoDonut } from '../components/charts'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
 const ROTULO_DESTINO = {
@@ -475,7 +476,6 @@ function AbaDashboard({ pedidos }) {
     for (const p of pedidosFiltrados) mapa.set(p.estagio || 'Sem estágio', (mapa.get(p.estagio || 'Sem estágio') || 0) + 1)
     return [...mapa.entries()].map(([estagio, quantidade]) => ({ estagio, quantidade })).sort((a, b) => b.quantidade - a.quantidade)
   }, [pedidosFiltrados])
-  const maxEstagio = Math.max(1, ...porEstagio.map((e) => e.quantidade))
 
   /* Por tipo de material (Destino) — sempre olha o período inteiro,
      ignorando o filtro de tipo abaixo, senão o comparativo entre
@@ -487,7 +487,6 @@ function AbaDashboard({ pedidos }) {
       .map(([destino, itens]) => ({ destino, quantidade: itens.length, valor: somaValor(itens) }))
       .filter((d) => d.quantidade > 0)
   }, [pedidosPeriodo])
-  const valorTotalPeriodo = porDestino.reduce((s, d) => s + d.valor, 0)
 
   /* Evolução mensal (quantidade e valor gasto por mês do Pedido). */
   const evolucaoMensal = useMemo(() => {
@@ -503,7 +502,6 @@ function AbaDashboard({ pedidos }) {
     }
     return [...mapa.entries()].map(([mes, info]) => ({ mes, ...info })).sort((a, b) => a.mes.localeCompare(b.mes))
   }, [pedidosFiltrados])
-  const maxEvolucaoQtde = Math.max(1, ...evolucaoMensal.map((m) => m.quantidade))
 
   /* Por insumo — só entram quem já tem os dois tempos calculados
      (Estágio Confirmado), pra não misturar pedido ainda em aberto
@@ -523,7 +521,6 @@ function AbaDashboard({ pedidos }) {
       .sort((a, b) => b.total - a.total)
       .slice(0, 15)
   }, [comAmbos])
-  const maxBarraTempo = Math.max(1, ...porInsumoTempo.map((i) => i.total))
 
   /* Top 15 por valor gasto — "onde está indo o dinheiro", não só o
      tempo. Conta todo pedido com preço lançado, não só os confirmados. */
@@ -539,7 +536,6 @@ function AbaDashboard({ pedidos }) {
     }
     return [...mapa.entries()].map(([insumo, info]) => ({ insumo, ...info })).sort((a, b) => b.valor - a.valor).slice(0, 15)
   }, [pedidosFiltrados])
-  const maxBarraValor = Math.max(1, ...porInsumoValor.map((i) => i.valor))
 
   /* Ranking de materiais que ainda não chegaram — pedido sem Data
      Entrega preenchida, agrupado por insumo. Ordenado por quantos dias
@@ -688,160 +684,78 @@ function AbaDashboard({ pedidos }) {
       ) : (
         <>
           <div className="row-wrap" style={{ gap: 10 }}>
-            <div className="card-flat" style={{ flex: '1 1 140px' }}>
-              <div className="t-caption">Pedidos (itens)</div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{pedidosFiltrados.length}</div>
-            </div>
-            <div className="card-flat" style={{ flex: '1 1 140px' }}>
-              <div className="t-caption">Valor total</div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(somaValor(pedidosFiltrados))}</div>
-            </div>
-            <div className="card-flat" style={{ flex: '1 1 140px' }}>
-              <div className="t-caption">Pedido → Compra</div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaPedidoCompra)}</div>
-            </div>
-            <div className="card-flat" style={{ flex: '1 1 140px' }}>
-              <div className="t-caption">Compra → Entrega</div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaCompraEntrega)}</div>
-            </div>
-            <div className="card-flat" style={{ flex: '1 1 140px' }}>
-              <div className="t-caption">Total (pedido até chegar)</div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{formatarDias(mediaTotal)}</div>
-            </div>
+            <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Pedidos (itens)" valor={pedidosFiltrados.length} /></div>
+            <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Valor total" valor={formatarDinheiro(somaValor(pedidosFiltrados))} /></div>
+            <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Pedido → Compra" valor={formatarDias(mediaPedidoCompra)} /></div>
+            <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Compra → Entrega" valor={formatarDias(mediaCompraEntrega)} /></div>
+            <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Total (pedido até chegar)" valor={formatarDias(mediaTotal)} /></div>
           </div>
 
-          {porDestino.length > 0 && (
-            <div className="card-flat stack-2">
-              <div className="t-micro">Por tipo de material (no período acima)</div>
-              <div className="stack-1">
-                {porDestino.map((d) => (
-                  <div key={d.destino}>
-                    <div className="row-between" style={{ marginBottom: 3 }}>
-                      <span className="t-caption">{ROTULO_DESTINO[d.destino] || 'Sem destino'} <span style={{ opacity: 0.6 }}>({d.quantidade})</span></span>
-                      <span className="t-caption t-strong">{formatarDinheiro(d.valor)}</span>
-                    </div>
-                    <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                      <div style={{ width: `${valorTotalPeriodo ? (d.valor / valorTotalPeriodo) * 100 : 0}%`, height: '100%', background: 'var(--primary)' }} />
-                    </div>
-                  </div>
-                ))}
+          <div className="row-wrap" style={{ gap: 12, alignItems: 'stretch' }}>
+            {porDestino.length > 0 && (
+              <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
+                <div className="t-micro">Por tipo de material (no período acima)</div>
+                <GraficoDonut
+                  itens={porDestino.map((d) => ({
+                    chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
+                  }))}
+                  formatarValor={formatarDinheiro}
+                />
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="card-flat stack-2">
-            <div className="t-micro">Funil por estágio</div>
-            <div className="stack-1">
-              {porEstagio.map((e) => (
-                <div key={e.estagio}>
-                  <div className="row-between" style={{ marginBottom: 3 }}>
-                    <span className="t-caption">{e.estagio}</span>
-                    <span className="t-caption t-strong">{e.quantidade}</span>
-                  </div>
-                  <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                    <div style={{ width: `${(e.quantidade / maxEstagio) * 100}%`, height: '100%', background: 'var(--primary)' }} />
-                  </div>
-                </div>
-              ))}
+            <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
+              <div className="t-micro">Funil por estágio</div>
+              <RankingBarras
+                itens={porEstagio.map((e) => ({ chave: e.estagio, rotulo: e.estagio, valor: e.quantidade }))}
+                formatarValor={(v) => String(v)}
+              />
             </div>
           </div>
 
           {evolucaoMensal.length > 1 && (
-            <div className="card-flat stack-2">
+            <div className="card-flat chart-panel stack-2">
               <div className="t-micro">Evolução mensal (pela data do pedido)</div>
-              <div className="row" style={{ gap: 6, alignItems: 'flex-end', height: 100, overflowX: 'auto' }}>
-                {evolucaoMensal.map((m) => {
+              <GraficoColunas
+                itens={evolucaoMensal.map((m) => {
                   const [ano, mesNum] = m.mes.split('-')
-                  return (
-                    <div key={m.mes} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 32 }}>
-                      <span className="t-caption" style={{ fontSize: 10 }}>{m.quantidade}</span>
-                      <div style={{
-                        width: 18, height: Math.max(3, (m.quantidade / maxEvolucaoQtde) * 70),
-                        background: 'var(--primary)', borderRadius: 2,
-                      }} />
-                      <span className="t-caption" style={{ fontSize: 10, color: 'var(--text-2)' }}>
-                        {MESES_ABREV[Number(mesNum) - 1]}/{ano.slice(2)}
-                      </span>
-                    </div>
-                  )
+                  return { chave: m.mes, rotulo: `${MESES_ABREV[Number(mesNum) - 1]}/${ano.slice(2)}`, valor: m.quantidade }
                 })}
-              </div>
+                formatarValor={(v) => String(v)}
+              />
             </div>
           )}
 
-          <div className="card-flat stack-2">
+          <div className="card-flat chart-panel stack-2">
             <div className="t-micro">Insumos que mais demoram (top 15, tempo total médio)</div>
-            {porInsumoTempo.length === 0 ? (
-              <div className="t-caption">Nenhum pedido com os dois tempos calculados ainda.</div>
-            ) : (
-              <div className="stack-1">
-                {porInsumoTempo.map((i) => (
-                  <div key={i.insumo}>
-                    <div className="row-between" style={{ marginBottom: 3 }}>
-                      <span className="t-caption" style={{ maxWidth: '70%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
-                      <span className="t-caption t-strong">{formatarDias(i.total)}</span>
-                    </div>
-                    <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                      <div style={{ width: `${(i.total / maxBarraTempo) * 100}%`, height: '100%', background: 'var(--primary)' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <RankingBarras
+              itens={porInsumoTempo.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.total, contador: i.quantidade }))}
+              formatarValor={formatarDias}
+              vazio="Nenhum pedido com os dois tempos calculados ainda."
+            />
           </div>
 
-          <div className="card-flat stack-2">
+          <div className="card-flat chart-panel stack-2">
             <div className="t-micro">Insumos com maior gasto (top 15)</div>
-            {porInsumoValor.length === 0 ? (
-              <div className="t-caption">Nenhum pedido com preço lançado ainda.</div>
-            ) : (
-              <div className="stack-1">
-                {porInsumoValor.map((i) => (
-                  <div key={i.insumo}>
-                    <div className="row-between" style={{ marginBottom: 3 }}>
-                      <span className="t-caption" style={{ maxWidth: '70%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
-                      <span className="t-caption t-strong">{formatarDinheiro(i.valor)}</span>
-                    </div>
-                    <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                      <div style={{ width: `${(i.valor / maxBarraValor) * 100}%`, height: '100%', background: 'var(--primary)' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <RankingBarras
+              itens={porInsumoValor.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.valor, contador: i.quantidade }))}
+              formatarValor={formatarDinheiro}
+              vazio="Nenhum pedido com preço lançado ainda."
+            />
           </div>
 
-          <div className="card-flat stack-2">
+          <div className="card-flat chart-panel stack-2">
             <div className="t-micro">
               Materiais que ainda não chegaram (top 20 de {plural(totalNaoChegaram, 'pedido', 'pedidos')} sem Data Entrega)
             </div>
-            {materiaisNaoChegaram.length === 0 ? (
-              <div className="t-caption">Nada pendente — todo pedido nesse filtro já tem Data Entrega.</div>
-            ) : (
-              <div className="stack-1">
-                {materiaisNaoChegaram.map((i) => (
-                  <div key={i.insumo}>
-                    <div className="row-between" style={{ marginBottom: 3 }}>
-                      <span className="t-caption" style={{ maxWidth: '60%' }}>{i.insumo} <span style={{ opacity: 0.6 }}>({i.quantidade})</span></span>
-                      <span style={{ textAlign: 'right' }}>
-                        <span className="t-caption t-strong">{i.diasEsperando != null ? `${i.diasEsperando} dia${i.diasEsperando === 1 ? '' : 's'} esperando` : 'sem data do pedido'}</span>
-                        {i.valor > 0 && <div className="t-caption">{formatarDinheiro(i.valor)}</div>}
-                      </span>
-                    </div>
-                    {i.diasEsperando != null && (
-                      <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                        <div
-                          style={{
-                            width: `${(i.diasEsperando / Math.max(1, ...materiaisNaoChegaram.map((m) => m.diasEsperando ?? 0))) * 100}%`,
-                            height: '100%', background: 'var(--danger)',
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <RankingBarras
+              itens={materiaisNaoChegaram
+                .filter((i) => i.diasEsperando != null)
+                .map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.diasEsperando, contador: i.quantidade }))}
+              formatarValor={(v) => `${v} dia${v === 1 ? '' : 's'}`}
+              cor="var(--danger)"
+              vazio="Nada pendente — todo pedido nesse filtro já tem Data Entrega."
+            />
           </div>
         </>
       )}
