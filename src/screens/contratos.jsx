@@ -128,22 +128,50 @@ function AbaDados({ itens }) {
   const [busca, setBusca] = useState('')
   const [status, setStatus] = useState('todos')
   const [detalhe, setDetalhe] = useState(null)
+  const [contratoAberto, setContratoAberto] = useState(null)
 
   const statusList = useMemo(() => [...new Set(itens.map((i) => i.status_contrato).filter(Boolean))].sort(), [itens])
 
+  /* Um cartão por contrato — nasce fechado, só com os dados gerais;
+     clicar abre e mostra item a item. Enquanto tem busca ativa, o
+     contrato que tiver algo batendo abre sozinho (senão a pessoa
+     teria que clicar em cada um pra achar o que procurava). */
+  const contratosAgrupados = useMemo(() => {
+    const mapa = new Map()
+    for (const i of itens) {
+      if (!mapa.has(i.cod_contrato)) {
+        mapa.set(i.cod_contrato, {
+          cod_contrato: i.cod_contrato, objeto_contrato: i.objeto_contrato, fornecedor: i.fornecedor,
+          status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
+          total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
+          valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
+          itens: [],
+        })
+      }
+      mapa.get(i.cod_contrato).itens.push(i)
+    }
+    for (const c of mapa.values()) c.itens.sort((a, b) => a.item_num - b.item_num)
+    return [...mapa.values()].sort((a, b) => Number(b.cod_contrato) - Number(a.cod_contrato))
+  }, [itens])
+
   const lista = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    return itens
-      .filter((i) => status === 'todos' || i.status_contrato === status)
-      .filter((i) => !b
-        || i.descricao_item.toLowerCase().includes(b)
-        || (i.fornecedor || '').toLowerCase().includes(b)
-        || (i.objeto_contrato || '').toLowerCase().includes(b)
-        || String(i.cod_contrato).includes(b))
-      .sort((a, b2) => (Number(b2.cod_contrato) - Number(a.cod_contrato)) || (a.item_num - b2.item_num))
-  }, [itens, busca, status])
+    return contratosAgrupados
+      .filter((c) => status === 'todos' || c.status_contrato === status)
+      .map((c) => {
+        if (!b) return c
+        const contratoBate = (c.fornecedor || '').toLowerCase().includes(b)
+          || (c.objeto_contrato || '').toLowerCase().includes(b)
+          || String(c.cod_contrato).includes(b)
+        if (contratoBate) return c
+        const itensQueBatem = c.itens.filter((i) => i.descricao_item.toLowerCase().includes(b))
+        return itensQueBatem.length ? { ...c, itens: itensQueBatem } : null
+      })
+      .filter(Boolean)
+  }, [contratosAgrupados, busca, status])
 
-  const detalheAtual = detalhe ? lista.find((i) => i.id === detalhe.id) || itens.find((i) => i.id === detalhe.id) : null
+  const detalheAtual = detalhe ? itens.find((i) => i.id === detalhe.id) : null
+  const buscando = Boolean(busca.trim())
 
   return (
     <div className="stack-2">
@@ -168,30 +196,61 @@ function AbaDados({ itens }) {
       {lista.length === 0 ? (
         <div className="card-flat"><Vazio titulo="Nada com esse filtro" texto="Troque a busca ou o status." /></div>
       ) : (
-        <div className="card-flat scroll-x" style={{ padding: 0 }}>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Contrato</th><th>Fornecedor</th><th>Item</th><th>Unid</th>
-                <th>Qtde</th><th>Medida</th><th>Saldo</th><th>Valor medido</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lista.map((i) => (
-                <tr key={i.id} onClick={() => setDetalhe(i)} style={{ cursor: 'pointer' }}>
-                  <td className="t-caption">{i.cod_contrato}</td>
-                  <td className="t-caption" style={{ maxWidth: 160 }}>{i.fornecedor || '—'}</td>
-                  <td className="t-strong">{i.descricao_item}</td>
-                  <td className="t-caption">{i.unidade || '—'}</td>
-                  <td className="t-num">{formatarNumero(i.qtde_item)}</td>
-                  <td className="t-num">{formatarNumero(i.qtde_medida)}</td>
-                  <td className="t-num">{formatarNumero(i.qtde_a_medir)}</td>
-                  <td className="t-num">{formatarDinheiro(i.valor_medido_item)}</td>
-                  <td><Chip tom={TOM_STATUS[i.status_contrato] || ''}>{i.status_contrato || '—'}</Chip></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="stack-1">
+          {lista.map((c) => {
+            const aberto = buscando || contratoAberto === c.cod_contrato
+            return (
+              <div key={c.cod_contrato} className="card-flat" style={{ padding: 10 }}>
+                <div
+                  className="row-between"
+                  style={{ alignItems: 'center', cursor: 'pointer' }}
+                  onClick={() => setContratoAberto((v) => (v === c.cod_contrato ? null : c.cod_contrato))}
+                >
+                  <div className="row-flex" style={{ gap: 8, alignItems: 'center', minWidth: 0 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+                        <span className="t-strong" style={{ fontSize: 14 }}>Contrato {c.cod_contrato}</span>
+                        <Chip tom={TOM_STATUS[c.status_contrato] || ''}>{c.status_contrato || '—'}</Chip>
+                      </div>
+                      <div className="t-caption" style={{ marginTop: 2 }}>{c.fornecedor || 'Fornecedor não informado'}</div>
+                      <div className="t-caption" style={{ color: 'var(--text-2)' }}>{c.objeto_contrato}</div>
+                    </div>
+                  </div>
+                  <div className="row-flex" style={{ gap: 6, alignItems: 'center', flex: 'none' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div className="t-caption">Medido: <strong>{formatarDinheiro(c.valor_medido_contrato)}</strong></div>
+                      <div className="t-caption">Contratado: {formatarDinheiro(c.total_contrato)}</div>
+                    </div>
+                    <Icon name="avancar" size={13} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s' }} />
+                  </div>
+                </div>
+
+                {aberto && (
+                  <div className="scroll-x" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th>Item</th><th>Unid</th><th>Qtde</th><th>Medida</th><th>Saldo</th><th>Valor medido</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.itens.map((i) => (
+                          <tr key={i.id} onClick={() => setDetalhe(i)} style={{ cursor: 'pointer' }}>
+                            <td className="t-strong">{i.descricao_item}</td>
+                            <td className="t-caption">{i.unidade || '—'}</td>
+                            <td className="t-num">{formatarNumero(i.qtde_item)}</td>
+                            <td className="t-num">{formatarNumero(i.qtde_medida)}</td>
+                            <td className="t-num">{formatarNumero(i.qtde_a_medir)}</td>
+                            <td className="t-num">{formatarDinheiro(i.valor_medido_item)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
