@@ -133,9 +133,9 @@ function AbaDados({ itens }) {
   const statusList = useMemo(() => [...new Set(itens.map((i) => i.status_contrato).filter(Boolean))].sort(), [itens])
 
   /* Um cartão por contrato — nasce fechado, só com os dados gerais;
-     clicar abre e mostra item a item. Enquanto tem busca ativa, o
-     contrato que tiver algo batendo abre sozinho (senão a pessoa
-     teria que clicar em cada um pra achar o que procurava). */
+     clicar abre e mostra item a item. A busca só filtra QUAIS
+     contratos aparecem (e, dentro deles, quais itens) — continua
+     fechado até a pessoa clicar, mesmo com filtro ativo. */
   const contratosAgrupados = useMemo(() => {
     const mapa = new Map()
     for (const i of itens) {
@@ -171,7 +171,6 @@ function AbaDados({ itens }) {
   }, [contratosAgrupados, busca, status])
 
   const detalheAtual = detalhe ? itens.find((i) => i.id === detalhe.id) : null
-  const buscando = Boolean(busca.trim())
 
   return (
     <div className="stack-2">
@@ -198,7 +197,7 @@ function AbaDados({ itens }) {
       ) : (
         <div className="stack-1">
           {lista.map((c) => {
-            const aberto = buscando || contratoAberto === c.cod_contrato
+            const aberto = contratoAberto === c.cod_contrato
             return (
               <div key={c.cod_contrato} className="card-flat" style={{ padding: 10 }}>
                 <div
