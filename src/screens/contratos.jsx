@@ -23,7 +23,8 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { formatarData, formatarDinheiro, plural } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador } from '../components'
+import { RankingBarras } from '../components/charts'
 
 const TOM_STATUS = { '1 - Aprovado': 'success', '2 - Em Aditivo': 'info', '0 - Não Aprovado': 'danger' }
 const UNIDADES_PRINCIPAIS = ['M', 'M²', 'M³', 'UN', 'KG', 'H']
@@ -392,7 +393,6 @@ function AbaDashboard({ itens, contratosUnicos, ultimaImportacao }) {
     for (const c of contratosUnicos) mapa.set(c.status_contrato || 'Sem status', (mapa.get(c.status_contrato || 'Sem status') || 0) + 1)
     return [...mapa.entries()].map(([status, quantidade]) => ({ status, quantidade })).sort((a, b) => b.quantidade - a.quantidade)
   }, [contratosUnicos])
-  const maxStatus = Math.max(1, ...porStatus.map((s) => s.quantidade))
 
   /* Top fornecedores por valor contratado. */
   const porFornecedor = useMemo(() => {
@@ -410,7 +410,6 @@ function AbaDashboard({ itens, contratosUnicos, ultimaImportacao }) {
       .sort((a, b) => b.contratado - a.contratado)
       .slice(0, 15)
   }, [contratosUnicos])
-  const maxFornecedor = Math.max(1, ...porFornecedor.map((f) => f.contratado))
 
   /* Cruzamento entre contratos — mesmo item de serviço (código)
      aparecendo em mais de um contrato, com a quantidade medida
@@ -491,29 +490,14 @@ function AbaDashboard({ itens, contratosUnicos, ultimaImportacao }) {
   return (
     <div className="stack-2">
       <div className="row-wrap" style={{ gap: 10 }}>
-        <div className="card-flat" style={{ flex: '1 1 140px' }}>
-          <div className="t-caption">Contratado</div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(totalContratado)}</div>
-        </div>
-        <div className="card-flat" style={{ flex: '1 1 140px' }}>
-          <div className="t-caption">Medido</div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(totalMedido)}</div>
-        </div>
-        <div className="card-flat" style={{ flex: '1 1 140px' }}>
-          <div className="t-caption">Saldo a medir</div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(totalSaldo)}</div>
-        </div>
+        <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Contratado" valor={formatarDinheiro(totalContratado)} /></div>
+        <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Medido" valor={formatarDinheiro(totalMedido)} /></div>
+        <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Saldo a medir" valor={formatarDinheiro(totalSaldo)} /></div>
         {totalRetido > 0 && (
-          <div className="card-flat" style={{ flex: '1 1 140px' }}>
-            <div className="t-caption">Retido</div>
-            <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(totalRetido)}</div>
-          </div>
+          <div style={{ flex: '1 1 140px' }}><Indicador rotulo="Retido" valor={formatarDinheiro(totalRetido)} /></div>
         )}
         {totalAPagar > 0 && (
-          <div className="card-flat" style={{ flex: '1 1 140px' }}>
-            <div className="t-caption">A pagar (na importação)</div>
-            <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{formatarDinheiro(totalAPagar)}</div>
-          </div>
+          <div style={{ flex: '1 1 140px' }}><Indicador rotulo="A pagar (na importação)" valor={formatarDinheiro(totalAPagar)} /></div>
         )}
       </div>
       {(totalRetido > 0 || totalAPagar > 0) && (
@@ -523,38 +507,20 @@ function AbaDashboard({ itens, contratosUnicos, ultimaImportacao }) {
         </div>
       )}
 
-      <div className="card-flat stack-2">
+      <div className="card-flat chart-panel stack-2">
         <div className="t-micro">Contratos por status</div>
-        <div className="stack-1">
-          {porStatus.map((s) => (
-            <div key={s.status}>
-              <div className="row-between" style={{ marginBottom: 3 }}>
-                <span className="t-caption">{s.status}</span>
-                <span className="t-caption t-strong">{s.quantidade}</span>
-              </div>
-              <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                <div style={{ width: `${(s.quantidade / maxStatus) * 100}%`, height: '100%', background: 'var(--primary)' }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <RankingBarras
+          itens={porStatus.map((s) => ({ chave: s.status, rotulo: s.status, valor: s.quantidade }))}
+          formatarValor={(v) => String(v)}
+        />
       </div>
 
-      <div className="card-flat stack-2">
+      <div className="card-flat chart-panel stack-2">
         <div className="t-micro">Fornecedores (top 15, por valor contratado)</div>
-        <div className="stack-1">
-          {porFornecedor.map((f) => (
-            <div key={f.fornecedor}>
-              <div className="row-between" style={{ marginBottom: 3 }}>
-                <span className="t-caption" style={{ maxWidth: '70%' }}>{f.fornecedor} <span style={{ opacity: 0.6 }}>({f.contratos})</span></span>
-                <span className="t-caption t-strong">{formatarDinheiro(f.contratado)}</span>
-              </div>
-              <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                <div style={{ width: `${(f.contratado / maxFornecedor) * 100}%`, height: '100%', background: 'var(--primary)' }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <RankingBarras
+          itens={porFornecedor.map((f) => ({ chave: f.fornecedor, rotulo: f.fornecedor, valor: f.contratado, contador: f.contratos }))}
+          formatarValor={formatarDinheiro}
+        />
       </div>
 
       {unidadesDisponiveis.length > 0 && (
