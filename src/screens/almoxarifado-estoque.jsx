@@ -91,6 +91,49 @@ function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio,
   )
 }
 
+/* Uma linha da lista de Suprimentos (usada nas duas divisões —
+   lançados e não lançados). */
+function LinhaSuprimento({ r, abrirNovaEntrada }) {
+  return (
+    <ItemLista
+      titulo={r.insumo}
+      sub={[
+        `${plural(r.pedidos, 'pedido confirmado', 'pedidos confirmados')}`,
+        r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
+        r.material ? null : 'sem material correspondente no catálogo',
+      ].filter(Boolean).join(' · ')}
+      direita={
+        <div style={{ textAlign: 'right' }}>
+          <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
+          {r.pedidosSemData > 0 && (
+            <div className="t-caption" style={{ color: 'var(--text-2)', maxWidth: 220 }}>
+              {plural(r.pedidosSemData, 'pedido confirmado sem data', 'pedidos confirmados sem data')} de entrega —
+              provavelmente já chegou na obra, o Suprimentos ainda não atualizou
+            </div>
+          )}
+          {r.diferenca !== 0 && (
+            <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
+              {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
+            </Chip>
+          )}
+          {r.diferenca > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => abrirNovaEntrada({
+                  materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
+                })}
+              >
+                Lançar entrada
+              </button>
+            </div>
+          )}
+        </div>
+      }
+    />
+  )
+}
+
 export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const dados = useDados()
   const hoje = hojeISO()
@@ -174,6 +217,14 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     const termo = buscaSuprimentos.trim().toLowerCase()
     return termo ? resumoSuprimentos.filter((r) => r.insumo.toLowerCase().includes(termo)) : resumoSuprimentos
   }, [resumoSuprimentos, buscaSuprimentos])
+  const suprimentosNaoLancados = useMemo(
+    () => resumoSuprimentosFiltrado.filter((r) => r.qtdeManual === 0),
+    [resumoSuprimentosFiltrado],
+  )
+  const suprimentosLancados = useMemo(
+    () => resumoSuprimentosFiltrado.filter((r) => r.qtdeManual > 0),
+    [resumoSuprimentosFiltrado],
+  )
 
   /* Histórico de movimentação de UM material (dentro de Editar
      material) — entrada e saída juntas, mais recente primeiro, pra
@@ -771,46 +822,35 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
             {resumoSuprimentosFiltrado.length === 0 ? (
               <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
             ) : (
-              <div className="stack-1">
-                {resumoSuprimentosFiltrado.map((r) => (
-                  <ItemLista
-                    key={r.insumo}
-                    titulo={r.insumo}
-                    sub={[
-                      `${plural(r.pedidos, 'pedido confirmado', 'pedidos confirmados')}`,
-                      r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
-                      r.material ? null : 'sem material correspondente no catálogo',
-                    ].filter(Boolean).join(' · ')}
-                    direita={
-                      <div style={{ textAlign: 'right' }}>
-                        <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
-                        {r.pedidosSemData > 0 && (
-                          <div className="t-caption" style={{ color: 'var(--text-2)', maxWidth: 220 }}>
-                            {plural(r.pedidosSemData, 'pedido confirmado sem data', 'pedidos confirmados sem data')} de entrega —
-                            provavelmente já chegou na obra, o Suprimentos ainda não atualizou
-                          </div>
-                        )}
-                        {r.diferenca !== 0 && (
-                          <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
-                            {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
-                          </Chip>
-                        )}
-                        {r.diferenca > 0 && (
-                          <div style={{ marginTop: 4 }}>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => abrirNovaEntrada({
-                                materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
-                              })}
-                            >
-                              Lançar entrada
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    }
-                  />
-                ))}
+              <div className="stack-3">
+                <div className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    Não foram lançados ({suprimentosNaoLancados.length})
+                  </div>
+                  {suprimentosNaoLancados.length === 0 ? (
+                    <div className="card-flat"><Vazio titulo="Tudo lançado" texto="Nenhum insumo pendente de lançamento no estoque." /></div>
+                  ) : (
+                    <div className="stack-1">
+                      {suprimentosNaoLancados.map((r) => (
+                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    Lançados para o estoque ({suprimentosLancados.length})
+                  </div>
+                  {suprimentosLancados.length === 0 ? (
+                    <div className="card-flat"><Vazio titulo="Nada lançado ainda" texto="Nenhum insumo com entrada lançada no estoque." /></div>
+                  ) : (
+                    <div className="stack-1">
+                      {suprimentosLancados.map((r) => (
+                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

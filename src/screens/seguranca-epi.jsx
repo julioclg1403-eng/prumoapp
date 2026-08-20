@@ -82,6 +82,49 @@ function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio,
   )
 }
 
+/* Uma linha da lista de Suprimentos (usada nas duas divisões —
+   lançados e não lançados). */
+function LinhaSuprimento({ r, abrirNovaEntrada }) {
+  return (
+    <ItemLista
+      titulo={r.insumo}
+      sub={[
+        `${plural(r.pedidos, 'pedido confirmado', 'pedidos confirmados')}`,
+        r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
+        r.material ? null : 'sem EPI correspondente no catálogo',
+      ].filter(Boolean).join(' · ')}
+      direita={
+        <div style={{ textAlign: 'right' }}>
+          <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
+          {r.pedidosSemData > 0 && (
+            <div className="t-caption" style={{ color: 'var(--text-2)', maxWidth: 220 }}>
+              {plural(r.pedidosSemData, 'pedido confirmado sem data', 'pedidos confirmados sem data')} de entrega —
+              provavelmente já chegou na obra, o Suprimentos ainda não atualizou
+            </div>
+          )}
+          {r.diferenca !== 0 && (
+            <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
+              {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
+            </Chip>
+          )}
+          {r.diferenca > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => abrirNovaEntrada({
+                  materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
+                })}
+              >
+                Lançar entrada
+              </button>
+            </div>
+          )}
+        </div>
+      }
+    />
+  )
+}
+
 export default function SegurancaEpi({ perfil, params = {} }) {
   const dados = useDados()
   const hoje = hojeISO()
@@ -161,6 +204,14 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     const termo = buscaSuprimentos.trim().toLowerCase()
     return termo ? resumoSuprimentos.filter((r) => r.insumo.toLowerCase().includes(termo)) : resumoSuprimentos
   }, [resumoSuprimentos, buscaSuprimentos])
+  const suprimentosNaoLancados = useMemo(
+    () => resumoSuprimentosFiltrado.filter((r) => r.qtdeManual === 0),
+    [resumoSuprimentosFiltrado],
+  )
+  const suprimentosLancados = useMemo(
+    () => resumoSuprimentosFiltrado.filter((r) => r.qtdeManual > 0),
+    [resumoSuprimentosFiltrado],
+  )
 
   /* Saída agrupada por dia — uma linha só com o total do dia, clicável
      pra abrir e ver quem recebeu (várias pessoas no mesmo dia é o caso
@@ -380,6 +431,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
       nome: editandoMaterial.nome.trim(),
       unidade: editandoMaterial.unidade.trim(),
       categoria: (editandoMaterial.categoria || '').trim() || null,
+      ca: (editandoMaterial.ca || '').trim() || null,
       estoque_minimo: editandoMaterial.estoque_minimo === '' ? null : Number(editandoMaterial.estoque_minimo),
     })
     setSalvando(false)
@@ -633,7 +685,11 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   <ItemLista
                     key={s.material.id}
                     titulo={s.material.nome}
-                    sub={[s.material.categoria, s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null].filter(Boolean).join(' · ')}
+                    sub={[
+                      s.material.categoria,
+                      s.material.ca ? `CA ${s.material.ca}` : null,
+                      s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null,
+                    ].filter(Boolean).join(' · ')}
                     onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
                     direita={
                       <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
@@ -753,46 +809,35 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             {resumoSuprimentosFiltrado.length === 0 ? (
               <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
             ) : (
-              <div className="stack-1">
-                {resumoSuprimentosFiltrado.map((r) => (
-                  <ItemLista
-                    key={r.insumo}
-                    titulo={r.insumo}
-                    sub={[
-                      `${plural(r.pedidos, 'pedido confirmado', 'pedidos confirmados')}`,
-                      r.ultimaEntrega ? `última em ${formatarDataCurta(r.ultimaEntrega)}` : null,
-                      r.material ? null : 'sem EPI correspondente no catálogo',
-                    ].filter(Boolean).join(' · ')}
-                    direita={
-                      <div style={{ textAlign: 'right' }}>
-                        <div className="t-caption">Suprimentos: <strong>{r.qtdeSuprimentos}</strong> · Lançado: <strong>{r.qtdeManual}</strong></div>
-                        {r.pedidosSemData > 0 && (
-                          <div className="t-caption" style={{ color: 'var(--text-2)', maxWidth: 220 }}>
-                            {plural(r.pedidosSemData, 'pedido confirmado sem data', 'pedidos confirmados sem data')} de entrega —
-                            provavelmente já chegou na obra, o Suprimentos ainda não atualizou
-                          </div>
-                        )}
-                        {r.diferenca !== 0 && (
-                          <Chip tom={r.diferenca > 0 ? 'danger' : 'info'}>
-                            {r.diferenca > 0 ? `faltam lançar ${r.diferenca}` : `lançado ${Math.abs(r.diferenca)} a mais`}
-                          </Chip>
-                        )}
-                        {r.diferenca > 0 && (
-                          <div style={{ marginTop: 4 }}>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => abrirNovaEntrada({
-                                materialId: r.material?.id || '', quantidade: r.diferenca, nomeSugerido: r.insumo,
-                              })}
-                            >
-                              Lançar entrada
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    }
-                  />
-                ))}
+              <div className="stack-3">
+                <div className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    Não foram lançados ({suprimentosNaoLancados.length})
+                  </div>
+                  {suprimentosNaoLancados.length === 0 ? (
+                    <div className="card-flat"><Vazio titulo="Tudo lançado" texto="Nenhum insumo pendente de lançamento no estoque." /></div>
+                  ) : (
+                    <div className="stack-1">
+                      {suprimentosNaoLancados.map((r) => (
+                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="stack-1">
+                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    Lançados para o estoque ({suprimentosLancados.length})
+                  </div>
+                  {suprimentosLancados.length === 0 ? (
+                    <div className="card-flat"><Vazio titulo="Nada lançado ainda" texto="Nenhum insumo com entrada lançada no estoque." /></div>
+                  ) : (
+                    <div className="stack-1">
+                      {suprimentosLancados.map((r) => (
+                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1024,6 +1069,13 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 />
               </Campo>
             </div>
+            <Campo label="CA" dica="Certificado de Aprovação — opcional, mas obrigatório por norma pra cada tipo de EPI.">
+              <input
+                className="ipt" value={editandoMaterial.ca || ''}
+                onChange={(e) => setEditandoMaterial((p) => ({ ...p, ca: e.target.value }))}
+                placeholder="31.469"
+              />
+            </Campo>
             <Campo label="Estoque mínimo" dica="Opcional — abaixo disso, o EPI aparece marcado na aba Saldo.">
               <input
                 className="ipt" type="number" inputMode="decimal" min="0" step="any"
