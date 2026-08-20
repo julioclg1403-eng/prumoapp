@@ -428,6 +428,7 @@ function AbaDashboard({ pedidos }) {
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
   const [destinoFiltro, setDestinoFiltro] = useState('todos')
+  const [buscaInsumo, setBuscaInsumo] = useState('')
 
   /* Filtro de período olha a data do Pedido — é o marco que sempre
      existe (Entrega às vezes não), e é o que faz sentido pra "quanto
@@ -534,6 +535,36 @@ function AbaDashboard({ pedidos }) {
   }, [pedidosFiltrados])
   const maxBarraValor = Math.max(1, ...porInsumoValor.map((i) => i.valor))
 
+  /* Busca por um material específico — pega todos os pedidos que
+     batem (não só os do top 15) e resume tudo dele: quantidade,
+     valor, os três tempos e a lista de cada pedido individual. */
+  const resultadosBusca = useMemo(() => {
+    const termo = buscaInsumo.trim().toLowerCase()
+    if (!termo) return []
+    const mapa = new Map()
+    for (const p of pedidosFiltrados) {
+      if (!p.insumo.toLowerCase().includes(termo)) continue
+      if (!mapa.has(p.insumo)) mapa.set(p.insumo, [])
+      mapa.get(p.insumo).push(p)
+    }
+    return [...mapa.entries()]
+      .map(([insumo, itens]) => {
+        const comTempo = itens.filter((p) => p.dias_pedido_compra != null && p.dias_compra_entrega != null)
+        return {
+          insumo,
+          itens: [...itens].sort((a, b) => (b.pedido - a.pedido)),
+          quantidade: itens.length,
+          valor: somaValor(itens),
+          mediaPedidoCompra: media(itens, 'dias_pedido_compra'),
+          mediaCompraEntrega: media(itens, 'dias_compra_entrega'),
+          mediaTotal: comTempo.length
+            ? comTempo.reduce((s, p) => s + p.dias_pedido_compra + p.dias_compra_entrega, 0) / comTempo.length
+            : null,
+        }
+      })
+      .sort((a, b) => a.insumo.localeCompare(b.insumo))
+  }, [pedidosFiltrados, buscaInsumo])
+
   return (
     <div className="stack-2">
       <div className="card-flat stack-1">
@@ -557,7 +588,70 @@ function AbaDashboard({ pedidos }) {
         <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
       </div>
 
-      {pedidosFiltrados.length === 0 ? (
+      <div style={{ position: 'relative' }}>
+        <Icon name="busca" size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+        <input
+          className="ipt" style={{ paddingLeft: 34, width: '100%' }}
+          value={buscaInsumo} onChange={(e) => setBuscaInsumo(e.target.value)}
+          placeholder="Buscar um material específico…"
+        />
+      </div>
+
+      {buscaInsumo.trim() ? (
+        resultadosBusca.length === 0 ? (
+          <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca — o período e o tipo de material acima continuam valendo." /></div>
+        ) : (
+          <div className="stack-2">
+            {resultadosBusca.map((r) => (
+              <div key={r.insumo} className="card-flat stack-2">
+                <div className="t-strong" style={{ fontSize: 15 }}>{r.insumo}</div>
+                <div className="row-wrap" style={{ gap: 10 }}>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <div className="t-caption">Pedidos</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{r.quantidade}</div>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <div className="t-caption">Valor total</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(r.valor)}</div>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <div className="t-caption">Pedido → Compra</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{formatarDias(r.mediaPedidoCompra)}</div>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <div className="t-caption">Compra → Entrega</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{formatarDias(r.mediaCompraEntrega)}</div>
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <div className="t-caption">Total</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{formatarDias(r.mediaTotal)}</div>
+                  </div>
+                </div>
+                <div className="scroll-x">
+                  <table className="tbl">
+                    <thead>
+                      <tr><th>Pedido</th><th>Qtde</th><th>Preço</th><th>Pedido em</th><th>Entrega</th><th>Estágio</th><th>Destino</th></tr>
+                    </thead>
+                    <tbody>
+                      {r.itens.map((p) => (
+                        <tr key={p.id}>
+                          <td className="t-caption">{p.pedido}</td>
+                          <td className="t-num">{p.quantidade ?? '—'}</td>
+                          <td className="t-num">{formatarDinheiro(p.preco)}</td>
+                          <td style={{ color: 'var(--text-2)' }}>{p.data_pedido ? formatarDataCurta(p.data_pedido) : '—'}</td>
+                          <td style={{ color: 'var(--text-2)' }}>{p.data_entrega ? formatarDataCurta(p.data_entrega) : '—'}</td>
+                          <td><Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || '—'}</Chip></td>
+                          <td>{p.destino ? <Chip tom="info">{ROTULO_DESTINO[p.destino]}</Chip> : <span className="t-caption">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : pedidosFiltrados.length === 0 ? (
         <div className="card-flat"><Vazio titulo="Nada nesse filtro" texto="Troque o período ou o tipo de material." /></div>
       ) : (
         <>
