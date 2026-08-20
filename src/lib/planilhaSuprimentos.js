@@ -10,6 +10,17 @@
    linhas procurando a que tem "Pedido" e "Insumo" juntos, em vez de
    assumir uma posição fixa.
 
+   O UAU exporta pensando em impressão paginada: nome de insumo comprido
+   quebra em até 3 linhas físicas, e a cada quebra de página entra um
+   bloco de cabeçalho/rodapé repetido no meio da tabela — às vezes bem
+   no meio de um nome que estava sendo quebrado. `realinharNomesQuebrados`
+   remonta isso automaticamente antes da extração normal, então tanto a
+   planilha crua (baixada direto do UAU) quanto uma já corrigida à mão
+   importam certo — não precisa mais rodar uma correção à parte antes.
+   Os poucos casos em que a remontagem fica ambígua (raro — a própria
+   planilha não dá informação suficiente pra decidir sozinho) viram um
+   aviso não-bloqueante em vez de um item com nome errado.
+
    Chave de reimportação: (Pedido, Cód. Insumo) — bate com o unique
    de `supply_orders` no banco. Reimportar a mesma planilha (ou uma
    mais nova) atualiza a linha existente em vez de duplicar.
@@ -145,10 +156,31 @@ export async function lerPlanilhaSuprimentos(arquivo) {
     return { itens: [], erroGeral: 'Não reconheci as colunas "Pedido", "Cód. Insumo" e "Insumo" nesta planilha.' }
   }
 
+  const { beforeMap, afterMap, avisos } = realinharNomesQuebrados(cel, faixa, linhaCabecalho + 1, colunas)
+
   const itens = []
+  const avisosNomeInconsistente = []
+  const nomePorCodigo = new Map()
   let vaziasSeguidas = 0
   for (let r = linhaCabecalho + 1; r <= faixa.e.r; r++) {
-    const insumo = celTexto(cel(r, colunas.insumo))
+    /* Linha "de verdade" é a que tem Cód. Insumo preenchido — quando o
+       nome do insumo é longo, o UAU quebra ele em cima e/ou embaixo
+       desta linha (ver realinharNomesQuebrados), então não dá pra usar
+       "tem Insumo preenchido" como critério de linha de dado igual
+       antes: a linha físico às vezes vem com a coluna Insumo vazia até
+       ela ser remontada aqui. */
+    const codigoInsumoRaw = celTexto(cel(r, colunas.codigoInsumo))
+    if (!codigoInsumoRaw) {
+      vaziasSeguidas++
+      if (vaziasSeguidas >= LIMITE_LINHAS_VAZIAS) break
+      continue
+    }
+    const partes = []
+    if (beforeMap.has(r)) partes.push(beforeMap.get(r))
+    const nomeProprio = celTexto(cel(r, colunas.insumo))
+    if (nomeProprio) partes.push(nomeProprio)
+    if (afterMap.has(r)) partes.push(afterMap.get(r))
+    const insumo = partes.join(' ').replace(/\s+/g, ' ').trim()
     const pedido = celInteiro(cel(r, colunas.pedido))
     if (!insumo || pedido == null) {
       vaziasSeguidas++
@@ -156,6 +188,9 @@ export async function lerPlanilhaSuprimentos(arquivo) {
       continue
     }
     vaziasSeguidas = 0
+    const nomeAnterior = nomePorCodigo.get(codigoInsumoRaw)
+    if (nomeAnterior && nomeAnterior !== insumo) avisosNomeInconsistente.push(codigoInsumoRaw)
+    nomePorCodigo.set(codigoInsumoRaw, insumo)
     const aprovPedido = colunas.aprovPedido >= 0 ? celParaISO(cel(r, colunas.aprovPedido)) : null
     const fechamentoCompra = colunas.fechamentoCompra >= 0 ? celParaISO(cel(r, colunas.fechamentoCompra)) : null
     const dataEntrega = colunas.dataEntrega >= 0 ? celParaISO(cel(r, colunas.dataEntrega)) : null
@@ -167,7 +202,7 @@ export async function lerPlanilhaSuprimentos(arquivo) {
       linha: r + 1,
       pedido,
       cotacao: colunas.cotacao >= 0 ? celInteiro(cel(r, colunas.cotacao)) : null,
-      codigo_insumo: celTexto(cel(r, colunas.codigoInsumo)) || String(pedido),
+      codigo_insumo: codigoInsumoRaw,
       insumo,
       data_pedido: colunas.dataPedido >= 0 ? celParaISO(cel(r, colunas.dataPedido)) : null,
       aprov_pedido: aprovPedido,
@@ -184,5 +219,106 @@ export async function lerPlanilhaSuprimentos(arquivo) {
     })
   }
 
-  return { itens, erroGeral: null, aba: nomeAba }
+  const todosAvisos = [...avisos]
+  if (avisosNomeInconsistente.length) {
+    const codigos = [...new Set(avisosNomeInconsistente)]
+    todosAvisos.push(
+      `${codigos.length} código${codigos.length > 1 ? 's' : ''} de insumo (${codigos.slice(0, 5).join(', ')}${codigos.length > 5 ? '…' : ''}) apareceu com nomes diferentes em linhas diferentes — o nome mais recente foi o que ficou. Vale conferir esses itens depois de importar.`,
+    )
+  }
+
+  return { itens, erroGeral: null, aba: nomeAba, avisos: todosAvisos }
+}
+
+/* O UAU exporta pensando em impressão paginada: quando o nome do
+   Insumo é longo demais pra caber na altura da linha, ele quebra o
+   nome em cima e/ou embaixo da linha de dados de verdade (que fica
+   reconhecível pela coluna Cód. Insumo preenchida) — e, além disso,
+   insere um bloco de cabeçalho/rodapé repetido bem no meio da tabela
+   a cada quebra de página, que às vezes cai entre o pedaço "de cima"
+   do nome e a linha de dados. Esta função remonta o nome completo de
+   cada item antes da extração normal, atravessando esses blocos de
+   lixo quando precisa. Baseado no mesmo algoritmo (já validado contra
+   um export real) da skill "planilha-compras" que corrige essas
+   planilhas manualmente — aqui roda direto no import, sem precisar de
+   um passo separado antes. Em planilha já limpa (sem linhas de texto
+   solto) isso não muda nada — before/afterMap saem vazios. */
+function realinharNomesQuebrados(cel, faixa, dataStart, colunas) {
+  const colInsumo = colunas.insumo
+  const colCodigo = colunas.codigoInsumo
+
+  const linhaVazia = (r) => {
+    for (let c = faixa.s.c; c <= faixa.e.c; c++) {
+      if (celTexto(cel(r, c))) return false
+    }
+    return true
+  }
+  const somenteTexto = (r) => {
+    if (!celTexto(cel(r, colInsumo))) return false
+    for (let c = faixa.s.c; c <= faixa.e.c; c++) {
+      if (c === colInsumo) continue
+      if (celTexto(cel(r, c))) return false
+    }
+    return true
+  }
+  const ehDado = (r) => r >= dataStart && Boolean(celTexto(cel(r, colCodigo)))
+  const ehLixo = (r) => r >= dataStart && !linhaVazia(r) && !ehDado(r) && !somenteTexto(r)
+
+  const nrows = faixa.e.r + 1
+
+  const runs = []
+  for (let r = dataStart; r < nrows;) {
+    if (somenteTexto(r)) {
+      const inicio = r
+      while (r < nrows && somenteTexto(r)) r++
+      runs.push([inicio, r - 1])
+    } else {
+      r++
+    }
+  }
+
+  const dadoMaisProximo = (idxInicial, direcao) => {
+    let r = idxInicial + direcao
+    while (r >= 0 && r < nrows) {
+      if (ehDado(r)) return r
+      if (ehLixo(r) || linhaVazia(r)) { r += direcao; continue }
+      if (somenteTexto(r)) return null
+      r += direcao
+    }
+    return null
+  }
+
+  const beforeMap = new Map()
+  const afterMap = new Map()
+  const avisos = []
+
+  for (const [s, e] of runs) {
+    const tamanho = e - s + 1
+    if (tamanho === 2) {
+      const anterior = dadoMaisProximo(s, -1)
+      const proximo = dadoMaisProximo(e, 1)
+      if (anterior != null) afterMap.set(anterior, celTexto(cel(s, colInsumo)))
+      if (proximo != null) beforeMap.set(proximo, celTexto(cel(e, colInsumo)))
+    } else if (tamanho === 1) {
+      const anterior = dadoMaisProximo(s, -1)
+      const proximo = dadoMaisProximo(s, 1)
+      const anteriorVazio = anterior != null && !celTexto(cel(anterior, colInsumo))
+      const proximoVazio = proximo != null && !celTexto(cel(proximo, colInsumo))
+      if (anterior != null && proximo == null) {
+        afterMap.set(anterior, celTexto(cel(s, colInsumo)))
+      } else if (proximo != null && anterior == null) {
+        beforeMap.set(proximo, celTexto(cel(s, colInsumo)))
+      } else if (anteriorVazio && !proximoVazio) {
+        afterMap.set(anterior, celTexto(cel(s, colInsumo)))
+      } else if (proximoVazio && !anteriorVazio) {
+        beforeMap.set(proximo, celTexto(cel(s, colInsumo)))
+      } else {
+        avisos.push(`Linha ${s + 1}: pedaço de nome "${celTexto(cel(s, colInsumo))}" ficou ambíguo (não deu pra saber se pertence ao item de cima ou de baixo) — confira esse item depois de importar.`)
+      }
+    } else {
+      avisos.push(`Linha ${s + 1}: trecho de nome "${celTexto(cel(s, colInsumo))}" com ${tamanho} linhas seguidas não foi reconhecido automaticamente — confira esse item depois de importar.`)
+    }
+  }
+
+  return { beforeMap, afterMap, avisos }
 }

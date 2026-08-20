@@ -1030,6 +1030,17 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
                   {plural(novos, 'pedido novo', 'pedidos novos')} · {plural(atualizados, 'atualização', 'atualizações')}.
                 </div>
 
+                {resultado.avisos?.length > 0 && (
+                  <div className="alert info" style={{ lineHeight: 1.5 }}>
+                    <div className="t-strong" style={{ marginBottom: 4 }}>
+                      {plural(resultado.avisos.length, 'observação', 'observações')} sobre o realinhamento automático:
+                    </div>
+                    <div className="stack-1">
+                      {resultado.avisos.map((a, i) => <div key={i} className="t-caption">{a}</div>)}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ maxHeight: 300, overflowY: 'auto' }} className="stack-1">
                   {resultado.itens.slice(0, 100).map((i) => (
                     <div
