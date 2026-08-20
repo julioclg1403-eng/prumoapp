@@ -225,7 +225,34 @@ function AbaDados({ itens }) {
                 </div>
 
                 {aberto && (
-                  <div className="scroll-x" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                    <div className="row-wrap" style={{ gap: 10, marginBottom: 10 }}>
+                      <div style={{ flex: '1 1 110px' }}>
+                        <div className="t-caption">Contratado</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(c.total_contrato)}</div>
+                      </div>
+                      <div style={{ flex: '1 1 110px' }}>
+                        <div className="t-caption">Medido</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(c.valor_medido_contrato)}</div>
+                      </div>
+                      <div style={{ flex: '1 1 110px' }}>
+                        <div className="t-caption">Saldo</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(c.saldo_contrato)}</div>
+                      </div>
+                      {Number(c.retido) > 0 && (
+                        <div style={{ flex: '1 1 110px' }}>
+                          <div className="t-caption">Retido</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(c.retido)}</div>
+                        </div>
+                      )}
+                      {Number(c.a_pagar) > 0 && (
+                        <div style={{ flex: '1 1 110px' }}>
+                          <div className="t-caption">A pagar (na importação)</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{formatarDinheiro(c.a_pagar)}</div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="scroll-x">
                     <table className="tbl">
                       <thead>
                         <tr>
@@ -245,6 +272,7 @@ function AbaDados({ itens }) {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 )}
               </div>
