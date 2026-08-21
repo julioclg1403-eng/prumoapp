@@ -1134,7 +1134,7 @@ function EtapaRevisao({ diario, alterar, bloqueado, irPara, fotos }) {
 function Numero({ rotulo, valor, cor }) {
   return (
     <div>
-      <div className="t-num" style={{ fontSize: 24, fontWeight: 700, color: cor || 'var(--text)', lineHeight: 1 }}>
+      <div className="t-num" style={{ fontSize: 26, fontWeight: 700, color: cor || 'var(--text)', lineHeight: 1 }}>
         {valor}
       </div>
       <div className="t-caption" style={{ marginTop: 3 }}>{rotulo}</div>

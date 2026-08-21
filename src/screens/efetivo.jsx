@@ -20,6 +20,7 @@ import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, ItemLista, useDesktop,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
+import { RankingBarras } from '../components/charts'
 
 const PERIODOS = [
   { valor: 7, rotulo: '7 dias' },
@@ -155,25 +156,14 @@ export default function Efetivo({ goto, perfil, params = {} }) {
             {porEmpresa.length > 0 && (
               <div>
                 <div className="t-micro" style={{ marginBottom: 10 }}>Por empresa no período</div>
-                <div className="card-flat stack-2">
-                  {porEmpresa.map(({ empresa, total, media }) => (
-                    <div key={empresa.id}>
-                      <div className="row-between" style={{ marginBottom: 5 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{empresa.nome}</span>
-                        <span className="t-caption">
-                          <span className="t-num t-strong" style={{ color: 'var(--text)' }}>{total}</span> homem-dia · média {media}
-                        </span>
-                      </div>
-                      <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
-                        <div
-                          style={{
-                            width: `${(total / porEmpresa[0].total) * 100}%`,
-                            height: '100%', background: 'var(--graphite)',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                <div className="card-flat chart-panel">
+                  <RankingBarras
+                    itens={porEmpresa.map(({ empresa, total, media }) => ({
+                      chave: empresa.id, rotulo: empresa.nome, valor: total, contador: `média ${media}`,
+                    }))}
+                    formatarValor={(v) => `${v} homem-dia`}
+                    cor="var(--graphite)"
+                  />
                 </div>
               </div>
             )}
