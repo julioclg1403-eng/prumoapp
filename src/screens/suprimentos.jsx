@@ -255,44 +255,40 @@ function AbaDados({ pedidos, dados, podeEditar }) {
       {lista.length === 0 ? (
         <div className="card-flat"><Vazio titulo="Nada com esse filtro" texto="Troque a busca, o estágio ou o destino." /></div>
       ) : (
-        <div className="card-flat scroll-x" style={{ padding: 0 }}>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Pedido</th><th>Cotação</th><th>Cód.</th><th>Insumo</th><th>Qtde</th><th>Preço</th>
-                <th>Pedido em</th><th>Entrega</th><th>Ped→Compra</th><th>Compra→Ent</th><th>Estágio</th><th>Destino</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lista.map((p) => (
-                <tr key={p.id} onClick={() => setDetalhe(p)} style={{ cursor: 'pointer' }}>
-                  <td className="t-caption">{p.pedido}</td>
-                  <td className="t-caption">{p.cotacao ?? '—'}</td>
-                  <td className="t-caption">{p.codigo_insumo || '—'}</td>
-                  <td className="t-strong">
-                    {p.insumo}
-                    {p.excluido && p.excluido !== '0 - Não' && (
-                      <span style={{ marginLeft: 6 }}><Chip tom="danger">Excluído</Chip></span>
-                    )}
-                  </td>
-                  <td className="t-num">{p.quantidade ?? '—'}</td>
-                  <td className="t-num">{formatarDinheiro(p.preco)}</td>
-                  <td style={{ color: 'var(--text-2)' }}>{p.data_pedido ? formatarDataCurta(p.data_pedido) : '—'}</td>
-                  <td style={{ color: 'var(--text-2)' }}>
-                    {p.data_entrega ? formatarDataCurta(p.data_entrega) : (
-                      p.previsao_entrega
-                        ? <span className="t-caption">Previsto {formatarDataCurta(p.previsao_entrega)}</span>
-                        : '—'
-                    )}
-                  </td>
-                  <td className="t-num">{p.dias_pedido_compra ?? '—'}</td>
-                  <td className="t-num">{p.dias_compra_entrega ?? '—'}</td>
-                  <td><Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || '—'}</Chip></td>
-                  <td>{p.destino ? <Chip tom="info">{ROTULO_DESTINO[p.destino]}</Chip> : <span className="t-caption">—</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="stack-1">
+          {lista.map((p) => (
+            <div key={p.id} className="card-tap" style={{ padding: 10, cursor: 'pointer' }} onClick={() => setDetalhe(p)}>
+              <div className="row-between" style={{ alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="t-strong" style={{ fontSize: 14 }}>{p.insumo}</div>
+                  <div className="t-caption" style={{ marginTop: 2 }}>
+                    Pedido {p.pedido} · Cotação {p.cotacao ?? '—'} · Cód. {p.codigo_insumo || '—'}
+                  </div>
+                </div>
+                <div className="row-flex" style={{ gap: 6, flex: 'none' }}>
+                  {p.excluido && p.excluido !== '0 - Não' && <Chip tom="danger">Excluído</Chip>}
+                  <Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || 'Sem estágio'}</Chip>
+                </div>
+              </div>
+              <div className="row-wrap" style={{ gap: 14, marginTop: 8, alignItems: 'center' }}>
+                <span className="t-caption">Qtde <span className="t-strong">{p.quantidade ?? '—'}</span></span>
+                <span className="t-caption">Preço <span className="t-strong">{formatarDinheiro(p.preco)}</span></span>
+                <span className="t-caption">
+                  Pedido em <span className="t-strong">{p.data_pedido ? formatarDataCurta(p.data_pedido) : '—'}</span>
+                </span>
+                <span className="t-caption">
+                  {p.data_entrega ? (
+                    <>Entregue <span className="t-strong" style={{ color: 'var(--success)' }}>{formatarDataCurta(p.data_entrega)}</span></>
+                  ) : p.previsao_entrega ? (
+                    <>Previsto <span className="t-strong" style={{ color: 'var(--info)' }}>{formatarDataCurta(p.previsao_entrega)}</span></>
+                  ) : (
+                    <span style={{ color: 'var(--text-3)' }}>Sem previsão de entrega</span>
+                  )}
+                </span>
+                {p.destino && <Chip tom="info">{ROTULO_DESTINO[p.destino]}</Chip>}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
