@@ -24,6 +24,7 @@ import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop, Segmentos,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, CalendarioMes,
 } from '../components'
+import { GraficoColunas } from '../components/charts'
 
 const DIAS = [
   { indice: 0, curto: 'Seg' }, { indice: 1, curto: 'Ter' }, { indice: 2, curto: 'Qua' },
@@ -311,7 +312,7 @@ export default function PlanejamentoSemanal({ goto, perfil }) {
             </select>
           </div>
 
-          {verFechamento && <Fechamento semana={semana} dados={dados} goto={goto} />}
+          {verFechamento && <Fechamento semana={semana} dados={dados} goto={goto} inicio={inicio} />}
 
           {/* ── A semana ── */}
           {semana.total === 0 ? (
@@ -1065,11 +1066,27 @@ function SheetGrupo({ grupo, dados, goto, salvando, onMudar, onSalvar, onReabrir
 
 /* ── Fechamento da semana ────────────────────────────────── */
 
-function Fechamento({ semana, dados, goto }) {
+function Fechamento({ semana, dados, goto, inicio }) {
+  /* PPC — Percentual de Programação Concluída, o indicador clássico
+     do Last Planner System: concluídas sobre planejadas. semana.percentual
+     já É essa conta (ver comentário em fecharSemana) — só não tinha o
+     nome. O histórico roda a mesma conta pras últimas 8 semanas, pra
+     mostrar tendência em vez de só a foto de hoje. */
+  const historicoPPC = useMemo(() => {
+    const semanas = []
+    for (let i = 7; i >= 0; i--) {
+      const ini = somarDias(inicio, -7 * i)
+      const fim = somarDias(ini, 6)
+      const s = fecharSemana(dados.planejamento, dados.diarios, ini, fim)
+      semanas.push({ chave: ini, rotulo: formatarDataCurta(ini).slice(0, 5), valor: s.percentual, cor: ini === inicio ? 'var(--primary)' : 'var(--graphite)' })
+    }
+    return semanas
+  }, [inicio, dados.planejamento, dados.diarios])
+
   return (
     <div className="card stack-2">
       <div className="row-between">
-        <div className="t-micro">Fechamento da semana</div>
+        <div className="t-micro">Fechamento da semana (PPC)</div>
         <span className="t-num t-strong" style={{ fontSize: 20, color: 'var(--success)' }}>
           {semana.percentual}%
         </span>
@@ -1082,6 +1099,15 @@ function Fechamento({ semana, dados, goto }) {
         <Indicador rotulo="Não executadas" valor={semana.naoExecutadas} tom={semana.naoExecutadas ? 'danger' : undefined} />
         <Indicador rotulo="Sem lançamento" valor={semana.semLancamento} />
         <Indicador rotulo="Não planejadas" valor={semana.naoPlanejados.length} tom={semana.naoPlanejados.length ? 'danger' : undefined} />
+      </div>
+
+      <div>
+        <div className="t-caption" style={{ marginBottom: 8 }}>PPC — últimas 8 semanas</div>
+        <GraficoColunas
+          itens={historicoPPC}
+          formatarValor={(v) => `${v}%`}
+          alturaMax={70}
+        />
       </div>
 
       {semana.semLancamento > 0 && (
