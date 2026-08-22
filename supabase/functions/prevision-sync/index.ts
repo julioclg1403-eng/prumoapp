@@ -10,8 +10,9 @@
 // Mapeamento (confirmado contra dados reais das duas obras antes de
 // subir isso — ver conversa): codigo_externo = Activity.id (é
 // literalmente o mesmo número que já está em schedule_global_items
-// hoje, tipo "44299446"); descricao = Activity.service.name;
-// datas previstas = startAt/endAt; "real" não existe como campo
+// hoje, tipo "44299446"); descricao = Activity.service.name sem a
+// sigla de categoria + " - " + Activity.floor.name (ver mais abaixo
+// por quê); datas previstas = startAt/endAt; "real" não existe como campo
 // direto na API, então é derivado de percentageCompleted do jeito
 // que a própria Prevision já faz na exportação da planilha: 100% =
 // real igual ao previsto, >0% = só início real, 0%/null = nada.
@@ -21,6 +22,14 @@
 // do Mensal já vinculadas por nome — decisão do Julio, já que a
 // planilha manual também vem da Prevision. Etapa sem vínculo
 // continua só por medição manual (ver conversa).
+//
+// O nome do serviço sozinho REPETE em vários blocos/locais da mesma
+// obra (ex.: "VED - Marcação + Estrutura de Drywall" existe em 6
+// blocos diferentes) — bater só por isso casaria com o primeiro que
+// aparecesse, quase sempre errado. Por isso a descrição salva aqui é
+// "{serviço sem sigla} - {local}" (usa Activity.floor.name), do
+// jeito que o Mensal já nomeia suas etapas — mesma ideia do
+// semSiglaDeCategoria() que o Global já usa pra casar com o Mensal.
 //
 // Não tem usuário logado chamando isso (é o pg_cron), então a
 // autenticação é um segredo próprio (x-cron-secret), gerado na
@@ -51,6 +60,7 @@ const QUERY_ACTIVIDADES = `
             percentageCompleted
             workDuration
             service { name }
+            floor { name }
           }
         }
       }
@@ -99,6 +109,14 @@ Deno.serve(async (req: Request) => {
   return json({ resultados })
 })
 
+/* Mesma regra de src/lib/dominio.js (semSiglaDeCategoria) — tira o
+   prefixo de categoria (2-5 letras maiúsculas + hífen, tipo "VED -")
+   que a Prevision usa e o Mensal não. */
+function semSiglaDeCategoria(nome: string): string {
+  const m = /^[A-ZÀ-Ú]{2,5}\s*-\s*(.+)$/.exec(String(nome || '').trim())
+  return m ? m[1] : nome
+}
+
 async function buscarAtividades(apiKey: string, projectId: string) {
   const brutos: any[] = []
   let after = ''
@@ -131,9 +149,11 @@ async function buscarAtividades(apiKey: string, projectId: string) {
       const pct = a.percentageCompleted
       const concluida = pct != null && pct >= 100
       const iniciada = pct != null && pct > 0
+      const servico = semSiglaDeCategoria(a.service?.name || `Atividade ${a.id}`)
+      const descricao = a.floor?.name ? `${servico} - ${a.floor.name}` : servico
       return {
         codigo_externo: String(a.id),
-        descricao: a.service?.name || `Atividade ${a.id}`,
+        descricao,
         lote: null,
         caminho_critico: false,
         data_inicio: dataInicio,
