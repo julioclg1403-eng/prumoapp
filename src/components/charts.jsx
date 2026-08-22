@@ -167,6 +167,9 @@ export function ReguaAderencia({ itens, formatarValor = (v) => `${Math.round(v)}
                 }}
               />
             </div>
+            {item.referencia && (
+              <div className="t-caption" style={{ marginTop: 3, color: 'var(--text-3)' }}>{item.referencia}</div>
+            )}
           </div>
         )
       })}

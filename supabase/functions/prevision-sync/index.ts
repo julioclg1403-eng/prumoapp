@@ -136,6 +136,7 @@ async function buscarAtividades(apiKey: string, projectId: string) {
         inicio_real: concluida || iniciada ? dataInicio : null,
         fim_real: concluida ? dataFim : null,
         duracao_real: concluida ? (a.workDuration ?? null) : null,
+        percentual_prevision: pct ?? null,
       }
     })
     .filter((i) => i.data_inicio && i.data_fim)

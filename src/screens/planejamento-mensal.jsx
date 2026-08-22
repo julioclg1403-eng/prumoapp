@@ -197,7 +197,7 @@ export default function PlanejamentoMensal({ perfil, goto }) {
         )}
 
         {!faltaItens && <ResumoCurva curva={curva} />}
-        {!faltaItens && <AderenciaEtapas itens={itens} hoje={hoje} />}
+        {!faltaItens && <AderenciaEtapas itens={itens} hoje={hoje} cronogramaGlobal={dados.cronogramaGlobal} />}
 
         {!faltaItens && itensDoMes.length > 0 && (
           <Segmentos
@@ -519,20 +519,39 @@ function BarraDupla({ real, previsto }) {
    100%), qual está segurando o previsto e qual está atrasando.
    Não lista TODAS as etapas (seriam dezenas) — só as ativas, que é
    o recorte que alguém realmente quer ver hoje. */
-function AderenciaEtapas({ itens, hoje }) {
+function AderenciaEtapas({ itens, hoje, cronogramaGlobal }) {
+  /* Percentual que a Prevision reporta pra etapa já vinculada — só
+     referência ao lado do que o Mensal mede, nunca substitui (ver
+     conversa: Global nunca escreve em schedule_items). Quando mais
+     de uma linha do Global aponta pra mesma etapa, mostra a mais
+     recente. */
+  const percentualPrevisionPorEtapa = useMemo(() => {
+    const mapa = new Map()
+    for (const g of cronogramaGlobal || []) {
+      if (!g.schedule_item_id || g.percentual_prevision == null) continue
+      const atual = mapa.get(g.schedule_item_id)
+      if (!atual || g.atualizado_em > atual.atualizado_em) {
+        mapa.set(g.schedule_item_id, { valor: Number(g.percentual_prevision), atualizado_em: g.atualizado_em })
+      }
+    }
+    return mapa
+  }, [cronogramaGlobal])
+
   const emAndamento = useMemo(() => {
     return itens
       .filter((i) => i.data_inicio <= hoje && (!i.data_fim || i.data_fim >= hoje) && Number(i.percentual || 0) < 100)
       .map((i) => {
         const s = situacaoCronograma(i, hoje)
+        const prevision = percentualPrevisionPorEtapa.get(i.id)
         return {
           chave: i.id, rotulo: i.descricao,
           realizado: Number(i.percentual || 0), previsto: progressoEsperado(i, hoje),
           atrasado: s.chave === 'atrasada',
+          referencia: prevision ? `Prevision reporta ${Math.round(prevision.valor)}%` : null,
         }
       })
       .sort((a, b) => (b.previsto - b.realizado) - (a.previsto - a.realizado))
-  }, [itens, hoje])
+  }, [itens, hoje, percentualPrevisionPorEtapa])
 
   return (
     <div className="card-flat chart-panel stack-2">
