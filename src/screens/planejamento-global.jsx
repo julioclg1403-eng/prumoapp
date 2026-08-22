@@ -21,8 +21,8 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarDataCurta, plural, normalizarParaCasar, cronogramaGlobalCorrespondeEtapa } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Sheet, Vazio } from '../components'
+import { hojeISO, formatarDataCurta, plural, normalizarParaCasar, cronogramaGlobalCorrespondeEtapa, previsionCurvaHoje } from '../lib/dominio'
+import { Icon, Chip, PageHeader, Sheet, Vazio, Indicador } from '../components'
 
 export default function PlanejamentoGlobal({ perfil }) {
   const dados = useDados()
@@ -38,6 +38,13 @@ export default function PlanejamentoGlobal({ perfil }) {
     () => new Map(dados.cronograma.map((e) => [e.id, e])),
     [dados.cronograma],
   )
+
+  /* Curva oficial da Prevision (mesmo dado que alimenta o resumo do
+     Mensal) — aqui é só o total acumulado da obra desde o início,
+     que é o que faz sentido pro Global mostrar (ele é o cronograma
+     mestre do projeto inteiro, não de um mês). */
+  const scurve = dados.previsionProjectLinks?.[0]?.scurve
+  const previsionHoje = useMemo(() => previsionCurvaHoje(scurve, hojeISO()), [scurve])
 
   const nomesServicoPorEtapa = useMemo(() => {
     const servicoPorId = new Map(dados.servicos.map((s) => [s.id, s.nome]))
@@ -138,6 +145,20 @@ export default function PlanejamentoGlobal({ perfil }) {
         </div>
       ) : (
         <>
+          {previsionHoje && (
+            <div className="card-flat stack-2">
+              <div className="t-micro">Avanço total da obra (Prevision) — desde o início do projeto</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
+                <Indicador rotulo="Base" valor={`${previsionHoje.base.toFixed(1)}%`} />
+                <Indicador rotulo="Previsto" valor={`${previsionHoje.previsto.toFixed(1)}%`} />
+                <Indicador
+                  rotulo="Realizado" valor={`${previsionHoje.realizado.toFixed(1)}%`}
+                  tom={previsionHoje.realizado >= previsionHoje.previsto ? 'success' : 'danger'}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="alert info">
             Cada tarefa daqui tenta linkar (pelo nome) numa etapa que já exista em Planejamento mensal — o
             Global nunca cria nem muda nada lá. Reimporte a mesma planilha sempre que o setor de

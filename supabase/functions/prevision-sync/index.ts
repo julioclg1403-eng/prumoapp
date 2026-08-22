@@ -91,12 +91,24 @@ Deno.serve(async (req: Request) => {
       })
       if (r.error) throw new Error(r.error.message)
       const { criados, atualizados } = r.data?.[0] || { criados: 0, atualizados: 0 }
+
+      /* A curva S é opcional — projeto sem baseline ativa (ver Fama
+         Yacht) não tem, e isso não pode derrubar a sincronização do
+         cronograma, que é a parte principal. */
+      let scurve = null
+      try {
+        scurve = await buscarSCurve(config.data.api_key, link.prevision_project_id)
+      } catch (e) {
+        console.error('[prevision-sync] sCurve', link.prevision_project_name, e instanceof Error ? e.message : String(e))
+      }
+
       await admin.from('prevision_project_links').update({
         ultima_sincronizacao: new Date().toISOString(), ultimo_erro: null,
+        ...(scurve ? { scurve } : {}),
       }).eq('worksite_id', link.worksite_id)
       resultados.push({
         obra: link.worksite_id, projeto: link.prevision_project_name,
-        total_atividades: itens.length, criados, atualizados,
+        total_atividades: itens.length, criados, atualizados, com_curva: Boolean(scurve),
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -108,6 +120,38 @@ Deno.serve(async (req: Request) => {
 
   return json({ resultados })
 })
+
+/* A curva S oficial da Prevision — a mesma conta ponderada por peso
+   que a tela "Progresso Mensal" deles usa, já pronta. O Prumo só lê
+   os pontos (base/previsto/realizado por dia, desde o início do
+   projeto) em vez de tentar reproduzir a ponderação sozinho — foi
+   tentar isso que deu número errado antes (ver conversa). */
+async function buscarSCurve(apiKey: string, projectId: string) {
+  const resp = await fetch(PREVISION_URL, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'UserAuthorization': `token ${apiKey}`,
+    },
+    body: JSON.stringify({
+      query: `query($projectId: ID!) { me { project(id: $projectId) { sCurve } } }`,
+      variables: { projectId },
+    }),
+  })
+  const body = await resp.json()
+  if (body.error) throw new Error(body.error.message || 'Erro na API da Prevision.')
+  if (body.errors?.length) throw new Error(body.errors[0].message)
+  const curva = body.data?.me?.project?.sCurve
+  if (!curva || !curva.dates || curva.dates.length === 0) return null
+  return {
+    dates: curva.dates,
+    base: curva.base,
+    expected: curva.expected,
+    realized: curva.realized,
+    period_end_dates: curva.period_end_dates,
+  }
+}
 
 /* Mesma regra de src/lib/dominio.js (semSiglaDeCategoria) — tira o
    prefixo de categoria (2-5 letras maiúsculas + hífen, tipo "VED -")

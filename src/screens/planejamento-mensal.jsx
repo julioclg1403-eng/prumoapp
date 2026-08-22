@@ -19,7 +19,7 @@ import {
   hojeISO, formatarData, formatarDataCurta, plural,
   situacaoCronograma, progressoEsperado, curvaFisica, ordenarCronograma,
   paraISOdeTextoBR, paraNumeroBR, diasRealizadosEtapa, intervaloRealEtapa, diasSemDiarioEtapa,
-  somarMeses, somarDias, rotuloMes,
+  somarMeses, somarDias, rotuloMes, previsionCurvaHoje, previsionCurvaDoMes,
 } from '../lib/dominio'
 import { parseCSV } from '../lib/csv'
 import {
@@ -67,6 +67,13 @@ export default function PlanejamentoMensal({ perfil, goto }) {
 
   const itens = useMemo(() => ordenarCronograma(dados.cronograma), [dados.cronograma])
   const curva = useMemo(() => curvaFisica(itens, hoje), [itens, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* scurve vem pronta da Prevision (base/previsto/realizado já
+     ponderados por peso de verdade) — usa em vez do cálculo
+     aproximado acima sempre que a obra tiver isso vinculado. */
+  const scurve = dados.previsionProjectLinks?.[0]?.scurve
+  const previsionHoje = useMemo(() => previsionCurvaHoje(scurve, hoje), [scurve, hoje])
+  const previsionMes = useMemo(() => previsionCurvaDoMes(scurve, mes), [scurve, mes])
 
   /* "Mês" aqui é uma janela de navegação, não um dado próprio da
      etapa (ela não "pertence" a um mês — dura semanas, às vezes
@@ -196,7 +203,8 @@ export default function PlanejamentoMensal({ perfil, goto }) {
           </div>
         )}
 
-        {!faltaItens && <ResumoCurva curva={curva} />}
+        {!faltaItens && <ResumoCurva curva={curva} previsionHoje={previsionHoje} />}
+        {!faltaItens && previsionMes && <ProgressoMensalPrevision mes={mes} previsionMes={previsionMes} />}
         {!faltaItens && <AderenciaEtapas itens={itens} hoje={hoje} cronogramaGlobal={dados.cronogramaGlobal} />}
 
         {!faltaItens && itensDoMes.length > 0 && (
@@ -462,24 +470,31 @@ export default function PlanejamentoMensal({ perfil, goto }) {
 
 /* ── Resumo: curva física ─────────────────────────────────── */
 
-function ResumoCurva({ curva }) {
+/* Quando a obra tem a curva oficial da Prevision (previsionHoje), ela
+   manda no número principal — é a mesma ponderação por peso que a
+   tela deles mostra. Sem isso (obra sem Prevision vinculada ainda),
+   cai pro cálculo aproximado que o Prumo sempre fez (curvaFisica). */
+function ResumoCurva({ curva, previsionHoje }) {
+  const real = previsionHoje ? Math.round(previsionHoje.realizado * 10) / 10 : curva.percentualReal
+  const previsto = previsionHoje ? Math.round(previsionHoje.previsto * 10) / 10 : curva.percentualPrevisto
+
   return (
     <div className="card stack-2">
       <div className="row-between">
-        <div className="t-micro">Avanço físico da obra</div>
+        <div className="t-micro">Avanço físico da obra{previsionHoje && ' (Prevision)'}</div>
         <span
           className="t-num t-strong" style={{ fontSize: 20,
-            color: curva.percentualReal >= curva.percentualPrevisto ? 'var(--success)' : 'var(--danger)' }}
+            color: real >= previsto ? 'var(--success)' : 'var(--danger)' }}
         >
-          {curva.percentualReal}%
+          {real}%
         </span>
       </div>
 
-      <BarraDupla real={curva.percentualReal} previsto={curva.percentualPrevisto} />
+      <BarraDupla real={real} previsto={previsto} />
 
       <div className="t-caption">
-        Previsto para hoje: {curva.percentualPrevisto}%. A marca escura na barra é onde a obra
-        deveria estar; o preenchimento é onde ela está, pela última medição de cada etapa.
+        Previsto para hoje: {previsto}%. A marca escura na barra é onde a obra
+        deveria estar; o preenchimento é onde ela está{previsionHoje ? ', pela curva oficial da Prevision' : ', pela última medição de cada etapa'}.
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
@@ -508,6 +523,29 @@ function BarraDupla({ real, previsto }) {
           width: 2, background: 'var(--text)', borderRadius: 1,
         }}
       />
+    </div>
+  )
+}
+
+/* ── Progresso Mensal (Prevision) ────────────────────────────
+   Mesmo recorte da tela "Progresso Mensal" da Prevision: quanto a
+   curva avançou só DENTRO do mês navegado (não o acumulado desde o
+   início da obra, que é o que ResumoCurva já mostra). "Meta" (o
+   compromisso que vocês fecham em reunião, acima da base) não entra
+   aqui — a Prevision não expõe isso pronto, calculam por dentro. */
+function ProgressoMensalPrevision({ mes, previsionMes }) {
+  const fmt = (v) => `${v.toFixed(2).replace('.', ',')}%`
+  return (
+    <div className="card-flat stack-2">
+      <div className="t-micro">Progresso mensal (Prevision) — {rotuloMes(mes)}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
+        <Indicador rotulo="Base" valor={fmt(previsionMes.base)} />
+        <Indicador rotulo="Previsto" valor={fmt(previsionMes.previsto)} />
+        <Indicador
+          rotulo="Realizado" valor={fmt(previsionMes.realizado)}
+          tom={previsionMes.realizado >= previsionMes.previsto ? 'success' : 'danger'}
+        />
+      </div>
     </div>
   )
 }

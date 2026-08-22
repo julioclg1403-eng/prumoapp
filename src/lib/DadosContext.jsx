@@ -205,7 +205,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
-      suprimentos, entregasEquipamento, contratos,
+      suprimentos, entregasEquipamento, contratos, previsionProjectLinks,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -247,6 +247,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('supply_orders').select('*').order('pedido', { ascending: false })),
       buscarPaginado(() => supabase.from('equipment_deliveries').select('*').order('data', { ascending: false })),
       buscarPaginado(() => supabase.from('contract_items').select('*').order('cod_contrato')),
+      buscarPaginado(() => supabase.from('prevision_project_links').select('*')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -256,7 +257,8 @@ export function DadosProvider({ perfil, children }) {
       servicosCronograma, materiaisEstoque, entradasEstoque, saidasEstoque, refeicoes,
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
-      tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos].find((r) => r.error)
+      tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
+      previsionProjectLinks].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -322,6 +324,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos: suprimentos.data || [],
       entregasEquipamento: entregasEquipamento.data || [],
       contratos: contratos.data || [],
+      previsionProjectLinks: previsionProjectLinks.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -419,6 +422,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos: filtrar(tudo.suprimentos),
       entregasEquipamento: filtrar(tudo.entregasEquipamento),
       contratos: filtrar(tudo.contratos),
+      previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
     }
   }, [tudo, obraId])
 

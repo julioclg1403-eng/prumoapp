@@ -990,6 +990,53 @@ export function curvaFisica(itens, hoje = hojeISO()) {
   }
 }
 
+/* Curva S OFICIAL da Prevision (schedule_global_items.scurve, via
+   prevision_project_links.scurve) — base/previsto/realizado já
+   ponderados por peso de verdade, do jeito que a tela "Progresso
+   Mensal" deles mostra. curvaFisica() acima é a aproximação que o
+   Prumo calcula sozinho quando não tem Prevision vinculada (ou
+   enquanto isso); estas duas funções usam o dado real quando ele
+   existe, pra nunca discordar do que a Prevision mostra pro Julio.
+
+   scurve tem 4 arrays paralelos (mesmo índice = mesmo dia):
+   dates, base, expected (previsto), realized — cada um dos 3
+   últimos é uma fração 0-1 acumulada desde o início do projeto. */
+export function previsionCurvaHoje(scurve, hoje = hojeISO()) {
+  if (!scurve?.dates?.length) return null
+  const idx = scurve.dates.indexOf(hoje)
+  if (idx < 0) return null
+  return {
+    base: (scurve.base?.[idx] || 0) * 100,
+    previsto: (scurve.expected?.[idx] || 0) * 100,
+    realizado: (scurve.realized?.[idx] || 0) * 100,
+  }
+}
+
+/* "Progresso Mensal" — quanto cada curva avançou SÓ dentro do mês
+   (mesISO tipo "2026-08"), não o acumulado desde o início do
+   projeto. É a diferença entre o valor no fim do mês anterior e o
+   valor no fim deste mês — mesma conta que a tela da Prevision usa
+   pro gráfico de barras mês a mês. */
+export function previsionCurvaDoMes(scurve, mesISO) {
+  if (!scurve?.dates?.length) return null
+  const indicesDoMes = []
+  for (let i = 0; i < scurve.dates.length; i++) if (scurve.dates[i].startsWith(mesISO)) indicesDoMes.push(i)
+  if (indicesDoMes.length === 0) return null
+  const primeiroIdx = indicesDoMes[0]
+  const ultimoIdx = indicesDoMes[indicesDoMes.length - 1]
+  const antesIdx = primeiroIdx - 1
+  const delta = (arr) => {
+    const fim = arr?.[ultimoIdx] || 0
+    const antes = antesIdx >= 0 ? (arr?.[antesIdx] || 0) : 0
+    return (fim - antes) * 100
+  }
+  return {
+    base: delta(scurve.base),
+    previsto: delta(scurve.expected),
+    realizado: delta(scurve.realized),
+  }
+}
+
 /* A curva S: a linha do PREVISTO dá pra calcular pra qualquer data,
    passada ou futura — vem só de data_início/data_fim/peso de cada
    etapa, sem depender de histórico nenhum. Já o REALIZADO não tem
