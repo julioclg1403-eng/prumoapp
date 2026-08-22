@@ -25,7 +25,7 @@ import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial, filtrarPorPeriodo,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, PainelColapsavel } from '../components'
+import { Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, PainelColapsavel } from '../components'
 import { RankingBarras, GraficoColunas, GraficoDonut } from '../components/charts'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
@@ -455,6 +455,8 @@ function AbaDashboard({ pedidos }) {
   const [destinoFiltro, setDestinoFiltro] = useState('todos')
   const [buscaInsumo, setBuscaInsumo] = useState('')
   const [grupoSelecionado, setGrupoSelecionado] = useState(null)
+  const [materiaisEscolhidos, setMateriaisEscolhidos] = useState([])
+  const [buscaEscolha, setBuscaEscolha] = useState('')
 
   /* Filtro de período olha a data do Pedido — é o marco que sempre
      existe (Entrega às vezes não), e é o que faz sentido pra "quanto
@@ -501,6 +503,56 @@ function AbaDashboard({ pedidos }) {
       .map(([estagio, itens]) => ({ estagio, quantidade: itens.length, itens }))
       .sort((a, b) => b.quantidade - a.quantidade)
   }, [pedidosFiltrados])
+
+  /* Pontualidade — quem chegou até a Previsão de Entrega que o
+     Compras deu, e quem passou dela. Só entra pedido já ENTREGUE
+     com previsão registrada: sem entrega ainda não tem resposta, e
+     sem previsão não tem contra o que comparar (não dá pra inventar
+     um prazo que o Compras nunca digitou). */
+  const pontualidade = useMemo(() => {
+    const grupos = { noPrazo: [], atrasado: [] }
+    for (const p of pedidosFiltrados) {
+      if (!p.data_entrega || !p.previsao_entrega) continue
+      if (p.data_entrega <= p.previsao_entrega) grupos.noPrazo.push(p)
+      else grupos.atrasado.push(p)
+    }
+    return grupos
+  }, [pedidosFiltrados])
+  const semPrevisaoParaJulgar = pedidosFiltrados.filter((p) => p.data_entrega && !p.previsao_entrega).length
+  const mediaAtraso = media(
+    pontualidade.atrasado.map((p) => ({ atraso: diferencaDiasSimples(p.previsao_entrega, p.data_entrega) })),
+    'atraso',
+  )
+
+  /* Cálculo personalizado — a pessoa escolhe um punhado de materiais
+     na mão (não um filtro por texto que casa TUDO que bate, é uma
+     seleção curada) e vê os três tempos só daquele grupo. Lista de
+     candidatos vem do mesmo período/tipo já filtrado acima. */
+  const insumosDisponiveis = useMemo(
+    () => [...new Set(pedidosFiltrados.map((p) => p.insumo))].sort((a, b) => a.localeCompare(b)),
+    [pedidosFiltrados],
+  )
+  const candidatosEscolha = useMemo(() => {
+    const termo = buscaEscolha.trim().toLowerCase()
+    return termo ? insumosDisponiveis.filter((i) => i.toLowerCase().includes(termo)).slice(0, 40) : []
+  }, [insumosDisponiveis, buscaEscolha])
+  const alternarEscolha = (insumo) => {
+    setMateriaisEscolhidos((atual) => (atual.includes(insumo) ? atual.filter((i) => i !== insumo) : [...atual, insumo]))
+  }
+  const pedidosEscolhidos = useMemo(
+    () => pedidosFiltrados.filter((p) => materiaisEscolhidos.includes(p.insumo)),
+    [pedidosFiltrados, materiaisEscolhidos],
+  )
+  const statsEscolhidos = useMemo(() => {
+    const comAmbosEsc = pedidosEscolhidos.filter((p) => p.dias_pedido_compra != null && p.dias_compra_entrega != null)
+    return {
+      pedidoCompra: media(pedidosEscolhidos, 'dias_pedido_compra'),
+      compraEntrega: media(pedidosEscolhidos, 'dias_compra_entrega'),
+      total: comAmbosEsc.length
+        ? comAmbosEsc.reduce((s, p) => s + p.dias_pedido_compra + p.dias_compra_entrega, 0) / comAmbosEsc.length
+        : null,
+    }
+  }, [pedidosEscolhidos])
 
   /* Por tipo de material (Destino) — sempre olha o período inteiro,
      ignorando o filtro de tipo abaixo, senão o comparativo entre
@@ -721,7 +773,7 @@ function AbaDashboard({ pedidos }) {
           <div className="row-wrap" style={{ gap: 12, alignItems: 'stretch' }}>
             {porDestino.length > 0 && (
               <div style={{ flex: '1 1 320px' }}>
-                <PainelColapsavel titulo="Por tipo de material (no período acima)">
+                <PainelColapsavel key="por-tipo" titulo="Por tipo de material (no período acima)">
                   <GraficoDonut
                     itens={porDestino.map((d) => ({
                       chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
@@ -733,7 +785,7 @@ function AbaDashboard({ pedidos }) {
             )}
 
             <div style={{ flex: '1 1 320px' }}>
-              <PainelColapsavel titulo="Funil por estágio">
+              <PainelColapsavel key="funil-estagio" titulo="Funil por estágio">
                 <RankingBarras
                   itens={porEstagio.map((e) => ({ chave: e.estagio, rotulo: e.estagio, valor: e.quantidade }))}
                   formatarValor={(v) => String(v)}
@@ -747,7 +799,7 @@ function AbaDashboard({ pedidos }) {
           </div>
 
           {evolucaoMensal.length > 1 && (
-            <PainelColapsavel titulo="Evolução mensal (pela data do pedido)">
+            <PainelColapsavel key="evolucao-mensal" titulo="Evolução mensal (pela data do pedido)">
               <GraficoColunas
                 itens={evolucaoMensal.map((m) => {
                   const [ano, mesNum] = m.mes.split('-')
@@ -758,7 +810,7 @@ function AbaDashboard({ pedidos }) {
             </PainelColapsavel>
           )}
 
-          <PainelColapsavel titulo="Insumos que mais demoram (top 15, tempo total médio)">
+          <PainelColapsavel key="insumos-tempo" titulo="Insumos que mais demoram (top 15, tempo total médio)">
             <RankingBarras
               itens={porInsumoTempo.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.total, contador: i.quantidade }))}
               formatarValor={formatarDias}
@@ -770,7 +822,7 @@ function AbaDashboard({ pedidos }) {
             />
           </PainelColapsavel>
 
-          <PainelColapsavel titulo="Insumos com maior gasto (top 15)">
+          <PainelColapsavel key="insumos-valor" titulo="Insumos com maior gasto (top 15)">
             <RankingBarras
               itens={porInsumoValor.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.valor, contador: i.quantidade }))}
               formatarValor={formatarDinheiro}
@@ -783,6 +835,7 @@ function AbaDashboard({ pedidos }) {
           </PainelColapsavel>
 
           <PainelColapsavel
+            key="materiais-nao-chegaram"
             titulo="Materiais que ainda não chegaram"
             contador={`top 20 de ${plural(totalNaoChegaram, 'pedido', 'pedidos')} sem Data Entrega`}
           >
@@ -798,6 +851,90 @@ function AbaDashboard({ pedidos }) {
                 if (grupo) setGrupoSelecionado({ titulo: grupo.insumo, itens: grupo.itens })
               }}
             />
+          </PainelColapsavel>
+
+          <PainelColapsavel
+            key="pontualidade"
+            titulo="Pontualidade da entrega (previsão do Compras)"
+            contador={`${pontualidade.noPrazo.length + pontualidade.atrasado.length} avaliados`}
+          >
+            {pontualidade.noPrazo.length + pontualidade.atrasado.length === 0 ? (
+              <div className="t-caption">Nenhum pedido entregue com Previsão de Entrega registrada ainda.</div>
+            ) : (
+              <div className="stack-1">
+                <RankingBarras
+                  itens={[
+                    { chave: 'no-prazo', rotulo: 'No prazo', valor: pontualidade.noPrazo.length, cor: 'var(--success)' },
+                    { chave: 'atrasado', rotulo: 'Atrasado', valor: pontualidade.atrasado.length, cor: 'var(--danger)' },
+                  ]}
+                  formatarValor={(v) => String(v)}
+                  onClicarItem={(item) => {
+                    const itens = item.chave === 'no-prazo' ? pontualidade.noPrazo : pontualidade.atrasado
+                    setGrupoSelecionado({ titulo: `Entregues ${item.chave === 'no-prazo' ? 'no prazo' : 'atrasados'}`, itens })
+                  }}
+                />
+                {pontualidade.atrasado.length > 0 && mediaAtraso != null && (
+                  <div className="t-caption" style={{ color: 'var(--text-2)' }}>Atraso médio: {formatarDias(mediaAtraso)}.</div>
+                )}
+                {semPrevisaoParaJulgar > 0 && (
+                  <div className="t-caption" style={{ color: 'var(--text-3)' }}>
+                    {plural(semPrevisaoParaJulgar, 'pedido entregue não teve', 'pedidos entregues não tiveram')} Previsão de
+                    Entrega registrada — não entra nessa conta.
+                  </div>
+                )}
+              </div>
+            )}
+          </PainelColapsavel>
+
+          <PainelColapsavel
+            key="calculo-personalizado"
+            titulo="Cálculo personalizado"
+            contador={materiaisEscolhidos.length ? `${materiaisEscolhidos.length} escolhidos` : 'escolha os materiais'}
+          >
+            <div className="stack-2">
+              <div style={{ position: 'relative' }}>
+                <Icon name="busca" size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+                <input
+                  className="ipt" style={{ paddingLeft: 34, width: '100%' }}
+                  value={buscaEscolha} onChange={(e) => setBuscaEscolha(e.target.value)}
+                  placeholder="Buscar material pra somar no cálculo…"
+                />
+              </div>
+
+              {materiaisEscolhidos.length > 0 && (
+                <div className="row-wrap" style={{ gap: 6 }}>
+                  {materiaisEscolhidos.map((insumo) => (
+                    <ChipToggle key={insumo} ativo onClick={() => alternarEscolha(insumo)}>{insumo} ✕</ChipToggle>
+                  ))}
+                  <button className="btn btn-sm btn-secondary" onClick={() => setMateriaisEscolhidos([])}>Limpar tudo</button>
+                </div>
+              )}
+
+              {buscaEscolha.trim() && (
+                <div className="row-wrap" style={{ gap: 6 }}>
+                  {candidatosEscolha.length === 0 ? (
+                    <span className="t-caption" style={{ color: 'var(--text-3)' }}>Nada com essa busca.</span>
+                  ) : (
+                    candidatosEscolha.map((insumo) => (
+                      <ChipToggle key={insumo} ativo={materiaisEscolhidos.includes(insumo)} onClick={() => alternarEscolha(insumo)}>
+                        {insumo}
+                      </ChipToggle>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {materiaisEscolhidos.length > 0 && (
+                <div className="row-wrap" style={{ gap: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <Indicador rotulo="Pedidos" valor={pedidosEscolhidos.length} onClick={() => setGrupoSelecionado({ titulo: 'Seleção personalizada', itens: pedidosEscolhidos })} />
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}><Indicador rotulo="Pedido → Compra" valor={formatarDias(statsEscolhidos.pedidoCompra)} /></div>
+                  <div style={{ flex: '1 1 120px' }}><Indicador rotulo="Compra → Entrega" valor={formatarDias(statsEscolhidos.compraEntrega)} /></div>
+                  <div style={{ flex: '1 1 120px' }}><Indicador rotulo="Total" valor={formatarDias(statsEscolhidos.total)} /></div>
+                </div>
+              )}
+            </div>
           </PainelColapsavel>
         </>
       )}
