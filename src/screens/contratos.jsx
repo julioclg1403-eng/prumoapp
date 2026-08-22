@@ -24,10 +24,12 @@ import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { formatarData, formatarDinheiro, plural } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador } from '../components'
-import { RankingBarras } from '../components/charts'
+import { RankingBarras, GraficoDonut } from '../components/charts'
 
 const TOM_STATUS = { '1 - Aprovado': 'success', '2 - Em Aditivo': 'info', '0 - Não Aprovado': 'danger' }
 const UNIDADES_PRINCIPAIS = ['M', 'M²', 'M³', 'UN', 'KG', 'H']
+const DESTINOS = ['obra', 'projetos', 'outros']
+const ROTULO_DESTINO = { obra: 'Obra', projetos: 'Projetos', outros: 'Outros' }
 
 function formatarNumero(v) {
   if (v == null) return '—'
@@ -54,6 +56,7 @@ export default function Contratos({ voltar, perfil }) {
           status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
           total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
           valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
+          destino: i.destino,
         })
       }
     }
@@ -109,7 +112,7 @@ export default function Contratos({ voltar, perfil }) {
             </div>
           ) : (
             <>
-              {aba === 'dados' && <AbaDados itens={itens} />}
+              {aba === 'dados' && <AbaDados itens={itens} dados={dados} podeEditar={podeEditar} />}
               {aba === 'dashboard' && (
                 <AbaDashboard itens={itens} contratosUnicos={contratosUnicos} ultimaImportacao={ultimaImportacao} />
               )}
@@ -125,11 +128,13 @@ export default function Contratos({ voltar, perfil }) {
 
 /* ── Todos os dados ────────────────────────────────────────── */
 
-function AbaDados({ itens }) {
+function AbaDados({ itens, dados, podeEditar }) {
   const [busca, setBusca] = useState('')
   const [status, setStatus] = useState('todos')
+  const [destinoFiltro, setDestinoFiltro] = useState('todos')
   const [detalhe, setDetalhe] = useState(null)
   const [contratoAberto, setContratoAberto] = useState(null)
+  const [salvandoDestino, setSalvandoDestino] = useState(false)
 
   const statusList = useMemo(() => [...new Set(itens.map((i) => i.status_contrato).filter(Boolean))].sort(), [itens])
 
@@ -146,6 +151,7 @@ function AbaDados({ itens }) {
           status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
           total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
           valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
+          destino: i.destino,
           itens: [],
         })
       }
@@ -159,6 +165,7 @@ function AbaDados({ itens }) {
     const b = busca.trim().toLowerCase()
     return contratosAgrupados
       .filter((c) => status === 'todos' || c.status_contrato === status)
+      .filter((c) => destinoFiltro === 'todos' || (destinoFiltro === 'sem' ? !c.destino : c.destino === destinoFiltro))
       .map((c) => {
         if (!b) return c
         const contratoBate = (c.fornecedor || '').toLowerCase().includes(b)
@@ -169,7 +176,7 @@ function AbaDados({ itens }) {
         return itensQueBatem.length ? { ...c, itens: itensQueBatem } : null
       })
       .filter(Boolean)
-  }, [contratosAgrupados, busca, status])
+  }, [contratosAgrupados, busca, status, destinoFiltro])
 
   const detalheAtual = detalhe ? itens.find((i) => i.id === detalhe.id) : null
 
@@ -193,8 +200,17 @@ function AbaDados({ itens }) {
         </div>
       )}
 
+      <div className="row-wrap" style={{ gap: 6 }}>
+        <span className="t-caption" style={{ alignSelf: 'center', marginRight: 2 }}>Destino:</span>
+        <button className={`btn btn-sm ${destinoFiltro === 'todos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('todos')}>Todos</button>
+        {DESTINOS.map((d) => (
+          <button key={d} className={`btn btn-sm ${destinoFiltro === d ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro(d)}>{ROTULO_DESTINO[d]}</button>
+        ))}
+        <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
+      </div>
+
       {lista.length === 0 ? (
-        <div className="card-flat"><Vazio titulo="Nada com esse filtro" texto="Troque a busca ou o status." /></div>
+        <div className="card-flat"><Vazio titulo="Nada com esse filtro" texto="Troque a busca, o status ou o destino." /></div>
       ) : (
         <div className="stack-1">
           {lista.map((c) => {
@@ -211,6 +227,7 @@ function AbaDados({ itens }) {
                       <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
                         <span className="t-strong" style={{ fontSize: 14 }}>Contrato {c.cod_contrato}</span>
                         <Chip tom={TOM_STATUS[c.status_contrato] || ''}>{c.status_contrato || '—'}</Chip>
+                        {c.destino && <Chip tom="info">{ROTULO_DESTINO[c.destino]}</Chip>}
                       </div>
                       <div className="t-caption" style={{ marginTop: 2 }}>{c.fornecedor || 'Fornecedor não informado'}</div>
                       <div className="t-caption" style={{ color: 'var(--text-2)' }}>{c.objeto_contrato}</div>
@@ -226,7 +243,37 @@ function AbaDados({ itens }) {
                 </div>
 
                 {aberto && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }} onClick={(e) => e.stopPropagation()}>
+                    {podeEditar && (
+                      <div className="row-wrap" style={{ gap: 6, marginBottom: 10, alignItems: 'center' }}>
+                        <span className="t-caption" style={{ marginRight: 2 }}>Destino:</span>
+                        {DESTINOS.map((d) => (
+                          <button
+                            key={d} disabled={salvandoDestino}
+                            className={`btn btn-sm ${c.destino === d ? 'btn-dark' : 'btn-secondary'}`}
+                            onClick={async () => {
+                              setSalvandoDestino(true)
+                              await dados.definirDestinoContrato(c.cod_contrato, d)
+                              setSalvandoDestino(false)
+                            }}
+                          >
+                            {ROTULO_DESTINO[d]}
+                          </button>
+                        ))}
+                        {c.destino && (
+                          <button
+                            className="btn btn-sm btn-secondary" disabled={salvandoDestino}
+                            onClick={async () => {
+                              setSalvandoDestino(true)
+                              await dados.definirDestinoContrato(c.cod_contrato, null)
+                              setSalvandoDestino(false)
+                            }}
+                          >
+                            Limpar
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="row-wrap" style={{ gap: 10, marginBottom: 10 }}>
                       <div style={{ flex: '1 1 110px' }}>
                         <div className="t-caption">Contratado</div>
@@ -411,6 +458,22 @@ function AbaDashboard({ itens, contratosUnicos, ultimaImportacao }) {
       .slice(0, 15)
   }, [contratosUnicos])
 
+  /* Contratos por destino (Obra/Projetos/Outros) — mesma ideia do
+     "por tipo de material" do Suprimentos. */
+  const porDestino = useMemo(() => {
+    const mapa = new Map()
+    for (const c of contratosUnicos) {
+      const chave = c.destino || 'sem'
+      const atual = mapa.get(chave) || { contratos: 0, contratado: 0 }
+      atual.contratos += 1
+      atual.contratado += Number(c.total_contrato) || 0
+      mapa.set(chave, atual)
+    }
+    return [...DESTINOS, 'sem']
+      .filter((d) => mapa.has(d))
+      .map((d) => ({ destino: d, ...mapa.get(d) }))
+  }, [contratosUnicos])
+
   /* Cruzamento entre contratos — mesmo item de serviço (código)
      aparecendo em mais de um contrato, com a quantidade medida
      somada. É o cruzamento que o Julio pediu: "quantidade medida"
@@ -507,12 +570,25 @@ function AbaDashboard({ itens, contratosUnicos, ultimaImportacao }) {
         </div>
       )}
 
-      <div className="card-flat chart-panel stack-2">
-        <div className="t-micro">Contratos por status</div>
-        <RankingBarras
-          itens={porStatus.map((s) => ({ chave: s.status, rotulo: s.status, valor: s.quantidade }))}
-          formatarValor={(v) => String(v)}
-        />
+      <div className="row-wrap" style={{ gap: 12 }}>
+        <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
+          <div className="t-micro">Contratos por destino</div>
+          <GraficoDonut
+            itens={porDestino.map((d) => ({
+              chave: d.destino, rotulo: `${d.destino === 'sem' ? 'Sem destino' : ROTULO_DESTINO[d.destino]} (${d.contratos})`,
+              valor: d.contratado,
+            }))}
+            formatarValor={formatarDinheiro}
+          />
+        </div>
+
+        <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
+          <div className="t-micro">Contratos por status</div>
+          <RankingBarras
+            itens={porStatus.map((s) => ({ chave: s.status, rotulo: s.status, valor: s.quantidade }))}
+            formatarValor={(v) => String(v)}
+          />
+        </div>
       </div>
 
       <div className="card-flat chart-panel stack-2">

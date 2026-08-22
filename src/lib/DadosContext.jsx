@@ -2028,6 +2028,25 @@ export function DadosProvider({ perfil, children }) {
     [escopo, perfil.id, checar, recarregar],
   )
 
+  /* Marca o Destino (Obra/Projetos/Outros) de um contrato inteiro —
+     sempre por cod_contrato, porque destino é do CONTRATO, não do
+     item clicado (mesma ideia do definirDestinoSuprimento: aplica em
+     tudo que pertence a ele). destino null limpa a marcação. Nunca é
+     tocado pelo reimportarContratos, então sobrevive a um reimporte. */
+  const definirDestinoContrato = useCallback(
+    async (codContrato, destino) => {
+      const worksite_id = escopo().worksite_id
+      const r = await supabase.from('contract_items')
+        .update({ destino })
+        .eq('worksite_id', worksite_id).eq('cod_contrato', codContrato)
+        .select('id')
+      if (r.error) { checar(r, 'definir o destino deste contrato'); return false }
+      await recarregar()
+      return { atualizados: (r.data || []).length }
+    },
+    [escopo, checar, recarregar],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -2942,7 +2961,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
-      importarContratos,
+      importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
@@ -2974,7 +2993,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
-      importarContratos,
+      importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
