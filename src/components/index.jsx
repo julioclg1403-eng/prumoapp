@@ -733,7 +733,7 @@ export function VisorFoto({ foto, fotos, links, onFechar, onIr, extra }) {
     >
       <div
         className="row-between"
-        style={{ padding: '12px 14px', color: '#fff', flex: 'none' }}
+        style={{ padding: '12px 14px', paddingTop: 'max(12px, env(safe-area-inset-top))', color: '#fff', flex: 'none' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="grow" style={{ minWidth: 0 }}>
