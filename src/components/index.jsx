@@ -435,6 +435,29 @@ export function Indicador({ rotulo, valor, tom, onClick }) {
   )
 }
 
+/* ── Painel colapsável (gráfico/ranking fechado por padrão) ──
+   Mesma linguagem do card de Contrato que abre/fecha: toca no
+   cabeçalho, seta gira, conteúdo só monta quando aberto — dashboard
+   com muito gráfico não vira uma rolagem infinita, a pessoa abre só
+   o que quer olhar. */
+export function PainelColapsavel({ titulo, contador, aberto: abertoControlado, onAlternar, children }) {
+  const [abertoLocal, setAbertoLocal] = useState(false)
+  const aberto = abertoControlado ?? abertoLocal
+  const alternar = onAlternar || (() => setAbertoLocal((v) => !v))
+  return (
+    <div className="card-flat chart-panel stack-2">
+      <div className="row-between" style={{ cursor: 'pointer', alignItems: 'center' }} onClick={alternar}>
+        <div className="t-micro">
+          {titulo}
+          {contador != null && <span style={{ opacity: 0.6 }}> ({contador})</span>}
+        </div>
+        <Icon name="avancar" size={13} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s', flex: 'none' }} />
+      </div>
+      {aberto && children}
+    </div>
+  )
+}
+
 /* ============================================================
    RELATÓRIO PARA IMPRESSÃO
 

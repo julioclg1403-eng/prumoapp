@@ -25,7 +25,7 @@ import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial, filtrarPorPeriodo,
 } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, PainelColapsavel } from '../components'
 import { RankingBarras, GraficoColunas, GraficoDonut } from '../components/charts'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
@@ -713,29 +713,30 @@ function AbaDashboard({ pedidos }) {
 
           <div className="row-wrap" style={{ gap: 12, alignItems: 'stretch' }}>
             {porDestino.length > 0 && (
-              <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
-                <div className="t-micro">Por tipo de material (no período acima)</div>
-                <GraficoDonut
-                  itens={porDestino.map((d) => ({
-                    chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
-                  }))}
-                  formatarValor={formatarDinheiro}
-                />
+              <div style={{ flex: '1 1 320px' }}>
+                <PainelColapsavel titulo="Por tipo de material (no período acima)">
+                  <GraficoDonut
+                    itens={porDestino.map((d) => ({
+                      chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
+                    }))}
+                    formatarValor={formatarDinheiro}
+                  />
+                </PainelColapsavel>
               </div>
             )}
 
-            <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
-              <div className="t-micro">Funil por estágio</div>
-              <RankingBarras
-                itens={porEstagio.map((e) => ({ chave: e.estagio, rotulo: e.estagio, valor: e.quantidade }))}
-                formatarValor={(v) => String(v)}
-              />
+            <div style={{ flex: '1 1 320px' }}>
+              <PainelColapsavel titulo="Funil por estágio">
+                <RankingBarras
+                  itens={porEstagio.map((e) => ({ chave: e.estagio, rotulo: e.estagio, valor: e.quantidade }))}
+                  formatarValor={(v) => String(v)}
+                />
+              </PainelColapsavel>
             </div>
           </div>
 
           {evolucaoMensal.length > 1 && (
-            <div className="card-flat chart-panel stack-2">
-              <div className="t-micro">Evolução mensal (pela data do pedido)</div>
+            <PainelColapsavel titulo="Evolução mensal (pela data do pedido)">
               <GraficoColunas
                 itens={evolucaoMensal.map((m) => {
                   const [ano, mesNum] = m.mes.split('-')
@@ -743,31 +744,29 @@ function AbaDashboard({ pedidos }) {
                 })}
                 formatarValor={(v) => String(v)}
               />
-            </div>
+            </PainelColapsavel>
           )}
 
-          <div className="card-flat chart-panel stack-2">
-            <div className="t-micro">Insumos que mais demoram (top 15, tempo total médio)</div>
+          <PainelColapsavel titulo="Insumos que mais demoram (top 15, tempo total médio)">
             <RankingBarras
               itens={porInsumoTempo.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.total, contador: i.quantidade }))}
               formatarValor={formatarDias}
               vazio="Nenhum pedido com os dois tempos calculados ainda."
             />
-          </div>
+          </PainelColapsavel>
 
-          <div className="card-flat chart-panel stack-2">
-            <div className="t-micro">Insumos com maior gasto (top 15)</div>
+          <PainelColapsavel titulo="Insumos com maior gasto (top 15)">
             <RankingBarras
               itens={porInsumoValor.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.valor, contador: i.quantidade }))}
               formatarValor={formatarDinheiro}
               vazio="Nenhum pedido com preço lançado ainda."
             />
-          </div>
+          </PainelColapsavel>
 
-          <div className="card-flat chart-panel stack-2">
-            <div className="t-micro">
-              Materiais que ainda não chegaram (top 20 de {plural(totalNaoChegaram, 'pedido', 'pedidos')} sem Data Entrega)
-            </div>
+          <PainelColapsavel
+            titulo="Materiais que ainda não chegaram"
+            contador={`top 20 de ${plural(totalNaoChegaram, 'pedido', 'pedidos')} sem Data Entrega`}
+          >
             <RankingBarras
               itens={materiaisNaoChegaram
                 .filter((i) => i.diasEsperando != null)
@@ -777,7 +776,7 @@ function AbaDashboard({ pedidos }) {
               vazio="Nada pendente — todo pedido nesse filtro já tem Data Entrega."
               onClicarItem={(item) => setMaterialSelecionado(materiaisNaoChegaram.find((m) => m.insumo === item.chave))}
             />
-          </div>
+          </PainelColapsavel>
         </>
       )}
 
