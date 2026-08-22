@@ -965,7 +965,10 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
       const r = await dados.importarSuprimentos(resultado.itens)
       if (!r) return
       const vinc = await dados.vincularSuprimentoAutomaticamente()
-      setFeito({ ...r, novos, atualizados, vinculados: vinc?.vinculados || 0, destinosDetectados: vinc?.destinosDetectados || 0 })
+      setFeito({
+        ...r, novos, atualizados, removidos: r.removidos || 0,
+        vinculados: vinc?.vinculados || 0, destinosDetectados: vinc?.destinosDetectados || 0,
+      })
     } finally {
       setImportandoAgora(false)
     }
@@ -982,6 +985,12 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
               {feito.vinculados > 0 && ` ${plural(feito.vinculados, 'entrada vinculada', 'entradas vinculadas')} automaticamente pelo nome.`}
               {feito.destinosDetectados > 0 && ` ${plural(feito.destinosDetectados, 'pedido teve', 'pedidos tiveram')} o Destino detectado sozinho.`}
             </div>
+            {feito.removidos > 0 && (
+              <div className="alert danger">
+                {plural(feito.removidos, 'pedido em aberto sumiu', 'pedidos em aberto sumiram')} desta planilha e{' '}
+                {plural(feito.removidos, 'foi removido', 'foram removidos')} — provavelmente cancelado ou excluído na origem.
+              </div>
+            )}
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
         ) : (

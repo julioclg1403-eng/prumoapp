@@ -1817,8 +1817,43 @@ export function DadosProvider({ perfil, children }) {
         if (r.error) { checar(r, 'importar os pedidos de suprimentos'); return null }
         total += (r.data || []).length
       }
+
+      /* Limpeza: pedido que estava em aberto (sem entrega) no banco e
+         sumiu desta planilha nova foi cancelado ou excluído do lado
+         de lá — a planilha não manda "isto foi excluído", só para de
+         mandar a linha, então sumir É o sinal. Só mexe no que esta
+         importação realmente cobre: até a data do pedido em aberto
+         mais recente QUE VEIO nela — pedido mais novo que isso pode
+         só não ter chegado ainda nesta exportação, não dá pra
+         concluir que sumiu de verdade. Sem pedido em aberto nenhum
+         na planilha (corte nulo), não mexe em nada — não tem como
+         saber até onde ela cobre. Nunca remove pedido já vinculado a
+         uma entrada real de estoque (entrada_id), mesmo que por
+         algum motivo estivesse sem data de entrega. */
+      const chavesDaPlanilha = new Set(itens.map((i) => `${i.pedido}|${i.codigo_insumo}`))
+      const dataCorte = itens.reduce(
+        (max, i) => (!i.data_entrega && i.data_pedido && (!max || i.data_pedido > max) ? i.data_pedido : max),
+        null,
+      )
+      let removidos = 0
+      if (dataCorte) {
+        const abertos = await supabase.from('supply_orders')
+          .select('id, pedido, codigo_insumo')
+          .eq('worksite_id', worksite_id).is('data_entrega', null).is('entrada_id', null)
+          .lte('data_pedido', dataCorte)
+        if (!abertos.error) {
+          const idsParaRemover = (abertos.data || [])
+            .filter((p) => !chavesDaPlanilha.has(`${p.pedido}|${p.codigo_insumo}`))
+            .map((p) => p.id)
+          if (idsParaRemover.length) {
+            const r = await supabase.from('supply_orders').delete().in('id', idsParaRemover)
+            if (!r.error) removidos = idsParaRemover.length
+          }
+        }
+      }
+
       await recarregar()
-      return { importados: total }
+      return { importados: total, removidos }
     },
     [escopo, perfil.id, checar, recarregar],
   )
