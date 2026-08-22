@@ -9,16 +9,17 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, situacaoPendencia, contarPendencias,
+  hojeISO, formatarData, situacaoPendencia, contarPendencias, diffDias,
   pendenciasGerais, pendenciasTaticas, fecharSemanaTatica, COLUNAS_QUADRO_PENDENCIA,
   inicioDaSemana, somarDias, rotuloDaSemana,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
 import {
-  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador,
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, ItemLista,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
   CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
 } from '../components'
+import { RankingBarras, GraficoDonut, GraficoColunas } from '../components/charts'
 
 function normalizarComparar(s) {
   return String(s || '')
@@ -237,7 +238,10 @@ export default function Pendencias({ perfil, params = {} }) {
           {categoria === 'geral' && (
             <Segmentos
               valor={visao} onChange={setVisao}
-              opcoes={[{ valor: 'lista', rotulo: 'Lista' }, { valor: 'quadro', rotulo: 'Quadro' }]}
+              opcoes={[
+                { valor: 'lista', rotulo: 'Lista' }, { valor: 'quadro', rotulo: 'Quadro' },
+                { valor: 'dashboard', rotulo: 'Dashboard' },
+              ]}
             />
           )}
 
@@ -280,7 +284,9 @@ export default function Pendencias({ perfil, params = {} }) {
             </div>
           )}
 
-          {categoria === 'geral' && visao === 'quadro' ? (
+          {categoria === 'geral' && visao === 'dashboard' ? (
+            <AbaDashboardPendencias itens={geraisTodas} dados={dados} />
+          ) : categoria === 'geral' && visao === 'quadro' ? (
             <QuadroPendencias
               itens={pendenciasFiltradas} dados={dados} destaque={destaque}
               onAbrir={(p) => { setDestaque(null); setEditando({ ...p, prazo: p.prazo || '', resolucao: p.resolucao || '', fotos: p.fotos || [] }) }}
@@ -552,6 +558,133 @@ export default function Pendencias({ perfil, params = {} }) {
 const ROTULO_FILTRO = {
   abertas: 'Em aberto', atrasadas: 'Atrasadas', resolvidas: 'Resolvidas', todas: 'Todas',
   aberta: 'A Fazer', em_andamento: 'Em Andamento', resolvida: 'Concluído',
+}
+
+/* ── Dashboard (só Dia a dia — Tático já tem seu Fechamento) ──
+   Sempre olha geraisTodas (não pendenciasFiltradas): dashboard é um
+   retrato geral da categoria, não deve balançar com a busca de texto
+   (mesmo princípio do Fechamento tático). */
+const FAIXAS_AGING = [
+  { rotulo: '0-3 dias', min: 0, max: 3, cor: 'var(--graphite)' },
+  { rotulo: '4-7 dias', min: 4, max: 7, cor: 'var(--graphite)' },
+  { rotulo: '8-15 dias', min: 8, max: 15, cor: 'var(--primary)' },
+  { rotulo: '+15 dias', min: 16, max: Infinity, cor: 'var(--danger)' },
+]
+
+function AbaDashboardPendencias({ itens, dados }) {
+  const hoje = hojeISO()
+  const abertas = useMemo(() => itens.filter((p) => p.status !== 'resolvida'), [itens])
+  const resolvidas = useMemo(() => itens.filter((p) => p.status === 'resolvida'), [itens])
+  const atrasadas = useMemo(
+    () => abertas.filter((p) => p.prazo && diffDias(hoje, p.prazo) > 0),
+    [abertas, hoje],
+  )
+
+  const tempoMedioResolucao = useMemo(() => {
+    const tempos = resolvidas
+      .filter((p) => p.resolvido_em && p.created_at)
+      .map((p) => diffDias(p.resolvido_em, p.created_at.slice(0, 10)))
+      .filter((d) => d >= 0)
+    if (!tempos.length) return null
+    return Math.round(tempos.reduce((s, d) => s + d, 0) / tempos.length)
+  }, [resolvidas])
+
+  const porResponsavel = useMemo(() => {
+    const mapa = new Map()
+    for (const p of abertas) {
+      const nome = dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'
+      mapa.set(nome, (mapa.get(nome) || 0) + 1)
+    }
+    return [...mapa.entries()]
+      .map(([nome, quantidade]) => ({ nome, quantidade }))
+      .sort((a, b) => b.quantidade - a.quantidade)
+  }, [abertas, dados])
+
+  const porPrioridade = useMemo(
+    () => PRIORIDADES
+      .map((p) => ({ prioridade: p, quantidade: abertas.filter((x) => x.prioridade === p).length }))
+      .filter((x) => x.quantidade > 0),
+    [abertas],
+  )
+
+  const aging = useMemo(
+    () => FAIXAS_AGING.map((f) => ({
+      ...f,
+      quantidade: abertas.filter((p) => {
+        const idade = diffDias(hoje, p.created_at.slice(0, 10))
+        return idade >= f.min && idade <= f.max
+      }).length,
+    })),
+    [abertas, hoje],
+  )
+
+  const maisAntigas = useMemo(
+    () => [...abertas].sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).slice(0, 5),
+    [abertas],
+  )
+
+  return (
+    <div className="stack-2">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+        <Indicador rotulo="Em aberto" valor={abertas.length} />
+        <Indicador rotulo="Atrasadas" valor={atrasadas.length} tom={atrasadas.length ? 'danger' : undefined} />
+        <Indicador rotulo="Resolvidas" valor={resolvidas.length} tom="success" />
+        <Indicador
+          rotulo="Tempo médio de resolução"
+          valor={tempoMedioResolucao != null ? `${tempoMedioResolucao} dia${tempoMedioResolucao === 1 ? '' : 's'}` : '—'}
+        />
+      </div>
+
+      <div className="row-wrap" style={{ gap: 12 }}>
+        <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
+          <div className="t-micro">Por responsável (em aberto)</div>
+          <RankingBarras
+            itens={porResponsavel.map((r) => ({ chave: r.nome, rotulo: r.nome, valor: r.quantidade }))}
+            formatarValor={(v) => String(v)}
+            vazio="Nada em aberto."
+          />
+        </div>
+
+        <div className="card-flat chart-panel stack-2" style={{ flex: '1 1 320px' }}>
+          <div className="t-micro">Por prioridade (em aberto)</div>
+          <GraficoDonut
+            itens={porPrioridade.map((p) => ({
+              chave: p.prioridade, rotulo: `${ROTULO_PRIORIDADE[p.prioridade]} (${p.quantidade})`, valor: p.quantidade,
+            }))}
+            formatarValor={(v) => String(v)}
+          />
+        </div>
+      </div>
+
+      <div className="card-flat chart-panel stack-2">
+        <div className="t-micro">Há quanto tempo estão em aberto</div>
+        <GraficoColunas
+          itens={aging.map((f) => ({ chave: f.rotulo, rotulo: f.rotulo, valor: f.quantidade, cor: f.cor }))}
+          formatarValor={(v) => String(v)}
+        />
+      </div>
+
+      <div>
+        <div className="t-micro" style={{ marginBottom: 10 }}>Mais antigas ainda em aberto</div>
+        {maisAntigas.length === 0 ? (
+          <div className="card-flat"><Vazio titulo="Nada em aberto" texto="Todas as pendências foram resolvidas." /></div>
+        ) : (
+          <div className="stack-1">
+            {maisAntigas.map((p) => {
+              const s = situacaoPendencia(p, hoje)
+              return (
+                <ItemLista
+                  key={p.id} titulo={p.titulo}
+                  sub={`${dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'} · aberta há ${plural(diffDias(hoje, p.created_at.slice(0, 10)), 'dia', 'dias')}`}
+                  direita={<Chip tom={s.tom}>{s.rotulo}</Chip>}
+                />
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 /* ── Quadro (visão Trello) ────────────────────────────────
