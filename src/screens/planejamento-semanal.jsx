@@ -980,6 +980,37 @@ function TabelaGrupos({ grupos, dados, onAbrir }) {
 /* ── Sheet: início/fim real do grupo, calendário e reabrir ── */
 
 function SheetGrupo({ grupo, dados, goto, salvando, onMudar, onSalvar, onReabrir, onFechar }) {
+  const [criandoEtapa, setCriandoEtapa] = useState(false)
+  const [novaEtapa, setNovaEtapa] = useState(null)
+  const [salvandoEtapa, setSalvandoEtapa] = useState(false)
+
+  const iniciarVinculo = (g) => {
+    setNovaEtapa({
+      descricao: `${dados.nomeDe(dados.servicos, g.service_id)} - ${dados.nomeDe(dados.locais, g.location_id)}`,
+      peso: '',
+      data_inicio: g.inicioReal || '',
+      data_fim: g.fimReal || '',
+    })
+    setCriandoEtapa(true)
+  }
+
+  const salvarVinculo = async (g) => {
+    if (!novaEtapa.descricao.trim() || !novaEtapa.peso || !novaEtapa.data_inicio || !novaEtapa.data_fim) return
+    setSalvandoEtapa(true)
+    const etapa = await dados.salvarItemCronograma({
+      descricao: novaEtapa.descricao,
+      peso: novaEtapa.peso,
+      data_inicio: novaEtapa.data_inicio,
+      data_fim: novaEtapa.data_fim,
+      inicio_real: g.inicioReal || null,
+      fim_real: g.fimReal || null,
+    })
+    if (etapa) await dados.alternarVinculoServicoEtapa(g.service_id, etapa.id)
+    setSalvandoEtapa(false)
+    setCriandoEtapa(false)
+    setNovaEtapa(null)
+  }
+
   return (
     <Sheet
       aberto={Boolean(grupo)}
@@ -1034,9 +1065,63 @@ function SheetGrupo({ grupo, dados, goto, salvando, onMudar, onSalvar, onReabrir
             const { etapa, motivo } = etapaCorrespondenteAoGrupo(grupo, dados.cronograma, dados.servicosCronograma, dados.locais)
             if (etapa || !motivo) return null
             return (
-              <div className="alert danger">
-                O app tentou vincular este serviço a uma etapa do Planejamento mensal pra atualizar a
-                data real de lá sozinho, e não conseguiu: {MOTIVO_SEM_SINCRONIA[motivo]}
+              <div className="alert danger stack-2">
+                <div>
+                  O app tentou vincular este serviço a uma etapa do Planejamento mensal pra atualizar a
+                  data real de lá sozinho, e não conseguiu: {MOTIVO_SEM_SINCRONIA[motivo]}
+                </div>
+
+                {(motivo === 'sem_etapa_no_local' || motivo === 'servico_sem_vinculo') && !criandoEtapa && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => iniciarVinculo(grupo)}>
+                    Vincular ao Mensal
+                  </button>
+                )}
+
+                {criandoEtapa && novaEtapa && (
+                  <div className="stack-2">
+                    <div className="t-caption">
+                      Cria a etapa no Mensal com esses dados e já liga o serviço a ela — na próxima vez
+                      que este serviço fechar nesse local, sincroniza sozinho.
+                    </div>
+                    <Campo label="Descrição da etapa">
+                      <input
+                        className="ipt" type="text" value={novaEtapa.descricao}
+                        onChange={(e) => setNovaEtapa({ ...novaEtapa, descricao: e.target.value })}
+                      />
+                    </Campo>
+                    <Campo label="Peso (%)" dica="O quanto essa etapa pesa no avanço físico geral do Mensal.">
+                      <input
+                        className="ipt" type="number" step="0.01" min="0" value={novaEtapa.peso}
+                        onChange={(e) => setNovaEtapa({ ...novaEtapa, peso: e.target.value })}
+                      />
+                    </Campo>
+                    <div className="row-flex">
+                      <Campo label="Início previsto">
+                        <input
+                          className="ipt" type="date" value={novaEtapa.data_inicio}
+                          onChange={(e) => setNovaEtapa({ ...novaEtapa, data_inicio: e.target.value })}
+                        />
+                      </Campo>
+                      <Campo label="Fim previsto">
+                        <input
+                          className="ipt" type="date" value={novaEtapa.data_fim}
+                          onChange={(e) => setNovaEtapa({ ...novaEtapa, data_fim: e.target.value })}
+                        />
+                      </Campo>
+                    </div>
+                    <div className="row-flex">
+                      <button className="btn btn-ghost btn-sm grow" onClick={() => { setCriandoEtapa(false); setNovaEtapa(null) }}>
+                        Cancelar
+                      </button>
+                      <button
+                        className="btn btn-primary btn-sm grow" disabled={salvandoEtapa}
+                        onClick={() => salvarVinculo(grupo)}
+                      >
+                        {salvandoEtapa ? 'Salvando…' : 'Criar e vincular'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })()}
