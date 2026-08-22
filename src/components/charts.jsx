@@ -23,6 +23,7 @@
    ============================================================ */
 
 import { useState } from 'react'
+import { Icon } from './index'
 
 /* ── Ranking (magnitude) ──────────────────────────────────────
    Uma barra por item, ordenado do maior pro menor (quem chama já
@@ -257,6 +258,7 @@ const dataCurta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
    em vez de todo dia — ~450 pontos diários não caberiam legíveis
    num gráfico pequeno, e mês a mês já conta a história toda. */
 export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
+  const [selecionado, setSelecionado] = useState(null)
   if (!scurve?.period_end_dates?.length || !scurve?.dates?.length) {
     return <div className="t-caption">{vazio}</div>
   }
@@ -276,6 +278,8 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
   if (pontos.length < 2) return <div className="t-caption">{vazio}</div>
 
   const ultimoMedidoIdx = pontos.reduce((acc, p, i) => (p.medido ? i : acc), -1)
+  const idxAtivo = selecionado ?? (ultimoMedidoIdx >= 0 ? ultimoMedidoIdx : pontos.length - 1)
+  const atual = pontos[idxAtivo]
 
   const W = 640
   const H = 200
@@ -284,6 +288,7 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
   const areaUtil = H - PAD_TOP - PAD_BOT
   const x = (i) => (pontos.length > 1 ? (i / (pontos.length - 1)) * W : 0)
   const y = (v) => PAD_TOP + (1 - Math.min(100, Math.max(0, v)) / 100) * areaUtil
+  const faixaW = pontos.length > 1 ? W / (pontos.length - 1) : W
 
   const linhaBase = pontos.map((p, i) => `${x(i)},${y(p.base)}`).join(' ')
   const linhaPrevisto = pontos.map((p, i) => `${x(i)},${y(p.previsto)}`).join(' ')
@@ -300,9 +305,7 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
             <rect
               key={`r-${i}`} x={x(i) - 6} y={y(p.realizado)} width={12}
               height={Math.max(0, H - PAD_BOT - y(p.realizado))} rx={2} fill="var(--info)"
-            >
-              <title>{`${dataCurta(p.data)}: Realizado ${p.realizado.toFixed(1)}%`}</title>
-            </rect>
+            />
           ) : null
         ))}
 
@@ -310,11 +313,35 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
         <polyline points={linhaPrevisto} fill="none" stroke="var(--graphite)" strokeWidth={2} />
 
         {pontos.map((p, i) => (
-          <text key={`lbl-${i}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9" fill="var(--text-3)">
+          <text
+            key={`lbl-${i}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9"
+            fill={i === idxAtivo ? 'var(--text)' : 'var(--text-3)'} fontWeight={i === idxAtivo ? 700 : 400}
+          >
             {dataCurta(p.data)}
           </text>
         ))}
+
+        {/* Faixas de toque invisíveis — mais fáceis de acertar no dedo do
+            que os pontos finos da linha. */}
+        {pontos.map((p, i) => (
+          <rect
+            key={`hit-${i}`} x={x(i) - faixaW / 2} y={0} width={faixaW} height={H}
+            fill="transparent" onClick={() => setSelecionado(i)} onMouseEnter={() => setSelecionado(i)}
+            style={{ cursor: 'pointer' }}
+          />
+        ))}
+        <line x1={x(idxAtivo)} x2={x(idxAtivo)} y1={PAD_TOP} y2={H - PAD_BOT} stroke="var(--text-3)" strokeWidth={1} strokeDasharray="2,2" pointerEvents="none" />
       </svg>
+
+      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+        <span className="t-strong">{dataCurta(atual.data)}</span>
+        <span style={{ color: 'var(--danger)' }}>Base {atual.base.toFixed(2)}%</span>
+        <span style={{ color: 'var(--graphite)' }}>Previsto {atual.previsto.toFixed(2)}%</span>
+        <span style={{ color: 'var(--info)' }}>
+          {idxAtivo <= ultimoMedidoIdx ? `Realizado ${atual.realizado.toFixed(2)}%` : 'Realizado: ainda sem medição'}
+        </span>
+      </div>
+
       <div className="row-wrap" style={{ gap: 14, marginTop: 6 }}>
         <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ width: 14, height: 2, background: 'var(--danger)', display: 'inline-block' }} /> Base
@@ -342,26 +369,49 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
    passar o mouse — no celular não tem mouse, então aqui é por
    toque: tocar num mês (ou passar o mouse, no desktop) mostra os
    valores dele embaixo do gráfico, igual ao "clique num período pra
-   ver o detalhamento" que a tela deles já sugere. Meta não aparece
-   porque a API da Prevision não expõe percentual nenhum pra ela (só
-   nome/data do "Goal" — conferido de novo via introspecção antes de
-   desistir, ver conversa) — melhor avisar que falta do que inventar. */
-export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) {
+   ver o detalhamento" que a tela deles já sugere.
+
+   Meta (a barra cinza) não vem da API — a Prevision computa esse
+   número só no front deles, a partir de um arquivo interno que a
+   API não expõe (ver conversa, foi conferido de novo via
+   introspecção e até interceptando a chamada de rede real da tela
+   deles). Por isso ela é digitada à mão aqui: quando `onSalvarMeta`
+   é passado, o mês selecionado ganha um campo editável. */
+export function ProgressoMensalPrevision({ meses, onSalvarMeta, vazio = 'Nada aqui ainda.' }) {
   const [selecionado, setSelecionado] = useState(null)
+  const [editando, setEditando] = useState(false)
+  const [valorDigitado, setValorDigitado] = useState('')
+  const [salvando, setSalvando] = useState(false)
   if (!meses || meses.length === 0) return <div className="t-caption">{vazio}</div>
 
-  const max = Math.max(5, ...meses.flatMap((m) => [m.base, m.previsto, m.realizado || 0]))
+  const max = Math.max(5, ...meses.flatMap((m) => [m.base, m.previsto, m.realizado || 0, m.meta || 0]))
   const W = 640
   const H = 200
   const PAD_TOP = 10
   const PAD_BOT = 30
   const areaUtil = H - PAD_TOP - PAD_BOT
   const grupoW = W / meses.length
-  const barW = Math.min(14, grupoW / 5)
+  const barW = Math.min(11, grupoW / 6)
   const y = (v) => PAD_TOP + (1 - Math.min(max, Math.max(0, v)) / max) * areaUtil
   const xCentro = (i) => grupoW * i + grupoW / 2
   const idxAtivo = selecionado ?? meses.length - 1
   const atual = meses[idxAtivo]
+
+  const selecionar = (i) => { setSelecionado(i); setEditando(false) }
+
+  const iniciarEdicao = () => {
+    setValorDigitado(atual.meta != null ? String(atual.meta) : '')
+    setEditando(true)
+  }
+
+  const salvar = async () => {
+    const numero = Number(String(valorDigitado).replace(',', '.'))
+    if (!Number.isFinite(numero)) return
+    setSalvando(true)
+    await onSalvarMeta(atual.mes, numero)
+    setSalvando(false)
+    setEditando(false)
+  }
 
   return (
     <div>
@@ -373,12 +423,15 @@ export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) 
           const cx = xCentro(i)
           const ativo = i === idxAtivo
           return (
-            <g key={m.mes} onClick={() => setSelecionado(i)} onMouseEnter={() => setSelecionado(i)} style={{ cursor: 'pointer' }}>
+            <g key={m.mes} onClick={() => selecionar(i)} onMouseEnter={() => selecionar(i)} style={{ cursor: 'pointer' }}>
               <rect x={cx - grupoW / 2} y={PAD_TOP} width={grupoW} height={areaUtil} fill={ativo ? 'var(--surface-2)' : 'transparent'} />
-              <rect x={cx - barW * 1.5 - 2} y={y(m.base)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.base))} rx={1} fill="var(--danger)" />
-              <rect x={cx - barW / 2} y={y(m.previsto)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.previsto))} rx={1} fill="var(--graphite)" />
+              <rect x={cx - barW * 2 - 3} y={y(m.base)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.base))} rx={1} fill="var(--danger)" />
+              <rect x={cx - barW - 1} y={y(m.previsto)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.previsto))} rx={1} fill="var(--graphite)" />
               {m.medido && (
-                <rect x={cx + barW / 2 + 2} y={y(m.realizado)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.realizado))} rx={1} fill="var(--info)" />
+                <rect x={cx + 1} y={y(m.realizado)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.realizado))} rx={1} fill="var(--info)" />
+              )}
+              {m.meta != null && (
+                <rect x={cx + barW + 3} y={y(m.meta)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.meta))} rx={1} fill="var(--text-3)" />
               )}
               <text x={cx} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9" fill={ativo ? 'var(--text)' : 'var(--text-3)'} fontWeight={ativo ? 700 : 400}>
                 {m.rotulo}
@@ -388,11 +441,41 @@ export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) 
         })}
       </svg>
 
-      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)', alignItems: 'center' }}>
         <span className="t-strong">{atual.rotulo}</span>
         <span style={{ color: 'var(--danger)' }}>Base {atual.base.toFixed(2)}%</span>
         <span style={{ color: 'var(--graphite)' }}>Previsto {atual.previsto.toFixed(2)}%</span>
         <span style={{ color: 'var(--info)' }}>{atual.medido ? `Realizado ${atual.realizado.toFixed(2)}%` : 'Realizado: ainda sem medição'}</span>
+
+        {!editando && onSalvarMeta && (
+          <button
+            type="button" onClick={iniciarEdicao}
+            style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+          >
+            {atual.meta != null ? `Meta ${atual.meta.toFixed(2)}%` : 'Meta: não digitada'}
+            <Icon name="editar" size={12} />
+          </button>
+        )}
+        {!editando && !onSalvarMeta && (
+          <span style={{ color: 'var(--text-3)' }}>{atual.meta != null ? `Meta ${atual.meta.toFixed(2)}%` : 'Meta: não digitada'}</span>
+        )}
+
+        {editando && (
+          <span className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+            <input
+              type="number" inputMode="decimal" step="0.01" autoFocus
+              value={valorDigitado} onChange={(e) => setValorDigitado(e.target.value)}
+              style={{ width: 64, padding: '2px 6px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}
+              placeholder="%"
+            />
+            <button type="button" className="btn-secondary" style={{ padding: '2px 8px', fontSize: 12 }} disabled={salvando} onClick={salvar}>
+              {salvando ? '...' : 'Salvar'}
+            </button>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }} onClick={() => setEditando(false)}>
+              cancelar
+            </button>
+          </span>
+        )}
       </div>
 
       <div className="row-wrap" style={{ gap: 14, marginTop: 6 }}>
@@ -405,7 +488,9 @@ export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) 
         <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--info)', display: 'inline-block' }} /> Realizado
         </span>
-        <span className="t-caption" style={{ color: 'var(--text-3)' }}>Meta: indisponível na API da Prevision</span>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--text-3)', display: 'inline-block' }} /> Meta (digitada à mão)
+        </span>
       </div>
     </div>
   )

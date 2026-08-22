@@ -26,7 +26,22 @@ export default function PlanejamentoDashboard() {
   const itens = dados.cronogramaGlobal || []
 
   const previsionHoje = useMemo(() => previsionCurvaHoje(scurve, hoje), [scurve, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
-  const progressoMensal = useMemo(() => previsionProgressoMensal(scurve), [scurve])
+
+  /* Meta não vem da Prevision (a API não expõe esse percentual, ver
+     conversa) — quem digita é a gente, uma vez por mês, olhando a
+     tela deles. Casa pelo mês (AAAA-MM) com o que já foi salvo. */
+  const metasPorMes = useMemo(() => {
+    const mapa = {}
+    for (const m of dados.metasMensais || []) mapa[String(m.mes).slice(0, 7)] = Number(m.percentual)
+    return mapa
+  }, [dados.metasMensais])
+  const progressoMensal = useMemo(
+    () => previsionProgressoMensal(scurve).map((m) => ({ ...m, meta: metasPorMes[m.mes] ?? null })),
+    [scurve, metasPorMes],
+  )
+  const salvarMeta = async (mesISO, percentual) => {
+    await dados.salvarMetaMensal(`${mesISO}-01`, percentual)
+  }
 
   const vinculadas = itens.filter((i) => i.schedule_item_id).length
   const pctVinculadas = itens.length ? Math.round((vinculadas / itens.length) * 100) : 0
@@ -90,7 +105,7 @@ export default function PlanejamentoDashboard() {
 
       <div className="card-flat chart-panel stack-2">
         <div className="t-micro">Progresso mensal — Base × Previsto × Realizado</div>
-        <ProgressoMensalPrevision meses={progressoMensal} />
+        <ProgressoMensalPrevision meses={progressoMensal} onSalvarMeta={salvarMeta} />
       </div>
 
       <div className="card-flat chart-panel stack-2">

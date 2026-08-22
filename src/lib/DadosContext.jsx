@@ -205,7 +205,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
-      suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado,
+      suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -249,6 +249,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('contract_items').select('*').order('cod_contrato')),
       buscarPaginado(() => supabase.from('prevision_project_links').select('*')),
       buscarPaginado(() => supabase.from('planned_activity_delay_reasons').select('*')),
+      buscarPaginado(() => supabase.from('prevision_metas_mensais').select('*')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -259,7 +260,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
-      previsionProjectLinks, motivosNaoExecutado].find((r) => r.error)
+      previsionProjectLinks, motivosNaoExecutado, metasMensais].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -327,6 +328,7 @@ export function DadosProvider({ perfil, children }) {
       contratos: contratos.data || [],
       previsionProjectLinks: previsionProjectLinks.data || [],
       motivosNaoExecutado: motivosNaoExecutado.data || [],
+      metasMensais: metasMensais.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -426,6 +428,7 @@ export function DadosProvider({ perfil, children }) {
       contratos: filtrar(tudo.contratos),
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
+      metasMensais: filtrar(tudo.metasMensais),
     }
   }, [tudo, obraId])
 
@@ -2267,6 +2270,35 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, perfil.id],
   )
 
+  /* Meta mensal da Prevision — a API deles não expõe esse percentual
+     (é calculado só no front deles a partir de um arquivo interno,
+     ver conversa), então aqui é digitado à mão uma vez por mês,
+     olhando a tela da Prevision. Um valor por obra+mês, sobrescreve
+     se já existir (upsert direto — o índice único aqui não usa
+     coalesce, diferente do motivo de não execução). */
+  const salvarMetaMensal = useCallback(
+    async (mes, percentual) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id, mes, percentual: Number(percentual),
+        autor_id: perfil.id, atualizado_em: new Date().toISOString(),
+      }
+      const salvo = checar(
+        await supabase.from('prevision_metas_mensais').upsert(linha, { onConflict: 'worksite_id,mes' }).select('*').single(),
+        'salvar a meta do mês',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        metasMensais: t.metasMensais.some((m) => m.id === salvo.id)
+          ? t.metasMensais.map((m) => (m.id === salvo.id ? salvo : m))
+          : [...t.metasMensais, salvo],
+      }))
+      return salvo
+    },
+    [escopo, checar, perfil.id],
+  )
+
   // ── Cronograma físico ─────────────────────────────────────
   const salvarItemCronograma = useCallback(
     async (item) => {
@@ -3010,7 +3042,7 @@ export function DadosProvider({ perfil, children }) {
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
-      salvarMotivoNaoExecutado,
+      salvarMotivoNaoExecutado, salvarMetaMensal,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       redefinirSenhaUsuario,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
@@ -3043,7 +3075,7 @@ export function DadosProvider({ perfil, children }) {
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
-      salvarMotivoNaoExecutado, definirPapel,
+      salvarMotivoNaoExecutado, salvarMetaMensal, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       redefinirSenhaUsuario,
       salvarRequisicao, moverRequisicao, excluirRequisicao,
