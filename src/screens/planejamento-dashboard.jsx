@@ -12,10 +12,10 @@
 import { useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, plural, progressoEsperado, previsionCurvaHoje,
+  hojeISO, formatarData, plural, progressoEsperado, previsionCurvaHoje, previsionProgressoMensal,
 } from '../lib/dominio'
 import { Icon, PageHeader, Vazio, Indicador } from '../components'
-import { RankingBarras, CurvaSPrevision } from '../components/charts'
+import { RankingBarras, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 
 export default function PlanejamentoDashboard() {
   const dados = useDados()
@@ -26,6 +26,7 @@ export default function PlanejamentoDashboard() {
   const itens = dados.cronogramaGlobal || []
 
   const previsionHoje = useMemo(() => previsionCurvaHoje(scurve, hoje), [scurve, hoje]) // eslint-disable-line react-hooks/exhaustive-deps
+  const progressoMensal = useMemo(() => previsionProgressoMensal(scurve), [scurve])
 
   const vinculadas = itens.filter((i) => i.schedule_item_id).length
   const pctVinculadas = itens.length ? Math.round((vinculadas / itens.length) * 100) : 0
@@ -85,6 +86,11 @@ export default function PlanejamentoDashboard() {
       <div className="card-flat chart-panel stack-2">
         <div className="t-micro">Curva S — Base × Previsto × Realizado</div>
         <CurvaSPrevision scurve={scurve} />
+      </div>
+
+      <div className="card-flat chart-panel stack-2">
+        <div className="t-micro">Progresso mensal — Base × Previsto × Realizado</div>
+        <ProgressoMensalPrevision meses={progressoMensal} />
       </div>
 
       <div className="card-flat chart-panel stack-2">

@@ -327,3 +327,65 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
     </div>
   )
 }
+
+/* ── Progresso mensal (Prevision) ──────────────────────────────
+   Igual à CurvaSPrevision, mas o que cada curva andou DENTRO de
+   cada mês (não acumulado) — três barras por mês, mesma leitura do
+   gráfico "Progresso Mensal" da tela deles. Sem minWidth de
+   propósito (ver conversa: era isso que travava o toque no celular
+   na Curva S) — o SVG escala pelo viewBox, nunca força scroll
+   horizontal. */
+export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) {
+  if (!meses || meses.length === 0) return <div className="t-caption">{vazio}</div>
+
+  const max = Math.max(5, ...meses.flatMap((m) => [m.base, m.previsto, m.realizado || 0]))
+  const W = 640
+  const H = 200
+  const PAD_TOP = 10
+  const PAD_BOT = 30
+  const areaUtil = H - PAD_TOP - PAD_BOT
+  const grupoW = W / meses.length
+  const barW = Math.min(14, grupoW / 5)
+  const y = (v) => PAD_TOP + (1 - Math.min(max, Math.max(0, v)) / max) * areaUtil
+  const xCentro = (i) => grupoW * i + grupoW / 2
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <line key={f} x1={0} x2={W} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth={1} />
+        ))}
+        {meses.map((m, i) => {
+          const cx = xCentro(i)
+          return (
+            <g key={m.mes}>
+              <rect x={cx - barW * 1.5 - 2} y={y(m.base)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.base))} rx={1} fill="var(--danger)">
+                <title>{`${m.rotulo}: Base ${m.base.toFixed(1)} p.p.`}</title>
+              </rect>
+              <rect x={cx - barW / 2} y={y(m.previsto)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.previsto))} rx={1} fill="var(--graphite)">
+                <title>{`${m.rotulo}: Previsto ${m.previsto.toFixed(1)} p.p.`}</title>
+              </rect>
+              {m.medido && (
+                <rect x={cx + barW / 2 + 2} y={y(m.realizado)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.realizado))} rx={1} fill="var(--info)">
+                  <title>{`${m.rotulo}: Realizado ${m.realizado.toFixed(1)} p.p.`}</title>
+                </rect>
+              )}
+              <text x={cx} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9" fill="var(--text-3)">{m.rotulo}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <div className="row-wrap" style={{ gap: 14, marginTop: 6 }}>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--danger)', display: 'inline-block' }} /> Base
+        </span>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--graphite)', display: 'inline-block' }} /> Previsto
+        </span>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--info)', display: 'inline-block' }} /> Realizado
+        </span>
+      </div>
+    </div>
+  )
+}

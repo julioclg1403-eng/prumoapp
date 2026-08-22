@@ -1073,6 +1073,39 @@ export function previsionCurvaDoMes(scurve, mesISO) {
   }
 }
 
+const MES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+export function mesAbreviado(mesISO) {
+  const [ano, mes] = mesISO.split('-')
+  return `${MES_ABREV[Number(mes) - 1]}/${ano}`
+}
+
+/* "Progresso Mensal" — um ponto por mês do projeto (não por dia),
+   pra alimentar o gráfico de barras agrupadas igual ao da tela da
+   Prevision. Meta e IDPM ficam de fora de propósito: a API não
+   expõe percentual nenhum pra essas duas (só nome/data do "Goal",
+   ver conversa) — melhor não mostrar do que arriscar um número
+   inventado. "medido" marca se o mês já tem alguma medição real,
+   pra não desenhar barra de Realizado em mês futuro (a própria
+   Prevision também não desenha). */
+export function previsionProgressoMensal(scurve) {
+  if (!scurve?.dates?.length) return []
+  const meses = []
+  const vistos = new Set()
+  for (const d of scurve.dates) {
+    const mes = d.slice(0, 7)
+    if (!vistos.has(mes)) { vistos.add(mes); meses.push(mes) }
+  }
+  return meses
+    .map((mes, i) => {
+      const delta = previsionCurvaDoMes(scurve, mes)
+      if (!delta) return null
+      const medido = scurve.dates.some((d, idx) => d.startsWith(mes) && scurve.measured?.[idx])
+      return { mes, rotulo: mesAbreviado(mes), medido, ...delta }
+    })
+    .filter(Boolean)
+}
+
 /* A curva S: a linha do PREVISTO dá pra calcular pra qualquer data,
    passada ou futura — vem só de data_início/data_fim/peso de cada
    etapa, sem depender de histórico nenhum. Já o REALIZADO não tem
