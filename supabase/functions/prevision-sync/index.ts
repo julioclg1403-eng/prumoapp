@@ -16,6 +16,12 @@
 // que a própria Prevision já faz na exportação da planilha: 100% =
 // real igual ao previsto, >0% = só início real, 0%/null = nada.
 //
+// percentual_prevision guarda o percentageCompleted cru, e a RPC
+// espelha esse valor direto em schedule_items.percentual pras etapas
+// do Mensal já vinculadas por nome — decisão do Julio, já que a
+// planilha manual também vem da Prevision. Etapa sem vínculo
+// continua só por medição manual (ver conversa).
+//
 // Não tem usuário logado chamando isso (é o pg_cron), então a
 // autenticação é um segredo próprio (x-cron-secret), gerado na
 // migração e guardado em prevision_config — nunca no código.

@@ -520,11 +520,13 @@ function BarraDupla({ real, previsto }) {
    Não lista TODAS as etapas (seriam dezenas) — só as ativas, que é
    o recorte que alguém realmente quer ver hoje. */
 function AderenciaEtapas({ itens, hoje, cronogramaGlobal }) {
-  /* Percentual que a Prevision reporta pra etapa já vinculada — só
-     referência ao lado do que o Mensal mede, nunca substitui (ver
-     conversa: Global nunca escreve em schedule_items). Quando mais
-     de uma linha do Global aponta pra mesma etapa, mostra a mais
-     recente. */
+  /* Etapa já vinculada por nome a uma atividade da Prevision tem o
+     percentual sincronizado de lá (importar_cronograma_global_service
+     grava direto em schedule_items.percentual a cada sync — decisão
+     do Julio, já que a planilha manual também vem da Prevision).
+     Isso aqui só identifica QUAIS etapas são sincronizadas, pra
+     avisar que aquele número não é medição manual. Quando mais de
+     uma linha do Global aponta pra mesma etapa, usa a mais recente. */
   const percentualPrevisionPorEtapa = useMemo(() => {
     const mapa = new Map()
     for (const g of cronogramaGlobal || []) {
@@ -547,7 +549,7 @@ function AderenciaEtapas({ itens, hoje, cronogramaGlobal }) {
           chave: i.id, rotulo: i.descricao,
           realizado: Number(i.percentual || 0), previsto: progressoEsperado(i, hoje),
           atrasado: s.chave === 'atrasada',
-          referencia: prevision ? `Prevision reporta ${Math.round(prevision.valor)}%` : null,
+          referencia: prevision ? 'Sincronizado automaticamente com a Prevision' : null,
         }
       })
       .sort((a, b) => (b.previsto - b.realizado) - (a.previsto - a.realizado))
