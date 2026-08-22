@@ -458,6 +458,7 @@ function AbaDashboard({ pedidos }) {
   const [periodoFim, setPeriodoFim] = useState(hoje)
   const [destinoFiltro, setDestinoFiltro] = useState('todos')
   const [buscaInsumo, setBuscaInsumo] = useState('')
+  const [materialSelecionado, setMaterialSelecionado] = useState(null)
 
   /* Filtro de período olha a data do Pedido — é o marco que sempre
      existe (Entrega às vezes não), e é o que faz sentido pra "quanto
@@ -568,11 +569,12 @@ function AbaDashboard({ pedidos }) {
     const mapa = new Map()
     for (const p of pedidosFiltrados) {
       if (p.data_entrega) continue
-      const atual = mapa.get(p.insumo) || { quantidade: 0, valor: 0, dataMaisAntiga: null }
+      const atual = mapa.get(p.insumo) || { quantidade: 0, valor: 0, dataMaisAntiga: null, itens: [] }
       atual.quantidade += 1
       const v = valorItem(p)
       if (v != null) atual.valor += v
       if (p.data_pedido && (!atual.dataMaisAntiga || p.data_pedido < atual.dataMaisAntiga)) atual.dataMaisAntiga = p.data_pedido
+      atual.itens.push(p)
       mapa.set(p.insumo, atual)
     }
     return [...mapa.entries()]
@@ -777,11 +779,73 @@ function AbaDashboard({ pedidos }) {
               formatarValor={(v) => `${v} dia${v === 1 ? '' : 's'}`}
               cor="var(--danger)"
               vazio="Nada pendente — todo pedido nesse filtro já tem Data Entrega."
+              onClicarItem={(item) => setMaterialSelecionado(materiaisNaoChegaram.find((m) => m.insumo === item.chave))}
             />
           </div>
         </>
       )}
+
+      <SheetMaterialNaoChegou material={materialSelecionado} onFechar={() => setMaterialSelecionado(null)} />
     </div>
+  )
+}
+
+/* ── Sheet: todos os pedidos em aberto de um material — o que dá
+   pra levar pra uma cobrança ao Compras sem precisar abrir pedido
+   por pedido. Um card por pedido, com o que muda de um pra outro
+   (nº do pedido, cotação, estágio, previsão) — o resto (insumo) já
+   está no título. */
+function SheetMaterialNaoChegou({ material, onFechar }) {
+  const hoje = hojeISO()
+  const itensOrdenados = material
+    ? [...material.itens].sort((a, b) => (b.data_pedido || '').localeCompare(a.data_pedido || ''))
+    : []
+  return (
+    <Sheet aberto={Boolean(material)} titulo={material ? material.insumo : ''} onFechar={onFechar}>
+      {material && (
+        <div className="stack-2">
+          <div className="t-caption">
+            {plural(material.itens.length, 'pedido em aberto', 'pedidos em aberto')} · {formatarDinheiro(material.valor)} no total
+          </div>
+          {itensOrdenados.map((p) => {
+            const diasEsperando = p.data_pedido ? diferencaDiasSimples(p.data_pedido, hoje) : null
+            const diasPrevisao = p.previsao_entrega ? diferencaDiasSimples(p.previsao_entrega, hoje) : null
+            return (
+              <div key={p.id} className="card-flat stack-1">
+                <div className="row-between" style={{ alignItems: 'center' }}>
+                  <span className="t-strong">Pedido {p.pedido} · Cotação {p.cotacao ?? '—'}</span>
+                  <Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || 'Sem estágio'}</Chip>
+                </div>
+                <div className="row-wrap" style={{ gap: 16 }}>
+                  <span className="t-caption">Qtde <span className="t-strong">{p.quantidade ?? '—'}</span></span>
+                  <span className="t-caption">Preço <span className="t-strong">{formatarDinheiro(p.preco)}</span></span>
+                  <span className="t-caption">Código <span className="t-strong">{p.codigo_insumo || '—'}</span></span>
+                </div>
+                <div className="row-wrap" style={{ gap: 16 }}>
+                  <span className="t-caption">
+                    Pedido em <span className="t-strong">{p.data_pedido ? formatarDataCurta(p.data_pedido) : '—'}</span>
+                    {diasEsperando != null && <span style={{ color: 'var(--danger)' }}> · esperando há {diasEsperando}d</span>}
+                  </span>
+                </div>
+                {p.previsao_entrega ? (
+                  <div className="t-caption">
+                    Previsão de entrega <span className="t-strong">{formatarDataCurta(p.previsao_entrega)}</span>
+                    {diasPrevisao != null && (
+                      diasPrevisao < 0
+                        ? <Chip tom="danger">{`previsão vencida há ${-diasPrevisao}d`}</Chip>
+                        : <Chip tom="info">{diasPrevisao === 0 ? 'previsto para hoje' : `previsto em ${diasPrevisao}d`}</Chip>
+                    )}
+                  </div>
+                ) : (
+                  <div className="t-caption" style={{ color: 'var(--text-3)' }}>Compras ainda não deu previsão de entrega.</div>
+                )}
+                {p.destino && <div><Chip tom="info">{ROTULO_DESTINO[p.destino]}</Chip></div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Sheet>
   )
 }
 

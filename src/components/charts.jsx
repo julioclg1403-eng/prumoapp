@@ -30,7 +30,7 @@ import { Icon } from './index'
    manda ordenado). Trilho cinza + barra colorida com ponta
    arredondada; título vai à direita, curto, fora da barra (nunca
    cortado). Hover no título nativo do navegador serve de tooltip. */
-export function RankingBarras({ itens, formatarValor, cor = 'var(--primary)', vazio = 'Nada aqui ainda.' }) {
+export function RankingBarras({ itens, formatarValor, cor = 'var(--primary)', vazio = 'Nada aqui ainda.', onClicarItem }) {
   if (!itens || itens.length === 0) {
     return <div className="t-caption">{vazio}</div>
   }
@@ -38,7 +38,11 @@ export function RankingBarras({ itens, formatarValor, cor = 'var(--primary)', va
   return (
     <div className="stack-1">
       {itens.map((item, i) => (
-        <div key={item.chave ?? item.rotulo ?? i} className="rank-row" title={`${item.rotulo}: ${formatarValor(item.valor)}`}>
+        <div
+          key={item.chave ?? item.rotulo ?? i} className="rank-row" title={`${item.rotulo}: ${formatarValor(item.valor)}`}
+          onClick={onClicarItem ? () => onClicarItem(item) : undefined}
+          style={onClicarItem ? { cursor: 'pointer' } : undefined}
+        >
           <div className="row-between" style={{ marginBottom: 4 }}>
             <span className="t-caption" style={{ maxWidth: '68%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {item.rotulo}
