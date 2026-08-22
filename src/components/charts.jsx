@@ -287,8 +287,8 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
   const linhaPrevisto = pontos.map((p, i) => `${x(i)},${y(p.previsto)}`).join(' ')
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: W, height: H, display: 'block' }}>
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
         {[0, 25, 50, 75, 100].map((p) => (
           <line key={p} x1={0} x2={W} y1={y(p)} y2={y(p)} stroke="var(--border)" strokeWidth={1} />
         ))}
