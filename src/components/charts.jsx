@@ -3,10 +3,13 @@
    bundle já tem peso de sobra com xlsx/pdf). Usadas pelos Dashboards
    (Suprimentos, Contratos, e o que mais precisar).
 
-   Três formas cobrem quase todo dashboard de gestão:
+   Quatro formas cobrem quase todo dashboard de gestão:
    - RankingBarras: magnitude — "quem é maior" (top N, uma cor só).
    - GraficoColunas: tendência no tempo — uma barra por período.
    - GraficoDonut: parte-do-todo — poucas categorias (até uns 6).
+   - ReguaAderencia: previsto x realizado — a pergunta que se repete
+     em Cronograma, Planejamento semanal, Medições, Efetivo, Projetos
+     e Contratos. Um componente só, aprendido uma vez.
 
    Regra de cor: o laranja da marca (--primary) é reservado pra ação/
    destaque, então os rankings e colunas (série única) usam ele como
@@ -118,6 +121,55 @@ export function GraficoDonut({ itens, formatarValor, tamanho = 132, espessura = 
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+/* ── Régua de aderência (previsto x realizado) ────────────────────
+   Trilho cinza + preenchimento do realizado na cor da série, com um
+   traço vertical de 2px marcando onde o previsto deveria estar hoje.
+   Só dois estados — no prazo (traço grafite) ou atrasado (traço e
+   valor em --danger) — nunca âmbar: o BRIEFING já decidiu que âmbar
+   fica perto demais do laranja da marca pra confundir "botão" com
+   "atenção", então não existe um terceiro tom aqui. */
+export function ReguaAderencia({ itens, formatarValor = (v) => `${Math.round(v)}%`, cor = 'var(--primary)', vazio = 'Nada aqui ainda.' }) {
+  if (!itens || itens.length === 0) {
+    return <div className="t-caption">{vazio}</div>
+  }
+  return (
+    <div className="stack-2">
+      {itens.map((item, i) => {
+        const realizado = Math.max(0, Math.min(100, item.realizado || 0))
+        const previsto = Math.max(0, Math.min(100, item.previsto || 0))
+        /* Aceita um "atrasado" já calculado por quem chama (ex.: com
+           tolerância de alguns pontos, como situacaoCronograma já faz)
+           — só cai na comparação crua se ninguém mandar isso pronto. */
+        const atrasado = item.atrasado ?? (previsto > realizado)
+        return (
+          <div key={item.chave ?? item.rotulo ?? i}>
+            <div className="row-between" style={{ marginBottom: 4 }}>
+              <span className="t-caption">{item.rotulo}</span>
+              <span className="t-caption t-strong" style={{ color: atrasado ? 'var(--danger)' : 'var(--text)' }}>
+                {formatarValor(item.realizado)}
+              </span>
+            </div>
+            <div
+              style={{ position: 'relative', height: 8 }}
+              title={`Realizado: ${formatarValor(item.realizado)} · Previsto hoje: ${formatarValor(item.previsto)}`}
+            >
+              <div className="rank-track">
+                <div className="rank-fill" style={{ width: `${realizado}%`, background: item.cor || cor }} />
+              </div>
+              <div
+                style={{
+                  position: 'absolute', top: -2, bottom: -2, left: `${previsto}%`, width: 2,
+                  background: atrasado ? 'var(--danger)' : 'var(--graphite)', transform: 'translateX(-1px)',
+                }}
+              />
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

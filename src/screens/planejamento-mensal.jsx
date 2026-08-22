@@ -26,6 +26,7 @@ import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, Segmentos,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio, ChipToggle, CalendarioMes,
 } from '../components'
+import { ReguaAderencia } from '../components/charts'
 
 export default function PlanejamentoMensal({ perfil, goto }) {
   const dados = useDados()
@@ -196,6 +197,7 @@ export default function PlanejamentoMensal({ perfil, goto }) {
         )}
 
         {!faltaItens && <ResumoCurva curva={curva} />}
+        {!faltaItens && <AderenciaEtapas itens={itens} hoje={hoje} />}
 
         {!faltaItens && itensDoMes.length > 0 && (
           <Segmentos
@@ -506,6 +508,36 @@ function BarraDupla({ real, previsto }) {
           width: 2, background: 'var(--text)', borderRadius: 1,
         }}
       />
+    </div>
+  )
+}
+
+/* ── Aderência por etapa (só as em andamento agora) ──────────
+   O resumo geral (ResumoCurva) já mostra o avanço da obra inteira
+   num número só — isso aqui é o "zoom": das etapas que estão
+   rolando neste exato momento (começou, não terminou, não bateu
+   100%), qual está segurando o previsto e qual está atrasando.
+   Não lista TODAS as etapas (seriam dezenas) — só as ativas, que é
+   o recorte que alguém realmente quer ver hoje. */
+function AderenciaEtapas({ itens, hoje }) {
+  const emAndamento = useMemo(() => {
+    return itens
+      .filter((i) => i.data_inicio <= hoje && (!i.data_fim || i.data_fim >= hoje) && Number(i.percentual || 0) < 100)
+      .map((i) => {
+        const s = situacaoCronograma(i, hoje)
+        return {
+          chave: i.id, rotulo: i.descricao,
+          realizado: Number(i.percentual || 0), previsto: progressoEsperado(i, hoje),
+          atrasado: s.chave === 'atrasada',
+        }
+      })
+      .sort((a, b) => (b.previsto - b.realizado) - (a.previsto - a.realizado))
+  }, [itens, hoje])
+
+  return (
+    <div className="card-flat chart-panel stack-2">
+      <div className="t-micro">Aderência por etapa — em andamento agora</div>
+      <ReguaAderencia itens={emAndamento} vazio="Nenhuma etapa em andamento neste momento." />
     </div>
   )
 }
