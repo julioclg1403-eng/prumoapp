@@ -22,6 +22,8 @@
    conjunto --chart-1..5 (ver index.css) em vez do laranja sozinho.
    ============================================================ */
 
+import { useState } from 'react'
+
 /* ── Ranking (magnitude) ──────────────────────────────────────
    Uma barra por item, ordenado do maior pro menor (quem chama já
    manda ordenado). Trilho cinza + barra colorida com ponta
@@ -334,8 +336,18 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
    gráfico "Progresso Mensal" da tela deles. Sem minWidth de
    propósito (ver conversa: era isso que travava o toque no celular
    na Curva S) — o SVG escala pelo viewBox, nunca força scroll
-   horizontal. */
+   horizontal.
+
+   A Prevision mostra o valor exato de cada barra num tooltip ao
+   passar o mouse — no celular não tem mouse, então aqui é por
+   toque: tocar num mês (ou passar o mouse, no desktop) mostra os
+   valores dele embaixo do gráfico, igual ao "clique num período pra
+   ver o detalhamento" que a tela deles já sugere. Meta não aparece
+   porque a API da Prevision não expõe percentual nenhum pra ela (só
+   nome/data do "Goal" — conferido de novo via introspecção antes de
+   desistir, ver conversa) — melhor avisar que falta do que inventar. */
 export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) {
+  const [selecionado, setSelecionado] = useState(null)
   if (!meses || meses.length === 0) return <div className="t-caption">{vazio}</div>
 
   const max = Math.max(5, ...meses.flatMap((m) => [m.base, m.previsto, m.realizado || 0]))
@@ -348,6 +360,8 @@ export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) 
   const barW = Math.min(14, grupoW / 5)
   const y = (v) => PAD_TOP + (1 - Math.min(max, Math.max(0, v)) / max) * areaUtil
   const xCentro = (i) => grupoW * i + grupoW / 2
+  const idxAtivo = selecionado ?? meses.length - 1
+  const atual = meses[idxAtivo]
 
   return (
     <div>
@@ -357,24 +371,30 @@ export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) 
         ))}
         {meses.map((m, i) => {
           const cx = xCentro(i)
+          const ativo = i === idxAtivo
           return (
-            <g key={m.mes}>
-              <rect x={cx - barW * 1.5 - 2} y={y(m.base)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.base))} rx={1} fill="var(--danger)">
-                <title>{`${m.rotulo}: Base ${m.base.toFixed(1)} p.p.`}</title>
-              </rect>
-              <rect x={cx - barW / 2} y={y(m.previsto)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.previsto))} rx={1} fill="var(--graphite)">
-                <title>{`${m.rotulo}: Previsto ${m.previsto.toFixed(1)} p.p.`}</title>
-              </rect>
+            <g key={m.mes} onClick={() => setSelecionado(i)} onMouseEnter={() => setSelecionado(i)} style={{ cursor: 'pointer' }}>
+              <rect x={cx - grupoW / 2} y={PAD_TOP} width={grupoW} height={areaUtil} fill={ativo ? 'var(--surface-2)' : 'transparent'} />
+              <rect x={cx - barW * 1.5 - 2} y={y(m.base)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.base))} rx={1} fill="var(--danger)" />
+              <rect x={cx - barW / 2} y={y(m.previsto)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.previsto))} rx={1} fill="var(--graphite)" />
               {m.medido && (
-                <rect x={cx + barW / 2 + 2} y={y(m.realizado)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.realizado))} rx={1} fill="var(--info)">
-                  <title>{`${m.rotulo}: Realizado ${m.realizado.toFixed(1)} p.p.`}</title>
-                </rect>
+                <rect x={cx + barW / 2 + 2} y={y(m.realizado)} width={barW} height={Math.max(0, H - PAD_BOT - y(m.realizado))} rx={1} fill="var(--info)" />
               )}
-              <text x={cx} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9" fill="var(--text-3)">{m.rotulo}</text>
+              <text x={cx} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9" fill={ativo ? 'var(--text)' : 'var(--text-3)'} fontWeight={ativo ? 700 : 400}>
+                {m.rotulo}
+              </text>
             </g>
           )
         })}
       </svg>
+
+      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+        <span className="t-strong">{atual.rotulo}</span>
+        <span style={{ color: 'var(--danger)' }}>Base {atual.base.toFixed(2)}%</span>
+        <span style={{ color: 'var(--graphite)' }}>Previsto {atual.previsto.toFixed(2)}%</span>
+        <span style={{ color: 'var(--info)' }}>{atual.medido ? `Realizado ${atual.realizado.toFixed(2)}%` : 'Realizado: ainda sem medição'}</span>
+      </div>
+
       <div className="row-wrap" style={{ gap: 14, marginTop: 6 }}>
         <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--danger)', display: 'inline-block' }} /> Base
@@ -385,6 +405,7 @@ export function ProgressoMensalPrevision({ meses, vazio = 'Nada aqui ainda.' }) 
         <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--info)', display: 'inline-block' }} /> Realizado
         </span>
+        <span className="t-caption" style={{ color: 'var(--text-3)' }}>Meta: indisponível na API da Prevision</span>
       </div>
     </div>
   )
