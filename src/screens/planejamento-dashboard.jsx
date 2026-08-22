@@ -44,7 +44,28 @@ export default function PlanejamentoDashboard() {
   }
 
   const vinculadas = itens.filter((i) => i.schedule_item_id).length
-  const pctVinculadas = itens.length ? Math.round((vinculadas / itens.length) * 100) : 0
+
+  /* "Vinculadas ao Mensal" por peso, não por contagem de atividade —
+     34 de 284 atividades da Prevision "vinculadas" (14%) não dizia
+     muito, porque atividade da Prevision e etapa do Mensal não têm o
+     mesmo tamanho. O que importa é quanto do peso do Mensal (o mesmo
+     peso que já alimenta o avanço físico ponderado) está em etapas
+     que a Prevision já consegue medir — por isso é a soma do peso
+     das etapas vinculadas sobre o peso total do Mensal, não
+     contagem de item. */
+  const etapasMensal = dados.cronograma || []
+  const idsEtapasVinculadas = useMemo(
+    () => new Set(itens.filter((i) => i.schedule_item_id).map((i) => i.schedule_item_id)),
+    [itens],
+  )
+  const pctVinculadas = useMemo(() => {
+    const pesoTotal = etapasMensal.reduce((s, e) => s + (Number(e.peso) || 0), 0)
+    if (pesoTotal <= 0) return 0
+    const pesoVinculado = etapasMensal
+      .filter((e) => idsEtapasVinculadas.has(e.id))
+      .reduce((s, e) => s + (Number(e.peso) || 0), 0)
+    return Math.round((pesoVinculado / pesoTotal) * 100)
+  }, [etapasMensal, idsEtapasVinculadas])
 
   /* Atrasadas: previsto (calculado pelas datas de início/fim que a
      Prevision já manda) menos o percentual que a Prevision reporta
@@ -95,7 +116,7 @@ export default function PlanejamentoDashboard() {
           tom={previsionHoje && previsionHoje.realizado >= previsionHoje.previsto ? 'success' : 'danger'}
         />
         <Indicador rotulo="Atividades" valor={itens.length} />
-        <Indicador rotulo="Vinculadas ao Mensal" valor={`${pctVinculadas}%`} tom={pctVinculadas < 50 ? 'danger' : undefined} />
+        <Indicador rotulo="Peso vinculado ao Mensal" valor={`${pctVinculadas}%`} tom={pctVinculadas < 50 ? 'danger' : undefined} />
       </div>
 
       <div className="card-flat chart-panel stack-2">
