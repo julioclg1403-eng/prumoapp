@@ -10,6 +10,10 @@
    - ReguaAderencia: previsto x realizado — a pergunta que se repete
      em Cronograma, Planejamento semanal, Medições, Efetivo, Projetos
      e Contratos. Um componente só, aprendido uma vez.
+   - GraficoPareto: causas — poucas barras respondem pela maior parte
+     do problema (regra 80/20). Barra + linha acumulada.
+   - CurvaSPrevision: base/previsto/realizado completos, mês a mês —
+     a curva S oficial da Prevision, mesma linguagem visual de lá.
 
    Regra de cor: o laranja da marca (--primary) é reservado pra ação/
    destaque, então os rankings e colunas (série única) usam ele como
@@ -173,6 +177,153 @@ export function ReguaAderencia({ itens, formatarValor = (v) => `${Math.round(v)}
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/* ── Pareto (regra 80/20) ──────────────────────────────────────
+   Barras ordenadas do maior pro menor (a única forma que faz sentido
+   pra Pareto — sem isso a linha acumulada não é monotônica de forma
+   útil) + linha do percentual acumulado, com uma marca pontilhada
+   nos 80%. Cor padrão --danger porque o caso de uso típico (causas
+   de não cumprimento) é sempre "isto é um problema". */
+export function GraficoPareto({ itens, formatarValor = (v) => String(v), cor = 'var(--danger)', vazio = 'Nada aqui ainda.' }) {
+  const ordenados = (itens || []).filter((i) => (i.valor || 0) > 0).sort((a, b) => (b.valor || 0) - (a.valor || 0))
+  const total = ordenados.reduce((s, i) => s + (i.valor || 0), 0)
+  if (ordenados.length === 0 || total <= 0) {
+    return <div className="t-caption">{vazio}</div>
+  }
+
+  let acumulado = 0
+  const comAcumulado = ordenados.map((item) => {
+    acumulado += item.valor || 0
+    return { ...item, pctAcumulado: (acumulado / total) * 100 }
+  })
+
+  const max = Math.max(1, ...ordenados.map((i) => i.valor || 0))
+  const H = 170
+  const PAD_TOP = 10
+  const PAD_BOT = 34
+  const larguraColuna = 68
+  const W = larguraColuna * comAcumulado.length
+  const areaUtil = H - PAD_TOP - PAD_BOT
+  const yBarra = (v) => PAD_TOP + (1 - v / max) * areaUtil
+  const yPct = (p) => PAD_TOP + (1 - p / 100) * areaUtil
+  const xCentro = (i) => larguraColuna * i + larguraColuna / 2
+  const linha = comAcumulado.map((item, i) => `${xCentro(i)},${yPct(item.pctAcumulado)}`).join(' ')
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: W, height: H, display: 'block' }}>
+        <line x1={0} x2={W} y1={yPct(80)} y2={yPct(80)} stroke="var(--border-strong)" strokeWidth={1} strokeDasharray="3,3" />
+        <text x={W} y={yPct(80) - 3} textAnchor="end" fontSize="9" fill="var(--text-3)">80%</text>
+
+        {comAcumulado.map((item, i) => (
+          <g key={item.chave ?? item.rotulo ?? i}>
+            <rect
+              x={xCentro(i) - larguraColuna * 0.28} y={yBarra(item.valor)}
+              width={larguraColuna * 0.56} height={Math.max(1, H - PAD_BOT - yBarra(item.valor))}
+              rx={3} fill={item.cor || cor}
+            >
+              <title>{`${item.rotulo}: ${formatarValor(item.valor)} · acumulado ${item.pctAcumulado.toFixed(0)}%`}</title>
+            </rect>
+            <text x={xCentro(i)} y={H - PAD_BOT + 13} textAnchor="middle" fontSize="9" fill="var(--text-3)">
+              {item.rotulo.length > 11 ? `${item.rotulo.slice(0, 10)}…` : item.rotulo}
+            </text>
+          </g>
+        ))}
+
+        <polyline points={linha} fill="none" stroke="var(--graphite)" strokeWidth={2} />
+        {comAcumulado.map((item, i) => (
+          <circle key={`pt-${item.chave ?? item.rotulo ?? i}`} cx={xCentro(i)} cy={yPct(item.pctAcumulado)} r={3.5} fill="var(--graphite)">
+            <title>{`Acumulado: ${item.pctAcumulado.toFixed(0)}%`}</title>
+          </circle>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+const dataCurta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+
+/* ── Curva S completa da Prevision (base/previsto/realizado) ───────
+   Mesma linguagem visual da tela "Curva S" da Prevision: base em
+   linha tracejada, previsto em linha sólida escura, realizado em
+   barra — só até a última medição de verdade (depois disso a
+   Prevision também não desenha barra nenhuma, porque não tem dado).
+   Amostra por ponto de fechamento de mês (scurve.period_end_dates)
+   em vez de todo dia — ~450 pontos diários não caberiam legíveis
+   num gráfico pequeno, e mês a mês já conta a história toda. */
+export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
+  if (!scurve?.period_end_dates?.length || !scurve?.dates?.length) {
+    return <div className="t-caption">{vazio}</div>
+  }
+  const pontos = scurve.period_end_dates
+    .map((data) => {
+      const idx = scurve.dates.indexOf(data)
+      if (idx < 0) return null
+      return {
+        data,
+        base: (scurve.base?.[idx] || 0) * 100,
+        previsto: (scurve.expected?.[idx] || 0) * 100,
+        realizado: (scurve.realized?.[idx] || 0) * 100,
+        medido: Boolean(scurve.measured?.[idx]),
+      }
+    })
+    .filter(Boolean)
+  if (pontos.length < 2) return <div className="t-caption">{vazio}</div>
+
+  const ultimoMedidoIdx = pontos.reduce((acc, p, i) => (p.medido ? i : acc), -1)
+
+  const W = 640
+  const H = 200
+  const PAD_TOP = 10
+  const PAD_BOT = 30
+  const areaUtil = H - PAD_TOP - PAD_BOT
+  const x = (i) => (pontos.length > 1 ? (i / (pontos.length - 1)) * W : 0)
+  const y = (v) => PAD_TOP + (1 - Math.min(100, Math.max(0, v)) / 100) * areaUtil
+
+  const linhaBase = pontos.map((p, i) => `${x(i)},${y(p.base)}`).join(' ')
+  const linhaPrevisto = pontos.map((p, i) => `${x(i)},${y(p.previsto)}`).join(' ')
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: W, height: H, display: 'block' }}>
+        {[0, 25, 50, 75, 100].map((p) => (
+          <line key={p} x1={0} x2={W} y1={y(p)} y2={y(p)} stroke="var(--border)" strokeWidth={1} />
+        ))}
+
+        {pontos.map((p, i) => (
+          i <= ultimoMedidoIdx && p.realizado > 0 ? (
+            <rect
+              key={`r-${i}`} x={x(i) - 6} y={y(p.realizado)} width={12}
+              height={Math.max(0, H - PAD_BOT - y(p.realizado))} rx={2} fill="var(--info)"
+            >
+              <title>{`${dataCurta(p.data)}: Realizado ${p.realizado.toFixed(1)}%`}</title>
+            </rect>
+          ) : null
+        ))}
+
+        <polyline points={linhaBase} fill="none" stroke="var(--danger)" strokeWidth={2} strokeDasharray="5,3" />
+        <polyline points={linhaPrevisto} fill="none" stroke="var(--graphite)" strokeWidth={2} />
+
+        {pontos.map((p, i) => (
+          <text key={`lbl-${i}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9" fill="var(--text-3)">
+            {dataCurta(p.data)}
+          </text>
+        ))}
+      </svg>
+      <div className="row-wrap" style={{ gap: 14, marginTop: 6 }}>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 14, height: 2, background: 'var(--danger)', display: 'inline-block' }} /> Base
+        </span>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 14, height: 2, background: 'var(--graphite)', display: 'inline-block' }} /> Previsto
+        </span>
+        <span className="t-caption" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--info)', display: 'inline-block' }} /> Realizado
+        </span>
+      </div>
     </div>
   )
 }

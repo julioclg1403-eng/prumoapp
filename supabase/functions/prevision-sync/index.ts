@@ -149,6 +149,7 @@ async function buscarSCurve(apiKey: string, projectId: string) {
     base: curva.base,
     expected: curva.expected,
     realized: curva.realized,
+    measured: curva.measured,
     period_end_dates: curva.period_end_dates,
   }
 }

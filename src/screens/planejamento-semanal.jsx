@@ -18,13 +18,13 @@ import {
   hojeISO, somarDias, formatarData, formatarDataCurta, nomeDiaSemana,
   inicioDaSemana, diasDaSemana, rotuloDaSemana, fecharSemana, SITUACAO_EXECUCAO,
   agruparPlanejamento, plural, etapaCorrespondenteAoGrupo, MOTIVO_SEM_SINCRONIA,
-  chaveGrupoPlanejamento,
+  chaveGrupoPlanejamento, MOTIVOS_NAO_EXECUTADO, ROTULO_MOTIVO_NAO_EXECUTADO,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Sheet, Campo, Confirmar, Vazio, Indicador, useDesktop, Segmentos,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, CalendarioMes,
 } from '../components'
-import { GraficoColunas } from '../components/charts'
+import { GraficoColunas, GraficoPareto } from '../components/charts'
 
 const DIAS = [
   { indice: 0, curto: 'Seg' }, { indice: 1, curto: 'Ter' }, { indice: 2, curto: 'Qua' },
@@ -1083,6 +1083,21 @@ function Fechamento({ semana, dados, goto, inicio }) {
     return semanas
   }, [inicio, dados.planejamento, dados.diarios])
 
+  /* Pareto de causas — conta os motivos marcados na mesma janela de
+     8 semanas do histórico de PPC acima, pra ter amostra suficiente
+     (uma semana só quase sempre tem poucos itens pra virar Pareto). */
+  const motivosPareto = useMemo(() => {
+    const semanasJanela = new Set(historicoPPC.map((s) => s.chave))
+    const contagem = new Map()
+    for (const m of dados.motivosNaoExecutado) {
+      if (!semanasJanela.has(m.semana_inicio)) continue
+      contagem.set(m.motivo, (contagem.get(m.motivo) || 0) + 1)
+    }
+    return [...contagem.entries()].map(([motivo, valor]) => ({
+      chave: motivo, rotulo: ROTULO_MOTIVO_NAO_EXECUTADO[motivo] || motivo, valor,
+    }))
+  }, [dados.motivosNaoExecutado, historicoPPC])
+
   return (
     <div className="card stack-2">
       <div className="row-between">
@@ -1127,15 +1142,22 @@ function Fechamento({ semana, dados, goto, inicio }) {
       {semana.naoExecutadas > 0 && (
         <div>
           <div className="t-micro" style={{ marginBottom: 8 }}>Planejado e não executado</div>
+          <div className="t-caption" style={{ marginBottom: 8, color: 'var(--text-2)' }}>
+            Marcar o motivo alimenta o Pareto de causas abaixo — vale a pena preencher no fechamento.
+          </div>
           <div className="stack-1">
             {semana.planejados.filter((g) => g.situacao.chave === 'nao_executada').map((g) => {
               const primeiro = g.itens[0]
+              const motivoAtual = dados.motivosNaoExecutado.find((m) => (
+                m.service_id === g.service_id && m.location_id === g.location_id
+                && (m.company_id || null) === (g.company_id || null) && m.semana_inicio === inicio
+              ))?.motivo || ''
               return (
-                <button
-                  key={g.chave} className="card-tap" style={{ padding: 10 }}
-                  onClick={() => goto('diario', { data: primeiro.planejada.data, id: primeiro.situacao.diario?.id })}
-                >
-                  <div className="row-between">
+                <div key={g.chave} className="card-flat" style={{ padding: 10 }}>
+                  <button
+                    className="row-between" style={{ width: '100%', border: 0, background: 'transparent', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                    onClick={() => goto('diario', { data: primeiro.planejada.data, id: primeiro.situacao.diario?.id })}
+                  >
                     <div className="grow">
                       <div className="t-strong" style={{ fontSize: 13 }}>
                         {dados.nomeDe(dados.servicos, g.service_id)}
@@ -1143,13 +1165,32 @@ function Fechamento({ semana, dados, goto, inicio }) {
                       <div className="t-caption">{dados.nomeDe(dados.locais, g.location_id)}</div>
                     </div>
                     <Icon name="avancar" size={16} style={{ color: 'var(--text-3)' }} />
-                  </div>
-                </button>
+                  </button>
+                  <select
+                    className="sel" style={{ marginTop: 8, height: 32, fontSize: 12 }}
+                    value={motivoAtual}
+                    onChange={(e) => dados.salvarMotivoNaoExecutado(g, inicio, e.target.value)}
+                  >
+                    <option value="">Motivo — não marcado</option>
+                    {MOTIVOS_NAO_EXECUTADO.map((m) => (
+                      <option key={m} value={m}>{ROTULO_MOTIVO_NAO_EXECUTADO[m]}</option>
+                    ))}
+                  </select>
+                </div>
               )
             })}
           </div>
         </div>
       )}
+
+      <div>
+        <div className="t-caption" style={{ marginBottom: 8 }}>Causas de não cumprimento — últimas 8 semanas</div>
+        <GraficoPareto
+          itens={motivosPareto}
+          formatarValor={(v) => plural(v, 'vez', 'vezes')}
+          vazio="Nenhum motivo marcado ainda nas últimas semanas."
+        />
+      </div>
 
       {semana.naoPlanejados.length > 0 && (
         <div>

@@ -662,6 +662,32 @@ export function chaveGrupoPlanejamento(p) {
   return `${p.service_id}|${p.location_id}|${p.company_id || ''}`
 }
 
+/* Causas de não cumprimento (Last Planner System) — lista fechada,
+   pra virar Pareto de verdade em vez de texto livre que ninguém
+   consegue agrupar depois. */
+export const MOTIVOS_NAO_EXECUTADO = [
+  'falta_material', 'falta_projeto', 'chuva', 'falta_mao_de_obra',
+  'retrabalho', 'interferencia_outra_equipe', 'equipamento_indisponivel', 'outro',
+]
+export const ROTULO_MOTIVO_NAO_EXECUTADO = {
+  falta_material: 'Falta de material',
+  falta_projeto: 'Falta de projeto',
+  chuva: 'Chuva',
+  falta_mao_de_obra: 'Falta de mão de obra',
+  retrabalho: 'Retrabalho',
+  interferencia_outra_equipe: 'Interferência de outra equipe',
+  equipamento_indisponivel: 'Equipamento indisponível',
+  outro: 'Outro',
+}
+
+/* Mesma chave de chaveGrupoPlanejamento, mas com a semana junto — o
+   motivo de não cumprimento é por grupo E por semana (o mesmo
+   serviço pode não rolar em semanas diferentes por razões
+   diferentes). */
+export function chaveMotivoNaoExecutado(grupo, semanaInicio) {
+  return `${chaveGrupoPlanejamento(grupo)}|${semanaInicio}`
+}
+
 /* Reúne o planejamento de uma janela (semana ou mês) por serviço +
    local + empresa: um serviço de vários dias vira UMA linha, não uma
    por dia. O início/fim real olha para TODA a obra, não só a janela
@@ -998,14 +1024,24 @@ export function curvaFisica(itens, hoje = hojeISO()) {
    enquanto isso); estas duas funções usam o dado real quando ele
    existe, pra nunca discordar do que a Prevision mostra pro Julio.
 
-   scurve tem 4 arrays paralelos (mesmo índice = mesmo dia):
-   dates, base, expected (previsto), realized — cada um dos 3
-   últimos é uma fração 0-1 acumulada desde o início do projeto. */
+   scurve tem arrays paralelos (mesmo índice = mesmo dia): dates,
+   base, expected (previsto), realized, measured — os 3 primeiros são
+   uma fração 0-1 acumulada desde o início do projeto; measured
+   marca em quais dias existe medição de verdade (não todo dia tem).
+
+   A tela "Avanço Físico" da Prevision não usa a data de HOJE pro
+   corte — usa a data da ÚLTIMA MEDIÇÃO (measured=true), pra Base/
+   Previsto/Realizado sempre estarem alinhados no mesmo ponto no
+   tempo (senão previsto avança sozinho todo dia enquanto realizado
+   fica parado até a próxima medição, e os três nunca "combinam").
+   Confirmado contra print real: bate exato usando essa data. */
 export function previsionCurvaHoje(scurve, hoje = hojeISO()) {
   if (!scurve?.dates?.length) return null
-  const idx = scurve.dates.indexOf(hoje)
+  const idxMedido = (scurve.measured || []).lastIndexOf(true)
+  const idx = idxMedido >= 0 ? idxMedido : scurve.dates.indexOf(hoje)
   if (idx < 0) return null
   return {
+    data: scurve.dates[idx],
     base: (scurve.base?.[idx] || 0) * 100,
     previsto: (scurve.expected?.[idx] || 0) * 100,
     realizado: (scurve.realized?.[idx] || 0) * 100,

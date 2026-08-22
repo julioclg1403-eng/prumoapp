@@ -205,7 +205,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
-      suprimentos, entregasEquipamento, contratos, previsionProjectLinks,
+      suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -248,6 +248,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('equipment_deliveries').select('*').order('data', { ascending: false })),
       buscarPaginado(() => supabase.from('contract_items').select('*').order('cod_contrato')),
       buscarPaginado(() => supabase.from('prevision_project_links').select('*')),
+      buscarPaginado(() => supabase.from('planned_activity_delay_reasons').select('*')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -258,7 +259,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
-      previsionProjectLinks].find((r) => r.error)
+      previsionProjectLinks, motivosNaoExecutado].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -325,6 +326,7 @@ export function DadosProvider({ perfil, children }) {
       entregasEquipamento: entregasEquipamento.data || [],
       contratos: contratos.data || [],
       previsionProjectLinks: previsionProjectLinks.data || [],
+      motivosNaoExecutado: motivosNaoExecutado.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -423,6 +425,7 @@ export function DadosProvider({ perfil, children }) {
       entregasEquipamento: filtrar(tudo.entregasEquipamento),
       contratos: filtrar(tudo.contratos),
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
+      motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
     }
   }, [tudo, obraId])
 
@@ -2225,6 +2228,45 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, perfil.id],
   )
 
+  /* Motivo de não cumprimento (causa da não execução) — um por grupo
+     planejado (serviço+local+empresa) e por semana, pro Pareto de
+     causas do fechamento. Sem chave gerada no banco (o índice único
+     usa coalesce, que o upsert do PostgREST não referencia direito),
+     então faz na mão: procura se já existe, atualiza ou cria. */
+  const salvarMotivoNaoExecutado = useCallback(
+    async (grupo, semanaInicio, motivo) => {
+      const { organization_id, worksite_id } = escopo()
+      let consulta = supabase.from('planned_activity_delay_reasons')
+        .select('id')
+        .eq('worksite_id', worksite_id).eq('service_id', grupo.service_id)
+        .eq('location_id', grupo.location_id).eq('semana_inicio', semanaInicio)
+      consulta = grupo.company_id ? consulta.eq('company_id', grupo.company_id) : consulta.is('company_id', null)
+      const existente = await consulta.maybeSingle()
+      if (existente.error) { checar(existente, 'salvar o motivo'); return null }
+
+      const linha = {
+        organization_id, worksite_id,
+        service_id: grupo.service_id, location_id: grupo.location_id, company_id: grupo.company_id || null,
+        semana_inicio: semanaInicio, motivo, autor_id: perfil.id, atualizado_em: new Date().toISOString(),
+      }
+      const salvo = checar(
+        existente.data
+          ? await supabase.from('planned_activity_delay_reasons').update(linha).eq('id', existente.data.id).select('*').single()
+          : await supabase.from('planned_activity_delay_reasons').insert(linha).select('*').single(),
+        'salvar o motivo de não execução',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        motivosNaoExecutado: t.motivosNaoExecutado.some((m) => m.id === salvo.id)
+          ? t.motivosNaoExecutado.map((m) => (m.id === salvo.id ? salvo : m))
+          : [...t.motivosNaoExecutado, salvo],
+      }))
+      return salvo
+    },
+    [escopo, checar, perfil.id],
+  )
+
   // ── Cronograma físico ─────────────────────────────────────
   const salvarItemCronograma = useCallback(
     async (item) => {
@@ -2968,6 +3010,7 @@ export function DadosProvider({ perfil, children }) {
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
+      salvarMotivoNaoExecutado,
       definirPapel, definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       redefinirSenhaUsuario,
       salvarItemCronograma, importarCronograma, importarCronogramaPDF, importarCronogramaGlobal,
@@ -2999,7 +3042,8 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
-      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento, definirPapel,
+      salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
+      salvarMotivoNaoExecutado, definirPapel,
       definirModulosPermitidos, definirObrasPermitidas, vincularContatoWhatsapp,
       redefinirSenhaUsuario,
       salvarRequisicao, moverRequisicao, excluirRequisicao,

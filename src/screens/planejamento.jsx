@@ -19,8 +19,9 @@ import { Segmentos } from '../components'
 import PlanejamentoSemanal from './planejamento-semanal'
 import PlanejamentoMensal from './planejamento-mensal'
 import PlanejamentoGlobal from './planejamento-global'
+import PlanejamentoDashboard from './planejamento-dashboard'
 
-const ROTULO_ABA = { global: 'Global', semanal: 'Semanal', mensal: 'Mensal' }
+const ROTULO_ABA = { global: 'Global', semanal: 'Semanal', mensal: 'Mensal', dashboard: 'Dashboard' }
 
 export default function Planejamento({ goto, perfil, params = {} }) {
   const [aba, setAba] = useState(ROTULO_ABA[params.aba] ? params.aba : 'semanal')
@@ -42,6 +43,7 @@ export default function Planejamento({ goto, perfil, params = {} }) {
             { valor: 'global', rotulo: 'Global' },
             { valor: 'semanal', rotulo: 'Semanal' },
             { valor: 'mensal', rotulo: 'Mensal' },
+            { valor: 'dashboard', rotulo: 'Dashboard' },
           ]}
         />
       </div>
@@ -49,6 +51,7 @@ export default function Planejamento({ goto, perfil, params = {} }) {
       {aba === 'global' && <PlanejamentoGlobal perfil={perfil} />}
       {aba === 'semanal' && <PlanejamentoSemanal goto={goto} perfil={perfil} />}
       {aba === 'mensal' && <PlanejamentoMensal perfil={perfil} goto={goto} />}
+      {aba === 'dashboard' && <PlanejamentoDashboard />}
     </>
   )
 }
