@@ -454,7 +454,7 @@ function AbaDashboard({ pedidos }) {
   const [periodoFim, setPeriodoFim] = useState(hoje)
   const [destinoFiltro, setDestinoFiltro] = useState('todos')
   const [buscaInsumo, setBuscaInsumo] = useState('')
-  const [materialSelecionado, setMaterialSelecionado] = useState(null)
+  const [grupoSelecionado, setGrupoSelecionado] = useState(null)
 
   /* Filtro de período olha a data do Pedido — é o marco que sempre
      existe (Entrega às vezes não), e é o que faz sentido pra "quanto
@@ -492,8 +492,14 @@ function AbaDashboard({ pedidos }) {
      período/tipo escolhido. */
   const porEstagio = useMemo(() => {
     const mapa = new Map()
-    for (const p of pedidosFiltrados) mapa.set(p.estagio || 'Sem estágio', (mapa.get(p.estagio || 'Sem estágio') || 0) + 1)
-    return [...mapa.entries()].map(([estagio, quantidade]) => ({ estagio, quantidade })).sort((a, b) => b.quantidade - a.quantidade)
+    for (const p of pedidosFiltrados) {
+      const chave = p.estagio || 'Sem estágio'
+      if (!mapa.has(chave)) mapa.set(chave, [])
+      mapa.get(chave).push(p)
+    }
+    return [...mapa.entries()]
+      .map(([estagio, itens]) => ({ estagio, quantidade: itens.length, itens }))
+      .sort((a, b) => b.quantidade - a.quantidade)
   }, [pedidosFiltrados])
 
   /* Por tipo de material (Destino) — sempre olha o período inteiro,
@@ -534,7 +540,7 @@ function AbaDashboard({ pedidos }) {
     }
     return [...mapa.entries()]
       .map(([insumo, itens]) => ({
-        insumo, quantidade: itens.length,
+        insumo, itens, quantidade: itens.length,
         total: media(itens.map((i) => ({ t: i.dias_pedido_compra + i.dias_compra_entrega })), 't'),
       }))
       .sort((a, b) => b.total - a.total)
@@ -548,9 +554,10 @@ function AbaDashboard({ pedidos }) {
     for (const p of pedidosFiltrados) {
       const v = valorItem(p)
       if (v == null) continue
-      const atual = mapa.get(p.insumo) || { quantidade: 0, valor: 0 }
+      const atual = mapa.get(p.insumo) || { quantidade: 0, valor: 0, itens: [] }
       atual.quantidade += 1
       atual.valor += v
+      atual.itens.push(p)
       mapa.set(p.insumo, atual)
     }
     return [...mapa.entries()].map(([insumo, info]) => ({ insumo, ...info })).sort((a, b) => b.valor - a.valor).slice(0, 15)
@@ -730,6 +737,10 @@ function AbaDashboard({ pedidos }) {
                 <RankingBarras
                   itens={porEstagio.map((e) => ({ chave: e.estagio, rotulo: e.estagio, valor: e.quantidade }))}
                   formatarValor={(v) => String(v)}
+                  onClicarItem={(item) => {
+                    const grupo = porEstagio.find((e) => e.estagio === item.chave)
+                    if (grupo) setGrupoSelecionado({ titulo: grupo.estagio, itens: grupo.itens })
+                  }}
                 />
               </PainelColapsavel>
             </div>
@@ -752,6 +763,10 @@ function AbaDashboard({ pedidos }) {
               itens={porInsumoTempo.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.total, contador: i.quantidade }))}
               formatarValor={formatarDias}
               vazio="Nenhum pedido com os dois tempos calculados ainda."
+              onClicarItem={(item) => {
+                const grupo = porInsumoTempo.find((i) => i.insumo === item.chave)
+                if (grupo) setGrupoSelecionado({ titulo: grupo.insumo, itens: grupo.itens })
+              }}
             />
           </PainelColapsavel>
 
@@ -760,6 +775,10 @@ function AbaDashboard({ pedidos }) {
               itens={porInsumoValor.map((i) => ({ chave: i.insumo, rotulo: i.insumo, valor: i.valor, contador: i.quantidade }))}
               formatarValor={formatarDinheiro}
               vazio="Nenhum pedido com preço lançado ainda."
+              onClicarItem={(item) => {
+                const grupo = porInsumoValor.find((i) => i.insumo === item.chave)
+                if (grupo) setGrupoSelecionado({ titulo: grupo.insumo, itens: grupo.itens })
+              }}
             />
           </PainelColapsavel>
 
@@ -774,37 +793,46 @@ function AbaDashboard({ pedidos }) {
               formatarValor={(v) => `${v} dia${v === 1 ? '' : 's'}`}
               cor="var(--danger)"
               vazio="Nada pendente — todo pedido nesse filtro já tem Data Entrega."
-              onClicarItem={(item) => setMaterialSelecionado(materiaisNaoChegaram.find((m) => m.insumo === item.chave))}
+              onClicarItem={(item) => {
+                const grupo = materiaisNaoChegaram.find((m) => m.insumo === item.chave)
+                if (grupo) setGrupoSelecionado({ titulo: grupo.insumo, itens: grupo.itens })
+              }}
             />
           </PainelColapsavel>
         </>
       )}
 
-      <SheetMaterialNaoChegou material={materialSelecionado} onFechar={() => setMaterialSelecionado(null)} />
+      <SheetPedidosDoGrupo grupo={grupoSelecionado} onFechar={() => setGrupoSelecionado(null)} />
     </div>
   )
 }
 
-/* ── Sheet: todos os pedidos em aberto de um material — o que dá
-   pra levar pra uma cobrança ao Compras sem precisar abrir pedido
-   por pedido. Um card por pedido, com o que muda de um pra outro
-   (nº do pedido, cotação, estágio, previsão) — o resto (insumo) já
-   está no título. */
-function SheetMaterialNaoChegou({ material, onFechar }) {
+/* ── Sheet: todos os pedidos por trás de um item do dashboard —
+   qualquer ranking (mais caro, mais demorado, por estágio, sem
+   entrega) abre isto ao clicar. O que dá pra levar pra uma cobrança
+   ao Compras sem precisar abrir pedido por pedido. Um card por
+   pedido, com o que muda de um pra outro (nº do pedido, cotação,
+   estágio, previsão) — o resto (o que agrupou, tipo o insumo ou o
+   estágio) já está no título. */
+function SheetPedidosDoGrupo({ grupo, onFechar }) {
   const hoje = hojeISO()
-  const itensOrdenados = material
-    ? [...material.itens].sort((a, b) => (b.data_pedido || '').localeCompare(a.data_pedido || ''))
+  const itensOrdenados = grupo
+    ? [...grupo.itens].sort((a, b) => (b.data_pedido || '').localeCompare(a.data_pedido || ''))
     : []
+  const valorTotal = grupo
+    ? grupo.itens.reduce((s, p) => s + (p.preco != null && p.quantidade != null ? p.preco * p.quantidade : 0), 0)
+    : 0
   return (
-    <Sheet aberto={Boolean(material)} titulo={material ? material.insumo : ''} onFechar={onFechar}>
-      {material && (
+    <Sheet aberto={Boolean(grupo)} titulo={grupo ? grupo.titulo : ''} onFechar={onFechar}>
+      {grupo && (
         <div className="stack-2">
           <div className="t-caption">
-            {plural(material.itens.length, 'pedido em aberto', 'pedidos em aberto')} · {formatarDinheiro(material.valor)} no total
+            {plural(grupo.itens.length, 'pedido', 'pedidos')}{valorTotal > 0 ? ` · ${formatarDinheiro(valorTotal)} no total` : ''}
           </div>
           {itensOrdenados.map((p) => {
-            const diasEsperando = p.data_pedido ? diferencaDiasSimples(p.data_pedido, hoje) : null
-            const diasPrevisao = p.previsao_entrega ? diferencaDiasSimples(p.previsao_entrega, hoje) : null
+            const diasEsperando = p.data_pedido && !p.data_entrega ? diferencaDiasSimples(p.data_pedido, hoje) : null
+            const diasPrevisao = p.previsao_entrega && !p.data_entrega ? diferencaDiasSimples(p.previsao_entrega, hoje) : null
+            const diasAteEntrega = p.data_pedido && p.data_entrega ? diferencaDiasSimples(p.data_pedido, p.data_entrega) : null
             return (
               <div key={p.id} className="card-flat stack-1">
                 <div className="row-between" style={{ alignItems: 'center' }}>
@@ -822,7 +850,12 @@ function SheetMaterialNaoChegou({ material, onFechar }) {
                     {diasEsperando != null && <span style={{ color: 'var(--danger)' }}> · esperando há {diasEsperando}d</span>}
                   </span>
                 </div>
-                {p.previsao_entrega ? (
+                {p.data_entrega ? (
+                  <div className="t-caption">
+                    Entregue em <span className="t-strong" style={{ color: 'var(--success)' }}>{formatarDataCurta(p.data_entrega)}</span>
+                    {diasAteEntrega != null && <span style={{ color: 'var(--text-2)' }}> · levou {diasAteEntrega}d desde o pedido</span>}
+                  </div>
+                ) : p.previsao_entrega ? (
                   <div className="t-caption">
                     Previsão de entrega <span className="t-strong">{formatarDataCurta(p.previsao_entrega)}</span>
                     {diasPrevisao != null && (
