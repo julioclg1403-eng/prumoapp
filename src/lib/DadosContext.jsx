@@ -1794,11 +1794,28 @@ export function DadosProvider({ perfil, children }) {
         .select('insumo, destino').eq('worksite_id', worksite_id).not('destino', 'is', null)
       const destinoPorInsumo = new Map((destinosR.data || []).map((d) => [d.insumo, d.destino]))
 
+      /* Previsão de entrega: o setor de Suprimentos digita ISSO na
+         planilha deles ANTES de entregar — e assim que entrega, o
+         próprio sistema deles limpa essa coluna (confirmado numa
+         planilha real: pedido já entregue veio com "Data Prevista de
+         Entrega" em branco). Se a gente reimportasse isso direto,
+         perderia pra sempre a data que foi prevista, exatamente o
+         dado que o Julio quer guardar pra saber se entregou no prazo.
+         Por isso herda do banco quando a planilha nova vier vazia —
+         só troca quando vem um valor novo de verdade. */
+      const previsoesR = await supabase.from('supply_orders')
+        .select('pedido, codigo_insumo, previsao_entrega')
+        .eq('worksite_id', worksite_id).not('previsao_entrega', 'is', null)
+      const previsaoPorChave = new Map(
+        (previsoesR.data || []).map((p) => [`${p.pedido}|${p.codigo_insumo}`, p.previsao_entrega]),
+      )
+
       const linhas = itens.map((i) => ({
         organization_id, worksite_id, autor_id: perfil.id,
         pedido: i.pedido, cotacao: i.cotacao, codigo_insumo: i.codigo_insumo, insumo: i.insumo,
         data_pedido: i.data_pedido, aprov_pedido: i.aprov_pedido, aprov_simulacao: i.aprov_simulacao,
         confirm_cotacao: i.confirm_cotacao, fechamento_compra: i.fechamento_compra, data_entrega: i.data_entrega,
+        previsao_entrega: i.previsao_entrega || previsaoPorChave.get(`${i.pedido}|${i.codigo_insumo}`) || null,
         excluido: i.excluido, quantidade: i.quantidade, preco: i.preco,
         dias_pedido_compra: i.dias_pedido_compra, dias_compra_entrega: i.dias_compra_entrega, estagio: i.estagio,
         destino: destinoPorInsumo.get(i.insumo) || null,

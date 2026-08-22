@@ -278,7 +278,13 @@ function AbaDados({ pedidos, dados, podeEditar }) {
                   <td className="t-num">{p.quantidade ?? '—'}</td>
                   <td className="t-num">{formatarDinheiro(p.preco)}</td>
                   <td style={{ color: 'var(--text-2)' }}>{p.data_pedido ? formatarDataCurta(p.data_pedido) : '—'}</td>
-                  <td style={{ color: 'var(--text-2)' }}>{p.data_entrega ? formatarDataCurta(p.data_entrega) : '—'}</td>
+                  <td style={{ color: 'var(--text-2)' }}>
+                    {p.data_entrega ? formatarDataCurta(p.data_entrega) : (
+                      p.previsao_entrega
+                        ? <span className="t-caption">Previsto {formatarDataCurta(p.previsao_entrega)}</span>
+                        : '—'
+                    )}
+                  </td>
                   <td className="t-num">{p.dias_pedido_compra ?? '—'}</td>
                   <td className="t-num">{p.dias_compra_entrega ?? '—'}</td>
                   <td><Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || '—'}</Chip></td>
@@ -407,6 +413,22 @@ function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
                 </div>
               )
             })}
+            {pedido.previsao_entrega && (
+              <div className="row-between" style={{ alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--info)' }} />
+                  <span className="t-caption">Previsão de entrega</span>
+                </div>
+                <span className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  {pedido.data_entrega && (() => {
+                    const diff = diferencaDiasSimples(pedido.previsao_entrega, pedido.data_entrega)
+                    if (diff <= 0) return <Chip tom="success">{diff === 0 ? 'No prazo' : `${-diff}d antes`}</Chip>
+                    return <Chip tom="danger">{`${diff}d de atraso`}</Chip>
+                  })()}
+                  <span className="t-caption t-strong">{formatarData(pedido.previsao_entrega)}</span>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="row-wrap" style={{ gap: 10 }}>
