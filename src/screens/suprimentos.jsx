@@ -23,9 +23,13 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial, filtrarPorPeriodo,
+  hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, insumoCorrespondeMaterial,
+  filtrarPorPeriodo, rotuloPeriodo,
 } from '../lib/dominio'
-import { Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, PainelColapsavel } from '../components'
+import {
+  Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Vazio, Indicador, PainelColapsavel,
+  FiltroPeriodo, SecaoRecolhivel,
+} from '../components'
 import { RankingBarras, GraficoColunas, GraficoDonut } from '../components/charts'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
@@ -33,37 +37,6 @@ const ROTULO_DESTINO = {
   almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração', equipamentos: 'Equipamentos',
 }
 const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-
-/* Mesmo filtro Tudo/Dia/Mês/Período usado no Almoxarifado e na
-   Segurança — componente local pra não criar dependência cruzada
-   entre telas por um pedaço de UI tão pequeno. */
-function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio, fim, onFim }) {
-  return (
-    <div className="stack-1">
-      <Segmentos
-        valor={modo} onChange={onModo}
-        opcoes={[
-          { valor: 'tudo', rotulo: 'Tudo' },
-          { valor: 'dia', rotulo: 'Dia' },
-          { valor: 'mes', rotulo: 'Mês' },
-          { valor: 'periodo', rotulo: 'Período' },
-        ]}
-      />
-      {modo === 'dia' && <input className="ipt" type="date" value={dia} onChange={(e) => onDia(e.target.value)} />}
-      {modo === 'mes' && <input className="ipt" type="month" value={mes} onChange={(e) => onMes(e.target.value)} />}
-      {modo === 'periodo' && (
-        <div className="row-flex">
-          <Campo label="De">
-            <input className="ipt" type="date" value={inicio} onChange={(e) => onInicio(e.target.value)} />
-          </Campo>
-          <Campo label="Até">
-            <input className="ipt" type="date" value={fim} onChange={(e) => onFim(e.target.value)} />
-          </Campo>
-        </div>
-      )}
-    </div>
-  )
-}
 
 function formatarDias(dias) {
   if (dias == null) return '—'
@@ -674,25 +647,40 @@ function AbaDashboard({ pedidos }) {
 
   return (
     <div className="stack-2">
-      <div className="card-flat stack-1">
-        <div className="t-micro">Período (data do pedido)</div>
-        <FiltroPeriodo
-          modo={periodoModo} onModo={setPeriodoModo}
-          dia={periodoDia} onDia={setPeriodoDia}
-          mes={periodoMes} onMes={setPeriodoMes}
-          inicio={periodoInicio} onInicio={setPeriodoInicio}
-          fim={periodoFim} onFim={setPeriodoFim}
-        />
-      </div>
+      <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ flex: '1 1 220px' }}>
+          <SecaoRecolhivel
+            titulo="Período (data do pedido)"
+            resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+          >
+            <FiltroPeriodo
+              modo={periodoModo} onModo={setPeriodoModo}
+              dia={periodoDia} onDia={setPeriodoDia}
+              mes={periodoMes} onMes={setPeriodoMes}
+              inicio={periodoInicio} onInicio={setPeriodoInicio}
+              fim={periodoFim} onFim={setPeriodoFim}
+            />
+          </SecaoRecolhivel>
+        </div>
 
-      <div className="row-wrap" style={{ gap: 6 }}>
-        <span className="t-caption" style={{ alignSelf: 'center', marginRight: 2 }}>Tipo de material:</span>
-        <button className={`btn btn-sm ${destinoFiltro === 'todos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('todos')}>Todos</button>
-        <button className={`btn btn-sm ${destinoFiltro === 'almoxarifado' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('almoxarifado')}>Almoxarifado</button>
-        <button className={`btn btn-sm ${destinoFiltro === 'epi' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('epi')}>EPI</button>
-        <button className={`btn btn-sm ${destinoFiltro === 'equipamentos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('equipamentos')}>Equipamentos</button>
-        <button className={`btn btn-sm ${destinoFiltro === 'administracao' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('administracao')}>Administração</button>
-        <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
+        <div style={{ flex: '1 1 220px' }}>
+          <SecaoRecolhivel
+            titulo="Tipo de material"
+            resumo={{
+              todos: 'Todos', almoxarifado: 'Almoxarifado', epi: 'EPI',
+              equipamentos: 'Equipamentos', administracao: 'Administração', sem: 'Sem destino',
+            }[destinoFiltro]}
+          >
+            <div className="row-wrap" style={{ gap: 6 }}>
+              <button className={`btn btn-sm ${destinoFiltro === 'todos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('todos')}>Todos</button>
+              <button className={`btn btn-sm ${destinoFiltro === 'almoxarifado' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('almoxarifado')}>Almoxarifado</button>
+              <button className={`btn btn-sm ${destinoFiltro === 'epi' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('epi')}>EPI</button>
+              <button className={`btn btn-sm ${destinoFiltro === 'equipamentos' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('equipamentos')}>Equipamentos</button>
+              <button className={`btn btn-sm ${destinoFiltro === 'administracao' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('administracao')}>Administração</button>
+              <button className={`btn btn-sm ${destinoFiltro === 'sem' ? 'btn-dark' : 'btn-secondary'}`} onClick={() => setDestinoFiltro('sem')}>Sem destino</button>
+            </div>
+          </SecaoRecolhivel>
+        </div>
       </div>
 
       <div style={{ position: 'relative' }}>

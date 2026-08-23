@@ -282,6 +282,69 @@ export function Segmentos({ opcoes, valor, onChange }) {
   )
 }
 
+/* ── Filtro de período (Tudo/Dia/Mês/Período) ────────────────
+   Mesmo controle usado em Suprimentos, Almoxarifado, Segurança e
+   Pendências — só um lugar agora, pra não haver mais cópia igual em
+   cada tela. Controlado: quem chama é dono do estado. */
+export function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio, fim, onFim }) {
+  return (
+    <div className="stack-1">
+      <Segmentos
+        valor={modo} onChange={onModo}
+        opcoes={[
+          { valor: 'tudo', rotulo: 'Tudo' },
+          { valor: 'dia', rotulo: 'Dia' },
+          { valor: 'mes', rotulo: 'Mês' },
+          { valor: 'periodo', rotulo: 'Período' },
+        ]}
+      />
+      {modo === 'dia' && <input className="ipt" type="date" value={dia} onChange={(e) => onDia(e.target.value)} />}
+      {modo === 'mes' && <input className="ipt" type="month" value={mes} onChange={(e) => onMes(e.target.value)} />}
+      {modo === 'periodo' && (
+        <div className="row-flex">
+          <Campo label="De">
+            <input className="ipt" type="date" value={inicio} onChange={(e) => onInicio(e.target.value)} />
+          </Campo>
+          <Campo label="Até">
+            <input className="ipt" type="date" value={fim} onChange={(e) => onFim(e.target.value)} />
+          </Campo>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Seção recolhível (fechada por padrão) ────────────────────
+   Pra filtro (período, agrupamento, visão): fica fechado até a
+   pessoa tocar, com um resumo do que está escolhido ao lado da seta
+   — não precisa abrir pra saber que está em "Tudo" ou "Lista". Duas
+   lado a lado (ver como é usado nas telas) cabem numa linha só, em
+   vez de empilhar cada filtro tomando a largura toda. */
+export function SecaoRecolhivel({ titulo, resumo, contador, aberto: abertoControlado, onToggle, children }) {
+  const [abertoLocal, setAbertoLocal] = useState(false)
+  const aberto = abertoControlado ?? abertoLocal
+  const alternar = onToggle || (() => setAbertoLocal((v) => !v))
+  return (
+    <div className="card-flat">
+      <button
+        className="row-between"
+        style={{ width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        onClick={alternar}
+      >
+        <span className="t-micro">
+          {titulo}
+          {contador != null ? ` (${contador})` : ''}
+        </span>
+        <span className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+          {resumo && !aberto && <span className="t-caption" style={{ color: 'var(--text-2)' }}>{resumo}</span>}
+          <Icon name="avancar" size={14} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s', flex: 'none' }} />
+        </span>
+      </button>
+      {aberto && <div className="stack-2" style={{ marginTop: 10 }}>{children}</div>}
+    </div>
+  )
+}
+
 /* ── Estado vazio: sempre diz qual é o próximo passo ─────── */
 
 export function Vazio({ titulo, texto, acao }) {

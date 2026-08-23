@@ -12,9 +12,12 @@ import {
   diarioDaData, totalPresentes,
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
-  previsionCurvaHoje, previsionProgressoMensal, progressoEsperado, filtrarPorPeriodo,
+  previsionCurvaHoje, previsionProgressoMensal, progressoEsperado, filtrarPorPeriodo, rotuloPeriodo,
 } from '../lib/dominio'
-import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop, Segmentos, Campo } from '../components'
+import {
+  Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop,
+  FiltroPeriodo, SecaoRecolhivel,
+} from '../components'
 import { GraficoColunas, GraficoDonut, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 
 const ROTULO_DESTINO = {
@@ -318,31 +321,18 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                   </button>
                 </div>
 
-                <Segmentos
-                  valor={periodoModo} onChange={setPeriodoModo}
-                  opcoes={[
-                    { valor: 'tudo', rotulo: 'Tudo' },
-                    { valor: 'dia', rotulo: 'Dia' },
-                    { valor: 'mes', rotulo: 'Mês' },
-                    { valor: 'periodo', rotulo: 'Período' },
-                  ]}
-                />
-                {periodoModo === 'dia' && (
-                  <input className="ipt" type="date" value={periodoDia} onChange={(e) => setPeriodoDia(e.target.value)} style={{ marginTop: 6 }} />
-                )}
-                {periodoModo === 'mes' && (
-                  <input className="ipt" type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} style={{ marginTop: 6 }} />
-                )}
-                {periodoModo === 'periodo' && (
-                  <div className="row-flex" style={{ gap: 8, marginTop: 6 }}>
-                    <Campo label="De">
-                      <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
-                    </Campo>
-                    <Campo label="Até">
-                      <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
-                    </Campo>
-                  </div>
-                )}
+                <SecaoRecolhivel
+                  titulo="Período"
+                  resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+                >
+                  <FiltroPeriodo
+                    modo={periodoModo} onModo={setPeriodoModo}
+                    dia={periodoDia} onDia={setPeriodoDia}
+                    mes={periodoMes} onMes={setPeriodoMes}
+                    inicio={periodoInicio} onInicio={setPeriodoInicio}
+                    fim={periodoFim} onFim={setPeriodoFim}
+                  />
+                </SecaoRecolhivel>
 
                 {suprimentosPeriodo.length === 0 ? (
                   <div className="t-caption" style={{ padding: '10px 0' }}>Nenhum pedido nesse período.</div>

@@ -12,13 +12,14 @@ import {
   hojeISO, formatarData, situacaoPendencia, contarPendencias, diffDias,
   pendenciasGerais, pendenciasTaticas, pendenciasReuniao, ORIGEM_REUNIAO,
   fecharSemanaTatica, COLUNAS_QUADRO_PENDENCIA,
-  inicioDaSemana, somarDias, rotuloDaSemana, filtrarPorPeriodo,
+  inicioDaSemana, somarDias, rotuloDaSemana, filtrarPorPeriodo, rotuloPeriodo,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, ItemLista,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
   CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
+  FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 import { RankingBarras, GraficoDonut, GraficoColunas } from '../components/charts'
 
@@ -259,44 +260,37 @@ export default function Pendencias({ perfil, params = {} }) {
           </div>
 
           {categoria !== 'tatico' && (
-            <div className="stack-1">
-              <div className="t-caption">Período (data em que foi aberta)</div>
-              <Segmentos
-                valor={periodoModo} onChange={setPeriodoModo}
-                opcoes={[
-                  { valor: 'tudo', rotulo: 'Tudo' },
-                  { valor: 'dia', rotulo: 'Dia' },
-                  { valor: 'mes', rotulo: 'Mês' },
-                  { valor: 'periodo', rotulo: 'Período' },
-                ]}
-              />
-              {periodoModo === 'dia' && (
-                <input className="ipt" type="date" value={periodoDia} onChange={(e) => setPeriodoDia(e.target.value)} />
-              )}
-              {periodoModo === 'mes' && (
-                <input className="ipt" type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} />
-              )}
-              {periodoModo === 'periodo' && (
-                <div className="row-flex">
-                  <Campo label="De">
-                    <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
-                  </Campo>
-                  <Campo label="Até">
-                    <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
-                  </Campo>
-                </div>
-              )}
-            </div>
-          )}
+            <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ flex: '1 1 220px' }}>
+                <SecaoRecolhivel
+                  titulo="Período (data em que foi aberta)"
+                  resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+                >
+                  <FiltroPeriodo
+                    modo={periodoModo} onModo={setPeriodoModo}
+                    dia={periodoDia} onDia={setPeriodoDia}
+                    mes={periodoMes} onMes={setPeriodoMes}
+                    inicio={periodoInicio} onInicio={setPeriodoInicio}
+                    fim={periodoFim} onFim={setPeriodoFim}
+                  />
+                </SecaoRecolhivel>
+              </div>
 
-          {categoria !== 'tatico' && (
-            <Segmentos
-              valor={visao} onChange={setVisao}
-              opcoes={[
-                { valor: 'lista', rotulo: 'Lista' }, { valor: 'quadro', rotulo: 'Quadro' },
-                { valor: 'dashboard', rotulo: 'Dashboard' },
-              ]}
-            />
+              <div style={{ flex: '1 1 220px' }}>
+                <SecaoRecolhivel
+                  titulo="Visualização"
+                  resumo={{ lista: 'Lista', quadro: 'Quadro', dashboard: 'Dashboard' }[visao]}
+                >
+                  <Segmentos
+                    valor={visao} onChange={setVisao}
+                    opcoes={[
+                      { valor: 'lista', rotulo: 'Lista' }, { valor: 'quadro', rotulo: 'Quadro' },
+                      { valor: 'dashboard', rotulo: 'Dashboard' },
+                    ]}
+                  />
+                </SecaoRecolhivel>
+              </div>
+            </div>
           )}
 
           {categoria === 'tatico' && (

@@ -12,12 +12,12 @@ import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos,
-  insumoCorrespondeMaterial, filtrarPorPeriodo,
+  insumoCorrespondeMaterial, filtrarPorPeriodo, rotuloPeriodo,
 } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
-  RelatorioFolha, SecaoRelatorio,
+  RelatorioFolha, SecaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
@@ -31,55 +31,6 @@ function baixarCSV(nomeArquivo, cabecalho, linhas) {
   a.download = nomeArquivo
   document.body.appendChild(a); a.click(); a.remove()
   URL.revokeObjectURL(url)
-}
-
-/* Seção que nasce fechada — clique no cabeçalho pra abrir — usada
-   pro Histórico de movimentação e pros Pedidos de Suprimentos
-   vinculados, dentro de Editar EPI: lista comprida não fica sempre
-   estourada na tela. */
-function SecaoRecolhivel({ titulo, contador, aberto, onToggle, children }) {
-  return (
-    <div>
-      <button
-        className="row-between" style={{ width: '100%', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer' }}
-        onClick={onToggle}
-      >
-        <span className="t-micro">{titulo}{contador != null ? ` (${contador})` : ''}</span>
-        <Icon name="avancar" size={14} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s' }} />
-      </button>
-      {aberto && <div className="stack-2" style={{ marginTop: 6 }}>{children}</div>}
-    </div>
-  )
-}
-
-/* Mesmo filtro Tudo/Dia/Mês/Período de "Por Colaborador", só que
-   como componente reutilizável em vez de repetir o JSX de novo. */
-function FiltroPeriodo({ modo, onModo, dia, onDia, mes, onMes, inicio, onInicio, fim, onFim }) {
-  return (
-    <div className="stack-1">
-      <Segmentos
-        valor={modo} onChange={onModo}
-        opcoes={[
-          { valor: 'tudo', rotulo: 'Tudo' },
-          { valor: 'dia', rotulo: 'Dia' },
-          { valor: 'mes', rotulo: 'Mês' },
-          { valor: 'periodo', rotulo: 'Período' },
-        ]}
-      />
-      {modo === 'dia' && <input className="ipt" type="date" value={dia} onChange={(e) => onDia(e.target.value)} />}
-      {modo === 'mes' && <input className="ipt" type="month" value={mes} onChange={(e) => onMes(e.target.value)} />}
-      {modo === 'periodo' && (
-        <div className="row-flex">
-          <Campo label="De">
-            <input className="ipt" type="date" value={inicio} onChange={(e) => onInicio(e.target.value)} />
-          </Campo>
-          <Campo label="Até">
-            <input className="ipt" type="date" value={fim} onChange={(e) => onFim(e.target.value)} />
-          </Campo>
-        </div>
-      )}
-    </div>
-  )
 }
 
 /* Uma linha da lista de Suprimentos (usada nas duas divisões —
@@ -570,42 +521,39 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             />
           </div>
 
-          <Segmentos
-            valor={agrupamentoColab}
-            onChange={setAgrupamentoColab}
-            opcoes={[
-              { valor: 'nome', rotulo: 'Por nome' },
-              { valor: 'funcao', rotulo: 'Por função' },
-              { valor: 'empresa', rotulo: 'Por empresa' },
-            ]}
-          />
-
-          <Segmentos
-            valor={modoPeriodo}
-            onChange={setModoPeriodo}
-            opcoes={[
-              { valor: 'tudo', rotulo: 'Tudo' },
-              { valor: 'dia', rotulo: 'Dia' },
-              { valor: 'mes', rotulo: 'Mês' },
-              { valor: 'periodo', rotulo: 'Período' },
-            ]}
-          />
-          {modoPeriodo === 'dia' && (
-            <input className="ipt" type="date" value={dataDia} onChange={(e) => setDataDia(e.target.value)} />
-          )}
-          {modoPeriodo === 'mes' && (
-            <input className="ipt" type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} />
-          )}
-          {modoPeriodo === 'periodo' && (
-            <div className="row-flex">
-              <Campo label="De">
-                <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
-              </Campo>
-              <Campo label="Até">
-                <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
-              </Campo>
+          <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-start' }}>
+            <div style={{ flex: '1 1 200px' }}>
+              <SecaoRecolhivel
+                titulo="Agrupar por"
+                resumo={{ nome: 'Por nome', funcao: 'Por função', empresa: 'Por empresa' }[agrupamentoColab]}
+              >
+                <Segmentos
+                  valor={agrupamentoColab}
+                  onChange={setAgrupamentoColab}
+                  opcoes={[
+                    { valor: 'nome', rotulo: 'Por nome' },
+                    { valor: 'funcao', rotulo: 'Por função' },
+                    { valor: 'empresa', rotulo: 'Por empresa' },
+                  ]}
+                />
+              </SecaoRecolhivel>
             </div>
-          )}
+
+            <div style={{ flex: '1 1 200px' }}>
+              <SecaoRecolhivel
+                titulo="Período"
+                resumo={rotuloPeriodo(modoPeriodo, { dia: dataDia, mes: mesEscolhido, inicio: periodoInicio, fim: periodoFim })}
+              >
+                <FiltroPeriodo
+                  modo={modoPeriodo} onModo={setModoPeriodo}
+                  dia={dataDia} onDia={setDataDia}
+                  mes={mesEscolhido} onMes={setMesEscolhido}
+                  inicio={periodoInicio} onInicio={setPeriodoInicio}
+                  fim={periodoFim} onFim={setPeriodoFim}
+                />
+              </SecaoRecolhivel>
+            </div>
+          </div>
 
           {colaboradoresComEpi.length === 0 ? (
             <div className="card-flat">

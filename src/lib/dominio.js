@@ -80,6 +80,19 @@ export function filtrarPorPeriodo(itens, modo, datas, obterData) {
   return itens
 }
 
+/* Resumo curto do filtro de período, pro chip fechado do
+   SecaoRecolhivel mostrar o que está escolhido sem precisar abrir
+   ("Tudo", "20/08", "ago. de 2026", "20/08–25/08"). */
+export function rotuloPeriodo(modo, { dia, mes, inicio, fim } = {}) {
+  if (modo === 'dia') return formatarDataCurta(dia)
+  if (modo === 'mes' && mes) {
+    const [ano, m] = mes.split('-').map(Number)
+    return new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
+  }
+  if (modo === 'periodo') return `${formatarDataCurta(inicio)}–${formatarDataCurta(fim)}`
+  return 'Tudo'
+}
+
 export function formatarData(iso) {
   if (!iso) return '—'
   return deISO(iso).toLocaleDateString('pt-BR')

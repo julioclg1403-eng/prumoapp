@@ -14,10 +14,11 @@ import { useDados } from '../lib/DadosContext'
 import {
   STATUS_EQUIPAMENTO, ROTULO_STATUS_EQUIPAMENTO, TOM_STATUS_EQUIPAMENTO,
   pedidosEquipamentoSemCadastro, formatarData, formatarDataCurta, hojeISO, plural, normalizarParaCasar,
+  rotuloPeriodo,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, TextareaComAudio,
-  CampoFotos, VisorFoto, useLinksDeFotos, RelatorioFolha, SecaoRelatorio,
+  CampoFotos, VisorFoto, useLinksDeFotos, RelatorioFolha, SecaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 
 export default function AlmoxarifadoEquipamentos({ perfil }) {
@@ -278,42 +279,39 @@ export default function AlmoxarifadoEquipamentos({ perfil }) {
                 />
               </div>
 
-              <Segmentos
-                valor={agrupamentoColab}
-                onChange={setAgrupamentoColab}
-                opcoes={[
-                  { valor: 'nome', rotulo: 'Por nome' },
-                  { valor: 'funcao', rotulo: 'Por função' },
-                  { valor: 'empresa', rotulo: 'Por empresa' },
-                ]}
-              />
-
-              <Segmentos
-                valor={modoPeriodo}
-                onChange={setModoPeriodo}
-                opcoes={[
-                  { valor: 'tudo', rotulo: 'Tudo' },
-                  { valor: 'dia', rotulo: 'Dia' },
-                  { valor: 'mes', rotulo: 'Mês' },
-                  { valor: 'periodo', rotulo: 'Período' },
-                ]}
-              />
-              {modoPeriodo === 'dia' && (
-                <input className="ipt" type="date" value={dataDia} onChange={(e) => setDataDia(e.target.value)} />
-              )}
-              {modoPeriodo === 'mes' && (
-                <input className="ipt" type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} />
-              )}
-              {modoPeriodo === 'periodo' && (
-                <div className="row-flex">
-                  <Campo label="De">
-                    <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
-                  </Campo>
-                  <Campo label="Até">
-                    <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
-                  </Campo>
+              <div className="row-wrap" style={{ gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ flex: '1 1 200px' }}>
+                  <SecaoRecolhivel
+                    titulo="Agrupar por"
+                    resumo={{ nome: 'Por nome', funcao: 'Por função', empresa: 'Por empresa' }[agrupamentoColab]}
+                  >
+                    <Segmentos
+                      valor={agrupamentoColab}
+                      onChange={setAgrupamentoColab}
+                      opcoes={[
+                        { valor: 'nome', rotulo: 'Por nome' },
+                        { valor: 'funcao', rotulo: 'Por função' },
+                        { valor: 'empresa', rotulo: 'Por empresa' },
+                      ]}
+                    />
+                  </SecaoRecolhivel>
                 </div>
-              )}
+
+                <div style={{ flex: '1 1 200px' }}>
+                  <SecaoRecolhivel
+                    titulo="Período"
+                    resumo={rotuloPeriodo(modoPeriodo, { dia: dataDia, mes: mesEscolhido, inicio: periodoInicio, fim: periodoFim })}
+                  >
+                    <FiltroPeriodo
+                      modo={modoPeriodo} onModo={setModoPeriodo}
+                      dia={dataDia} onDia={setDataDia}
+                      mes={mesEscolhido} onMes={setMesEscolhido}
+                      inicio={periodoInicio} onInicio={setPeriodoInicio}
+                      fim={periodoFim} onFim={setPeriodoFim}
+                    />
+                  </SecaoRecolhivel>
+                </div>
+              </div>
 
               {colaboradoresComEquipamento.length === 0 ? (
                 <div className="card-flat">
