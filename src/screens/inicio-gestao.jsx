@@ -450,9 +450,8 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                   <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
                     <span className="t-caption">A responder <b>{apontamentosAResponder}</b></span>
                   </div>
-                  <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
-                    <span className="t-caption">Tempo de resposta <b>{formatarDias(mediaRespostaProjetos)}</b></span>
-                    <span className="t-caption">Tempo de fechamento <b>{formatarDias(mediaFechamentoProjetos)}</b></span>
+                  <div style={{ marginTop: 14 }}>
+                    <GraficoTemposProjetos resposta={mediaRespostaProjetos} fechamento={mediaFechamentoProjetos} />
                   </div>
                 </div>
               )}
@@ -468,6 +467,31 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
 function formatarDias(v) {
   if (v == null) return '—'
   return `${v.toFixed(1)} dia${v >= 1.95 ? 's' : ''}`
+}
+
+/* Mesmo gráfico de barras do "Tempo de Resposta" em Projetos — só a
+   linha Geral, sem o recorte por prioridade que a tela de lá tem. */
+function GraficoTemposProjetos({ resposta, fechamento }) {
+  const max = Math.max(1, resposta || 0, fechamento || 0)
+  return (
+    <div className="stack-1" style={{ gap: 4 }}>
+      <BarraTempoProjetos rotulo="Tempo de resposta" valor={resposta} max={max} cor="var(--info)" />
+      <BarraTempoProjetos rotulo="Tempo de fechamento" valor={fechamento} max={max} cor="var(--success)" />
+    </div>
+  )
+}
+
+function BarraTempoProjetos({ rotulo, valor, max, cor }) {
+  const pct = valor == null ? 0 : Math.min(100, (valor / max) * 100)
+  return (
+    <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+      <span className="t-caption" style={{ flex: 'none', width: 118 }}>{rotulo}</span>
+      <div style={{ flex: 1, height: 10, borderRadius: 5, background: 'var(--surface-2)', overflow: 'hidden' }}>
+        {valor != null && <div style={{ width: `${pct}%`, height: '100%', background: cor }} />}
+      </div>
+      <span className="t-caption" style={{ flex: 'none', minWidth: 46, textAlign: 'right' }}>{formatarDias(valor)}</span>
+    </div>
+  )
 }
 
 /* Selo colorido antes do título de cada cartão do Painel geral — só
