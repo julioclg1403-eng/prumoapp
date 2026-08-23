@@ -702,6 +702,27 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Marca um colaborador como "administrativo" — não aparece no
+     Diário (ele só registra presença de campo), então em Refeições
+     precisa de um jeito de ficar sempre visível pra vincular, sem
+     buscar o nome de novo todo dia. Só mexe nesse campo, nada de
+     revisão/provisório — sem relação com aquele fluxo. */
+  const definirAdministrativoColaborador = useCallback(
+    async (id, administrativo) => {
+      const atualizado = checar(
+        await supabase.from('workers').update({ administrativo }).eq('id', id).select('*').single(),
+        'atualizar o colaborador',
+      )
+      if (!atualizado) return
+      setTudo((t) => t && ({
+        ...t,
+        colaboradores: t.colaboradores.map((c) =>
+          c.id === id ? { ...atualizado, criado_em: atualizado.created_at } : c),
+      }))
+    },
+    [checar],
+  )
+
   /* Mexe em três tabelas — vai inteira para o banco, numa função
      que roda em transação. Ou faz tudo, ou não faz nada. */
   const mesclarColaborador = useCallback(
@@ -2907,7 +2928,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
-      criarColaboradorRapido, revisarColaborador, mesclarColaborador,
+      criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, mesclarColaborador,
       salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
@@ -2940,7 +2961,7 @@ export function DadosProvider({ perfil, children }) {
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
-      criarColaboradorRapido, revisarColaborador,
+      criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,

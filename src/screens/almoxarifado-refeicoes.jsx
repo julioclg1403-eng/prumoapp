@@ -32,6 +32,40 @@ function normalizarComparar(s) {
     .toLowerCase().trim()
 }
 
+/* Mesma cara do Selecionavel (classes .pick/.box/.grow), só que como
+   botões IRMÃOS em vez de botão dentro de botão — precisa disso
+   porque esta linha tem uma segunda ação (fixar/desafixar como
+   administrativo) ao lado do toggle de marcar/desmarcar. */
+function LinhaColaborador({ marcado, onToggle, titulo, sub, onFixar, onDesfixar }) {
+  return (
+    <div className="row-flex" style={{ gap: 6, alignItems: 'stretch' }}>
+      <button className="pick" data-on={marcado ? '1' : '0'} onClick={onToggle} style={{ flex: 1 }}>
+        <span className="box"><Icon name="check" size={14} /></span>
+        <span className="grow" style={{ textAlign: 'left' }}>
+          <span className="t-strong" style={{ display: 'block', fontSize: 15 }}>{titulo}</span>
+          {sub && <span className="t-caption" style={{ display: 'block', marginTop: 2 }}>{sub}</span>}
+        </span>
+      </button>
+      {onFixar && (
+        <button
+          className="btn btn-ghost btn-sm" onClick={onFixar} style={{ flex: 'none' }}
+          title="Manter sempre visível aqui, como administrativo"
+        >
+          <Icon name="mais_sinal" size={16} />
+        </button>
+      )}
+      {onDesfixar && (
+        <button
+          className="btn btn-ghost btn-sm" onClick={onDesfixar} style={{ flex: 'none' }}
+          title="Remover da lista fixa de administrativo"
+        >
+          <Icon name="x" size={16} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 /* Todo colaborador que o Diário daquele dia marcou presente, de
    QUALQUER empresa — é a lista-fonte "buscada um a um". Sem diário
    lançado nesse dia (ou sem data escolhida ainda), devolve lista
@@ -125,18 +159,20 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   )
 
   /* Ao trocar a data de um lançamento NOVO, se ainda não tem
-     ninguém vinculado à mão, vincula todo mundo que o Diário
-     daquele dia marcou presente — ponto de partida razoável, que a
-     pessoa ajusta depois marcando/desmarcando. Numa edição já
-     existente, nunca mexe sozinho. */
+     ninguém vinculado à mão, vincula automaticamente só quem o
+     Diário marcou presente E TEM atividade/frente lançada naquele
+     dia — presença sem atividade ainda não foi preenchida pela
+     engenharia, então não é vínculo automático, fica pra pessoa
+     confirmar à mão (continua aparecendo na lista, só sem vir
+     marcado). Numa edição já existente, nunca mexe sozinho. */
   const escolherData = (data) => {
     setEditando((p) => {
       const novo = { ...p, data }
       if (!p.id && (!p.worker_ids || p.worker_ids.length === 0)) {
-        const doDiario = colaboradoresDoDiario(dados, data)
-        if (doDiario.length > 0) {
-          novo.worker_ids = doDiario.map((c) => c.workerId)
-          if (!novo.quantidade) novo.quantidade = String(doDiario.length)
+        const comAtividade = colaboradoresDoDiario(dados, data).filter((c) => c.atividades.length > 0)
+        if (comAtividade.length > 0) {
+          novo.worker_ids = comAtividade.map((c) => c.workerId)
+          if (!novo.quantidade) novo.quantidade = String(comAtividade.length)
         }
       }
       return novo
@@ -145,7 +181,8 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
   const abrirNovo = () => {
     setBuscaAdicionar('')
-    setEditando({ data: hoje, quantidade: '', fornecedor: '', worker_ids: colaboradoresDoDiario(dados, hoje).map((c) => c.workerId) })
+    const comAtividade = colaboradoresDoDiario(dados, hoje).filter((c) => c.atividades.length > 0)
+    setEditando({ data: hoje, quantidade: '', fornecedor: '', worker_ids: comAtividade.map((c) => c.workerId) })
   }
 
   const salvar = async () => {
@@ -169,29 +206,46 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const quantidadeNum = Number(editando?.quantidade) || 0
   const divergencia = Boolean(editando) && quantidadeNum !== vinculados.length
 
-  /* Quem já está vinculado mas não veio do Diário (foi marcado à
-     mão, ou é de um dia em que a pessoa comeu sem estar presente
-     nele) — precisa continuar visível mesmo depois que a busca some
-     da tela, senão não tem como desmarcar de novo. */
+  /* O Diário só registra presença de mão de obra de campo — quem é
+     administrativo (escritório, engenharia fixa na obra) nunca
+     aparece lá, mas come todo dia igual. Em vez de buscar o nome
+     toda vez, quem foi marcado como administrativo (ver Cadastros
+     ou o botão "+" nas linhas abaixo) fica sempre visível aqui. */
+  const administrativos = useMemo(() => {
+    if (!editando) return []
+    return (dados.colaboradores || [])
+      .filter((c) => c.administrativo && c.ativo !== false && !idsNoDiario.has(c.id))
+      .map((c) => {
+        const empresa = dados.empresas?.find((e) => e.id === c.company_id)
+        return { workerId: c.id, nome: c.nome, funcao: c.funcao || '', empresa: empresa?.nome || 'Sem empresa' }
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [editando, dados, idsNoDiario])
+  const idsAdministrativos = new Set(administrativos.map((c) => c.workerId))
+
+  /* Quem já está vinculado mas não veio do Diário nem da lista fixa
+     de administrativo (foi marcado à mão avulso, só pra esse dia) —
+     precisa continuar visível mesmo depois que a busca some da
+     tela, senão não tem como desmarcar de novo. */
   const adicionadosManualmente = useMemo(() => {
     if (!editando) return []
     return vinculados
-      .filter((id) => !idsNoDiario.has(id))
+      .filter((id) => !idsNoDiario.has(id) && !idsAdministrativos.has(id))
       .map((id) => {
         const colaborador = dados.colaboradorPorId(id)
         const empresa = dados.empresas?.find((e) => e.id === colaborador?.company_id)
         return { workerId: id, nome: colaborador?.nome || 'Colaborador removido', funcao: colaborador?.funcao || '', empresa: empresa?.nome || 'Sem empresa' }
       })
       .sort((a, b) => a.nome.localeCompare(b.nome))
-  }, [editando, vinculados, idsNoDiario, dados])
+  }, [editando, vinculados, idsNoDiario, idsAdministrativos, dados])
 
   const resultadosBusca = useMemo(() => {
     const alvo = normalizarComparar(buscaAdicionar)
     if (!alvo) return []
     return (dados.colaboradores || [])
-      .filter((c) => c.ativo !== false && !idsNoDiario.has(c.id) && normalizarComparar(c.nome).includes(alvo))
+      .filter((c) => c.ativo !== false && !idsNoDiario.has(c.id) && !idsAdministrativos.has(c.id) && normalizarComparar(c.nome).includes(alvo))
       .slice(0, 20)
-  }, [buscaAdicionar, dados.colaboradores, idsNoDiario])
+  }, [buscaAdicionar, dados.colaboradores, idsNoDiario, idsAdministrativos])
 
   const alternarColaborador = (workerId) => {
     setEditando((p) => {
@@ -412,16 +466,33 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                 </div>
               )}
 
+              {administrativos.length > 0 && (
+                <div className="stack-1" style={{ marginBottom: 12 }}>
+                  <div className="t-caption" style={{ fontWeight: 700 }}>Administrativo (não passa pelo diário)</div>
+                  {administrativos.map((c) => (
+                    <LinhaColaborador
+                      key={c.workerId}
+                      marcado={vinculados.includes(c.workerId)}
+                      onToggle={() => alternarColaborador(c.workerId)}
+                      titulo={c.nome}
+                      sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
+                      onDesfixar={() => dados.definirAdministrativoColaborador(c.workerId, false)}
+                    />
+                  ))}
+                </div>
+              )}
+
               {adicionadosManualmente.length > 0 && (
                 <div className="stack-1" style={{ marginBottom: 12 }}>
                   <div className="t-caption" style={{ fontWeight: 700 }}>Adicionados à mão</div>
                   {adicionadosManualmente.map((c) => (
-                    <Selecionavel
+                    <LinhaColaborador
                       key={c.workerId}
                       marcado
                       onToggle={() => alternarColaborador(c.workerId)}
                       titulo={c.nome}
                       sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
+                      onFixar={() => dados.definirAdministrativoColaborador(c.workerId, true)}
                     />
                   ))}
                 </div>
@@ -439,12 +510,13 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                   {resultadosBusca.map((c) => {
                     const empresa = dados.empresas?.find((e) => e.id === c.company_id)
                     return (
-                      <Selecionavel
+                      <LinhaColaborador
                         key={c.id}
                         marcado={vinculados.includes(c.id)}
                         onToggle={() => alternarColaborador(c.id)}
                         titulo={c.nome}
                         sub={[empresa?.nome, c.funcao].filter(Boolean).join(' — ')}
+                        onFixar={() => dados.definirAdministrativoColaborador(c.id, true)}
                       />
                     )
                   })}
