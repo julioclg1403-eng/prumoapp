@@ -352,35 +352,48 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             )}
           </div>
 
-          {/* ── Pendências vencidas ── */}
-          <div>
-            <div className="row-between" style={{ marginBottom: 10 }}>
-              <div className="t-micro">Pendências vencidas</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
-                Ver todas <Icon name="avancar" size={14} />
-              </button>
-            </div>
-            {atrasadas.length === 0 ? (
-              <div className="card-flat">
+          {/* ── Pendências vencidas + resumo, cartões simétricos lado a lado ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12, alignItems: 'start' }}>
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 14 }}>
+                <TituloPainel icone="pendencias" cor="var(--danger)" titulo="Pendências vencidas" />
+                <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
+                  Ver todas <Icon name="avancar" size={14} />
+                </button>
+              </div>
+              {atrasadas.length === 0 ? (
                 <Vazio titulo="Nenhuma vencida" texto="Todas as pendências em aberto ainda estão dentro do prazo." />
+              ) : (
+                <div className="stack-1">
+                  {atrasadas.slice(0, 4).map(({ p, s }) => (
+                    <ItemLista
+                      key={p.id} titulo={p.titulo} aviso
+                      sub={`${dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'} · prazo ${formatarData(p.prazo)}`}
+                      direita={<Chip tom={s.tom}>{s.rotulo}</Chip>}
+                      onClick={() => goto('pendencias', { destacar: p.id })}
+                    />
+                  ))}
+                  {atrasadas.length > 4 && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
+                      + {atrasadas.length - 4} além destas
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 14 }}>
+                <TituloPainel icone="pendencias" cor="var(--danger)" titulo="Pendências" />
+                <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
+                  Abrir <Icon name="avancar" size={14} />
+                </button>
               </div>
-            ) : (
-              <div className="stack-1">
-                {atrasadas.slice(0, 4).map(({ p, s }) => (
-                  <ItemLista
-                    key={p.id} titulo={p.titulo} aviso
-                    sub={`${dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'} · prazo ${formatarData(p.prazo)}`}
-                    direita={<Chip tom={s.tom}>{s.rotulo}</Chip>}
-                    onClick={() => goto('pendencias', { destacar: p.id })}
-                  />
-                ))}
-                {atrasadas.length > 4 && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
-                    + {atrasadas.length - 4} além destas
-                  </button>
-                )}
+              <div className="stack-2">
+                <BarraPendencias titulo="Dia a dia" cont={cont} />
+                <BarraPendencias titulo="Tático" cont={contTatico} />
               </div>
-            )}
+            </div>
           </div>
 
           {/* ── Painel geral ── */}
@@ -417,20 +430,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                   </div>
                 </div>
               )}
-
-              {/* Pendências — dia a dia x tático */}
-              <div className="card">
-                <div className="row-between" style={{ marginBottom: 14 }}>
-                  <TituloPainel icone="pendencias" cor="var(--danger)" titulo="Pendências" />
-                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
-                    Abrir <Icon name="avancar" size={14} />
-                  </button>
-                </div>
-                <div className="stack-2">
-                  <BarraPendencias titulo="Dia a dia" cont={cont} />
-                  <BarraPendencias titulo="Tático" cont={contTatico} />
-                </div>
-              </div>
 
               {/* Compras — etapas */}
               <div className="card">
