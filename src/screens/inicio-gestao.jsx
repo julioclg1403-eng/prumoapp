@@ -151,6 +151,28 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const totalMedido = contratosUnicos.reduce((s, c) => s + (Number(c.medido) || 0), 0)
   const totalSaldoContratos = contratosUnicos.reduce((s, c) => s + (Number(c.saldo) || 0), 0)
 
+  /* Projetos — mesmo cálculo do "Tempo de Resposta" do dashboard de
+     lá: da criação até a primeira vez que entrou em Em Andamento
+     (resposta) e até a primeira vez que foi pra Resolvido
+     (fechamento). Sem recorte de disciplina/local/prioridade aqui —
+     é o "Geral" da tela de Projetos. */
+  const apontamentosProjetos = dados.apontamentos || []
+  const temposProjetos = apontamentosProjetos.map((a) => {
+    const emAndamentoEm = a.historico?.find((h) => h.para_status === 'em_andamento')?.created_at
+    const resolvidoEm = a.historico?.find((h) => h.para_status === 'resolvido')?.created_at
+    return {
+      diasResposta: emAndamentoEm ? (new Date(emAndamentoEm) - new Date(a.created_at)) / 86400000 : null,
+      diasFechamento: resolvidoEm ? (new Date(resolvidoEm) - new Date(a.created_at)) / 86400000 : null,
+    }
+  })
+  const mediaProjetos = (campo) => {
+    const comValor = temposProjetos.filter((t) => t[campo] != null)
+    return comValor.length ? comValor.reduce((s, t) => s + t[campo], 0) / comValor.length : null
+  }
+  const mediaRespostaProjetos = mediaProjetos('diasResposta')
+  const mediaFechamentoProjetos = mediaProjetos('diasFechamento')
+  const apontamentosAResponder = apontamentosProjetos.filter((a) => a.status === 'ativo').length
+
   return (
     <>
       <div className="topbar">
@@ -412,6 +434,25 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                     <span className="t-caption">Contratado <b>{formatarDinheiro(totalContratado)}</b></span>
                     <span className="t-caption">Medido <b>{formatarDinheiro(totalMedido)}</b></span>
                     <span className="t-caption">Saldo <b>{formatarDinheiro(totalSaldoContratos)}</b></span>
+                  </div>
+                </div>
+              )}
+
+              {/* Projetos — tempo de resposta */}
+              {apontamentosProjetos.length > 0 && (
+                <div className="card">
+                  <div className="row-between" style={{ marginBottom: 4 }}>
+                    <TituloPainel icone="projeto" cor="var(--chart-2)" titulo="Projetos" />
+                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('projetos')}>
+                      Abrir <Icon name="avancar" size={14} />
+                    </button>
+                  </div>
+                  <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
+                    <span className="t-caption">A responder <b>{apontamentosAResponder}</b></span>
+                  </div>
+                  <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
+                    <span className="t-caption">Tempo de resposta <b>{formatarDias(mediaRespostaProjetos)}</b></span>
+                    <span className="t-caption">Tempo de fechamento <b>{formatarDias(mediaFechamentoProjetos)}</b></span>
                   </div>
                 </div>
               )}
