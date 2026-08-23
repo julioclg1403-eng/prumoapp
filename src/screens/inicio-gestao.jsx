@@ -18,6 +18,11 @@ import {
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop, Segmentos, Campo } from '../components'
 import { GraficoColunas, GraficoDonut, RankingBarras, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 
+const ROTULO_DESTINO = {
+  almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração', equipamentos: 'Equipamentos',
+}
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
 export default function InicioGestao({ goto, irParaAba, perfil }) {
   const dados = useDados()
   const desktop = useDesktop()
@@ -114,6 +119,28 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const mediaTotalSuprimentos = suprimentosComAmbosTempos.length
     ? suprimentosComAmbosTempos.reduce((s, p) => s + p.dias_pedido_compra + p.dias_compra_entrega, 0) / suprimentosComAmbosTempos.length
     : null
+
+  /* Por tipo de material (Destino) — mesmo agrupamento do Dashboard
+     de Suprimentos. */
+  const gruposDestino = { almoxarifado: [], epi: [], equipamentos: [], administracao: [], sem: [] }
+  for (const p of suprimentosPeriodo) gruposDestino[p.destino || 'sem'].push(p)
+  const porDestinoSuprimentos = Object.entries(gruposDestino)
+    .map(([destino, itens]) => ({
+      destino, quantidade: itens.length,
+      valor: itens.reduce((s, p) => s + (p.preco != null && p.quantidade != null ? p.preco * p.quantidade : 0), 0),
+    }))
+    .filter((d) => d.quantidade > 0)
+
+  /* Evolução mensal (quantidade de pedidos por mês do Pedido). */
+  const mapaEvolucaoMensal = new Map()
+  for (const p of suprimentosPeriodo) {
+    if (!p.data_pedido) continue
+    const mes = p.data_pedido.slice(0, 7)
+    mapaEvolucaoMensal.set(mes, (mapaEvolucaoMensal.get(mes) || 0) + 1)
+  }
+  const evolucaoMensalSuprimentos = [...mapaEvolucaoMensal.entries()]
+    .map(([mes, quantidade]) => ({ mes, quantidade }))
+    .sort((a, b) => a.mes.localeCompare(b.mes))
 
   /* Contratos — um registro por contrato (os campos do contrato se
      repetem em toda linha de item da planilha achatada). */
@@ -220,26 +247,28 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             />
           </div>
 
-          {/* ── Efetivo por dia ── */}
-          <div className="card">
-            <div className="row-between" style={{ marginBottom: 14 }}>
-              <div className="t-micro">Efetivo por dia</div>
-              <span className="t-caption">pico {semana.pico}</span>
+          {/* ── Efetivo por dia — ocupa só metade da tela no desktop ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12 }}>
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 14 }}>
+                <div className="t-micro">Efetivo por dia</div>
+                <span className="t-caption">pico {semana.pico}</span>
+              </div>
+              <GraficoColunas
+                itens={barras.map((b) => ({
+                  chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
+                  cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
+                }))}
+                formatarValor={(v) => v || '—'}
+                alturaMax={68}
+              />
+              <button
+                className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
+                onClick={() => irParaAba('efetivo')}
+              >
+                Abrir efetivo
+              </button>
             </div>
-            <GraficoColunas
-              itens={barras.map((b) => ({
-                chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
-                cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
-              }))}
-              formatarValor={(v) => v || '—'}
-              alturaMax={68}
-            />
-            <button
-              className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
-              onClick={() => irParaAba('efetivo')}
-            >
-              Abrir efetivo
-            </button>
           </div>
 
           {/* ── Pendências vencidas ── */}
@@ -332,6 +361,32 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                       <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
                         <span className="t-caption">Total (pedido até chegar) <b>{formatarDias(mediaTotalSuprimentos)}</b></span>
                       </div>
+
+                      {porDestinoSuprimentos.length > 0 && (
+                        <div style={{ marginTop: 14 }}>
+                          <div className="t-micro" style={{ marginBottom: 6 }}>Por tipo de material</div>
+                          <GraficoDonut
+                            tamanho={104}
+                            itens={porDestinoSuprimentos.map((d) => ({
+                              chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
+                            }))}
+                            formatarValor={formatarDinheiro}
+                          />
+                        </div>
+                      )}
+
+                      {evolucaoMensalSuprimentos.length > 1 && (
+                        <div style={{ marginTop: 14 }}>
+                          <div className="t-micro" style={{ marginBottom: 6 }}>Evolução mensal</div>
+                          <GraficoColunas
+                            itens={evolucaoMensalSuprimentos.map((m) => {
+                              const [ano, mesNum] = m.mes.split('-')
+                              return { chave: m.mes, rotulo: `${MESES_ABREV[Number(mesNum) - 1]}/${ano.slice(2)}`, valor: m.quantidade }
+                            })}
+                            formatarValor={(v) => String(v)}
+                          />
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
