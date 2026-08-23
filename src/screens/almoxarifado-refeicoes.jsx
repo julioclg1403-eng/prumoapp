@@ -1,20 +1,20 @@
 /* ============================================================
    ALMOXARIFADO — REFEIÇÕES
 
-   Modelado em cima das duas planilhas do Julio (terceirizado e
-   próprio) — são a mesma coisa, data × empresa × quantidade, só que
-   a de terceirizado tem uma coluna por empresa e a de próprio só
-   uma. Essa distinção já existe no cadastro de empresas
-   (`tipo`: 'propria'/'empreiteira'), então não virou campo novo —
-   o resumo do mês só agrupa por ela.
+   Lançamento é por DIA, não por empresa — o almoxarife manda um
+   número só ("hoje foram 20 almoços"), que continua sendo digitado
+   à mão (é a fonte oficial — o restaurante cobra por ele). O que
+   este módulo faz por cima disso é vincular QUEM comeu: busca no
+   Diário daquele dia, um a um, todo colaborador marcado presente
+   (com a atividade/frente que estava executando), já pré-marcado.
+   Quem não aparece no Diário (ele ainda não foi lançado, ou a
+   pessoa comeu sem estar marcada presente) entra à mão, por busca
+   — pode marcar vários de uma vez, sem a lista sumir a cada clique.
 
-   A quantidade continua sendo digitada à mão (é a fonte oficial —
-   o restaurante cobra por ela), mas agora cada lançamento pode
-   vincular quais colaboradores daquela empresa comeram, puxando de
-   quem o Diário marcou como presente naquele dia (e em qual
-   atividade/frente cada um estava). Quando a quantidade digitada
-   não bate com quantos colaboradores estão vinculados, um aviso
-   aparece — não trava o salvamento, só avisa pra conferir. */
+   Quando a quantidade lançada não bate com quantos colaboradores
+   estão vinculados, um aviso aparece — não trava o salvamento, só
+   avisa pra conferir.
+   ============================================================ */
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
@@ -26,19 +26,26 @@ import {
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 
-/* Colaboradores da empresa escolhida que o Diário daquele dia marcou
-   como presentes, com a(s) atividade/frente de cada um nesse dia —
-   é a lista-fonte pra vincular quem comeu. Sem diário lançado nesse
-   dia, devolve null (diferente de lista vazia: "não dá pra conferir"
-   é uma situação diferente de "conferi e ninguém estava presente"). */
-function presentesDaEmpresaNoDiario(dados, data, companyId) {
-  if (!data || !companyId) return null
+function normalizarComparar(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .toLowerCase().trim()
+}
+
+/* Todo colaborador que o Diário daquele dia marcou presente, de
+   QUALQUER empresa — é a lista-fonte "buscada um a um". Sem diário
+   lançado nesse dia (ou sem data escolhida ainda), devolve lista
+   vazia: não tem vínculo automático pra oferecer, só o campo de
+   busca manual continua disponível. */
+function colaboradoresDoDiario(dados, data) {
+  if (!data) return []
   const diario = diarioDaData(dados.diarios, data, dados.obra.id)
-  if (!diario) return null
+  if (!diario) return []
   return diario.presencas
-    .filter((p) => p.presente && p.company_id === companyId)
+    .filter((p) => p.presente)
     .map((p) => {
       const colaborador = dados.colaboradorPorId(p.worker_id)
+      const empresa = dados.empresas?.find((e) => e.id === p.company_id)
       const atividades = diario.atividades
         .filter((a) => a.worker_ids.includes(p.worker_id))
         .map((a) => dados.rotuloAtividade(a.planned_id))
@@ -46,18 +53,19 @@ function presentesDaEmpresaNoDiario(dados, data, companyId) {
         workerId: p.worker_id,
         nome: colaborador?.nome || 'Colaborador removido',
         funcao: colaborador?.funcao || '',
+        empresa: empresa?.nome || 'Sem empresa',
         atividades,
       }
     })
-    .sort((a, b) => a.nome.localeCompare(b.nome))
+    .sort((a, b) => a.empresa.localeCompare(b.empresa) || a.nome.localeCompare(b.nome))
 }
 
-/* Relatório por período: agrupa os lançamentos por dia (pode ter
-   mais de uma empresa no mesmo dia — soma a quantidade das duas) e
-   lista quem foi vinculado em cada um, com o serviço/frente que a
-   pessoa estava no diário daquele dia. Um dia sem ninguém vinculado
-   ainda aparece no relatório (com a quantidade lançada), só sem a
-   lista de nomes embaixo — não esconde lançamento nenhum do período. */
+/* Relatório por período: agrupa os lançamentos por dia (mais de um
+   lançamento no mesmo dia soma a quantidade) e lista quem foi
+   vinculado, com a empresa e o serviço/frente de cada um naquele
+   dia. Um dia sem ninguém vinculado ainda aparece no relatório (com
+   a quantidade lançada), só sem a lista de nomes embaixo — não
+   esconde lançamento nenhum do período. */
 function agruparRefeicoesPorDia(dados, registros) {
   const porDia = new Map()
   for (const r of registros) {
@@ -65,9 +73,10 @@ function agruparRefeicoesPorDia(dados, registros) {
     const grupo = porDia.get(r.data)
     grupo.quantidade += Number(r.quantidade) || 0
     const diario = diarioDaData(dados.diarios, r.data, dados.obra.id)
-    const empresa = dados.empresas?.find((e) => e.id === r.company_id)?.nome || 'Empresa removida'
     for (const workerId of r.worker_ids || []) {
       const colaborador = dados.colaboradorPorId(workerId)
+      const empresaId = colaborador?.company_id || r.company_id
+      const empresa = dados.empresas?.find((e) => e.id === empresaId)?.nome || 'Empresa removida'
       const atividades = diario
         ? diario.atividades.filter((a) => a.worker_ids.includes(workerId)).map((a) => dados.rotuloAtividade(a.planned_id))
         : []
@@ -90,18 +99,15 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
   const [mes, setMes] = useState(() => hoje.slice(0, 7))
   const [editando, setEditando] = useState(null)
+  const [buscaAdicionar, setBuscaAdicionar] = useState('')
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [relatorioInicio, setRelatorioInicio] = useState(() => `${hoje.slice(0, 7)}-01`)
   const [relatorioFim, setRelatorioFim] = useState(hoje)
 
-  const empresasAtivas = useMemo(
-    () => (dados.empresas || []).filter((e) => e.ativo !== false),
-    [dados.empresas],
-  )
   const resumo = useMemo(
-    () => resumoRefeicoesDoMes(dados.refeicoes, dados.empresas, mes),
-    [dados.refeicoes, dados.empresas, mes],
+    () => resumoRefeicoesDoMes(dados.refeicoes, dados.empresas, dados.colaboradores, mes),
+    [dados.refeicoes, dados.empresas, dados.colaboradores, mes],
   )
   const registrosOrdenados = useMemo(
     () => [...resumo.registros].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -118,32 +124,32 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
     [dados, registrosDoRelatorio],
   )
 
-  const nomeEmpresa = (id) => dados.empresas?.find((e) => e.id === id)?.nome || 'Empresa removida'
-
-  /* Ao trocar empresa ou data de um lançamento NOVO, se já dá pra
-     achar presença no Diário e ainda não tem ninguém vinculado à
-     mão, vincula todo mundo que estava presente — ponto de partida
-     razoável, que a pessoa ajusta depois marcando/desmarcando. Num
-     lançamento já existente (edição), nunca mexe sozinho: o que já
-     foi vinculado antes fica do jeito que está. */
-  const atualizarCampoNovo = (campo, valor) => {
+  /* Ao trocar a data de um lançamento NOVO, se ainda não tem
+     ninguém vinculado à mão, vincula todo mundo que o Diário
+     daquele dia marcou presente — ponto de partida razoável, que a
+     pessoa ajusta depois marcando/desmarcando. Numa edição já
+     existente, nunca mexe sozinho. */
+  const escolherData = (data) => {
     setEditando((p) => {
-      const novo = { ...p, [campo]: valor }
+      const novo = { ...p, data }
       if (!p.id && (!p.worker_ids || p.worker_ids.length === 0)) {
-        const presentes = presentesDaEmpresaNoDiario(dados, novo.data, novo.company_id)
-        if (presentes && presentes.length > 0) {
-          novo.worker_ids = presentes.map((c) => c.workerId)
-          if (!novo.quantidade) novo.quantidade = String(presentes.length)
+        const doDiario = colaboradoresDoDiario(dados, data)
+        if (doDiario.length > 0) {
+          novo.worker_ids = doDiario.map((c) => c.workerId)
+          if (!novo.quantidade) novo.quantidade = String(doDiario.length)
         }
       }
       return novo
     })
   }
 
-  const abrirNovo = () => setEditando({ data: hoje, company_id: '', quantidade: '', fornecedor: '', worker_ids: [] })
+  const abrirNovo = () => {
+    setBuscaAdicionar('')
+    setEditando({ data: hoje, quantidade: '', fornecedor: '', worker_ids: colaboradoresDoDiario(dados, hoje).map((c) => c.workerId) })
+  }
 
   const salvar = async () => {
-    if (!editando?.company_id || !editando?.data || !Number(editando?.quantidade)) return
+    if (!editando?.data || !Number(editando?.quantidade)) return
     setSalvando(true)
     const ok = await dados.salvarRefeicao(editando)
     setSalvando(false)
@@ -152,17 +158,40 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
   const pedirExcluir = (item) => setConfirmar({
     titulo: 'Excluir lançamento?',
-    texto: `«${nomeEmpresa(item.company_id)}» (${item.quantidade} refeições em ${formatarDataCurta(item.data)}) sai do histórico. Isso não tem volta.`,
+    texto: `${item.quantidade} refeições em ${formatarDataCurta(item.data)} saem do histórico. Isso não tem volta.`,
     rotuloOk: 'Excluir', perigo: true,
     onOk: async () => { setConfirmar(null); await dados.excluirRefeicao(item.id) },
   })
 
-  const presentes = editando
-    ? presentesDaEmpresaNoDiario(dados, editando.data, editando.company_id)
-    : null
+  const doDiario = editando ? colaboradoresDoDiario(dados, editando.data) : []
+  const idsNoDiario = new Set(doDiario.map((c) => c.workerId))
   const vinculados = editando?.worker_ids || []
   const quantidadeNum = Number(editando?.quantidade) || 0
-  const divergencia = presentes != null && quantidadeNum !== vinculados.length
+  const divergencia = Boolean(editando) && quantidadeNum !== vinculados.length
+
+  /* Quem já está vinculado mas não veio do Diário (foi marcado à
+     mão, ou é de um dia em que a pessoa comeu sem estar presente
+     nele) — precisa continuar visível mesmo depois que a busca some
+     da tela, senão não tem como desmarcar de novo. */
+  const adicionadosManualmente = useMemo(() => {
+    if (!editando) return []
+    return vinculados
+      .filter((id) => !idsNoDiario.has(id))
+      .map((id) => {
+        const colaborador = dados.colaboradorPorId(id)
+        const empresa = dados.empresas?.find((e) => e.id === colaborador?.company_id)
+        return { workerId: id, nome: colaborador?.nome || 'Colaborador removido', funcao: colaborador?.funcao || '', empresa: empresa?.nome || 'Sem empresa' }
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [editando, vinculados, idsNoDiario, dados])
+
+  const resultadosBusca = useMemo(() => {
+    const alvo = normalizarComparar(buscaAdicionar)
+    if (!alvo) return []
+    return (dados.colaboradores || [])
+      .filter((c) => c.ativo !== false && !idsNoDiario.has(c.id) && normalizarComparar(c.nome).includes(alvo))
+      .slice(0, 20)
+  }, [buscaAdicionar, dados.colaboradores, idsNoDiario])
 
   const alternarColaborador = (workerId) => {
     setEditando((p) => {
@@ -224,13 +253,18 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             <div className="t-micro">Total do mês</div>
             <span className="t-num t-strong" style={{ fontSize: 20 }}>{resumo.totalGeral}</span>
           </div>
+          {resumo.totalVinculado > 0 && resumo.totalVinculado !== resumo.totalGeral && (
+            <div className="t-caption">
+              {resumo.totalVinculado} vinculado(s) a um colaborador — o resto da quantidade oficial ainda não foi vinculado.
+            </div>
+          )}
 
           {resumo.proprias.length > 0 && (
             <div>
-              <div className="t-micro" style={{ marginBottom: 6 }}>Equipe própria</div>
+              <div className="t-micro" style={{ marginBottom: 6 }}>Equipe própria (vinculados)</div>
               <div className="stack-1">
                 {resumo.proprias.map((l) => (
-                  <div key={l.companyId} className="row-between" style={{ fontSize: 13 }}>
+                  <div key={l.companyId || 'sem-empresa'} className="row-between" style={{ fontSize: 13 }}>
                     <span>{l.nome}</span>
                     <span className="t-strong">{l.total}</span>
                   </div>
@@ -241,10 +275,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
           {resumo.terceirizadas.length > 0 && (
             <div>
-              <div className="t-micro" style={{ marginBottom: 6 }}>Terceirizados</div>
+              <div className="t-micro" style={{ marginBottom: 6 }}>Terceirizados (vinculados)</div>
               <div className="stack-1">
                 {resumo.terceirizadas.map((l) => (
-                  <div key={l.companyId} className="row-between" style={{ fontSize: 13 }}>
+                  <div key={l.companyId || 'sem-empresa'} className="row-between" style={{ fontSize: 13 }}>
                     <span>{l.nome}</span>
                     <span className="t-strong">{l.total}</span>
                   </div>
@@ -267,14 +301,14 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
         <div className="stack-1">
           {registrosOrdenados.map((r) => {
             const vinculadosDoRegistro = r.worker_ids?.length || 0
-            const naoBate = vinculadosDoRegistro > 0 && vinculadosDoRegistro !== r.quantidade
+            const naoBate = vinculadosDoRegistro !== r.quantidade
             return (
               <ItemLista
                 key={r.id}
-                titulo={nomeEmpresa(r.company_id)}
+                titulo={formatarDataCurta(r.data)}
                 sub={[
-                  formatarDataCurta(r.data), r.fornecedor,
-                  vinculadosDoRegistro > 0 ? `${vinculadosDoRegistro} vinculado(s)` : null,
+                  r.fornecedor,
+                  vinculadosDoRegistro > 0 ? `${vinculadosDoRegistro} vinculado(s)` : 'Ninguém vinculado ainda',
                 ].filter(Boolean).join(' · ')}
                 direita={
                   <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
@@ -286,7 +320,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                     <span className="t-strong" style={{ fontSize: 15 }}>{r.quantidade}</span>
                     <button
                       className="btn btn-ghost btn-sm"
-                      onClick={() => setEditando({ ...r, worker_ids: r.worker_ids || [] })}
+                      onClick={() => { setBuscaAdicionar(''); setEditando({ ...r, worker_ids: r.worker_ids || [] }) }}
                       aria-label="Editar"
                     >
                       <Icon name="editar" size={15} />
@@ -313,7 +347,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             <button className="btn btn-secondary grow" onClick={() => setEditando(null)}>Cancelar</button>
             <button
               className="btn btn-primary grow" onClick={salvar}
-              disabled={salvando || !editando?.company_id || !editando?.data || !Number(editando?.quantidade)}
+              disabled={salvando || !editando?.data || !Number(editando?.quantidade)}
             >
               {salvando ? 'Salvando…' : 'Salvar'}
             </button>
@@ -322,21 +356,8 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
       >
         {editando && (
           <div className="stack-2">
-            <Campo label="Empresa">
-              <select
-                className="sel" value={editando.company_id}
-                onChange={(e) => atualizarCampoNovo('company_id', e.target.value)}
-              >
-                <option value="">Escolha a empresa</option>
-                {empresasAtivas.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.nome} · {emp.tipo === 'propria' ? 'equipe própria' : 'empreiteira'}
-                  </option>
-                ))}
-              </select>
-            </Campo>
             <div className="row-flex">
-              <Campo label="Quantidade">
+              <Campo label="Quantidade do dia" dica="O número que o almoxarife mandou.">
                 <input
                   className="ipt" type="number" inputMode="numeric" min="0" step="1"
                   value={editando.quantidade}
@@ -346,7 +367,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               <Campo label="Data">
                 <input
                   className="ipt" type="date" value={editando.data}
-                  onChange={(e) => atualizarCampoNovo('data', e.target.value)}
+                  onChange={(e) => escolherData(e.target.value)}
                 />
               </Campo>
             </div>
@@ -364,45 +385,75 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               </div>
             )}
 
-            {editando.company_id && editando.data && (
-              <div>
-                <div className="t-micro" style={{ marginBottom: 8 }}>
-                  Vincular colaboradores {presentes != null && `(${vinculados.length} de ${presentes.length})`}
+            <div>
+              <div className="t-micro" style={{ marginBottom: 8 }}>Vinculados ({vinculados.length})</div>
+
+              {doDiario.length === 0 ? (
+                <div className="t-caption" style={{ marginBottom: 8 }}>
+                  Não achei diário lançado nessa data — busque os colaboradores abaixo pra vincular à mão.
                 </div>
-                {presentes == null ? (
-                  <div className="card-flat">
-                    <Vazio
-                      titulo="Sem diário nesse dia"
-                      texto="Não achei um diário lançado nessa data pra essa obra — não dá pra conferir automaticamente quem estava presente. A quantidade continua valendo do jeito que foi digitada."
+              ) : (
+                <div className="stack-1" style={{ marginBottom: 12 }}>
+                  <div className="t-caption" style={{ fontWeight: 700 }}>Confirmados no diário desse dia</div>
+                  {doDiario.map((c) => (
+                    <Selecionavel
+                      key={c.workerId}
+                      marcado={vinculados.includes(c.workerId)}
+                      onToggle={() => alternarColaborador(c.workerId)}
+                      titulo={c.nome}
+                      sub={[
+                        c.empresa, c.funcao,
+                        c.atividades.length > 0
+                          ? c.atividades.map((a) => `${a.servico} · ${a.local}`).join(', ')
+                          : 'Sem atividade lançada no diário',
+                      ].filter(Boolean).join(' — ')}
                     />
-                  </div>
-                ) : presentes.length === 0 ? (
-                  <div className="card-flat">
-                    <Vazio
-                      titulo="Ninguém dessa empresa no diário desse dia"
-                      texto="O diário dessa data existe, mas nenhum colaborador dessa empresa foi marcado como presente nele."
+                  ))}
+                </div>
+              )}
+
+              {adicionadosManualmente.length > 0 && (
+                <div className="stack-1" style={{ marginBottom: 12 }}>
+                  <div className="t-caption" style={{ fontWeight: 700 }}>Adicionados à mão</div>
+                  {adicionadosManualmente.map((c) => (
+                    <Selecionavel
+                      key={c.workerId}
+                      marcado
+                      onToggle={() => alternarColaborador(c.workerId)}
+                      titulo={c.nome}
+                      sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
                     />
-                  </div>
-                ) : (
-                  <div className="stack-1">
-                    {presentes.map((c) => (
+                  ))}
+                </div>
+              )}
+
+              <Campo label="Adicionar colaborador que não apareceu acima">
+                <input
+                  className="ipt" value={buscaAdicionar}
+                  onChange={(e) => setBuscaAdicionar(e.target.value)}
+                  placeholder="Buscar por nome…"
+                />
+              </Campo>
+              {resultadosBusca.length > 0 && (
+                <div className="stack-1" style={{ marginTop: 8 }}>
+                  {resultadosBusca.map((c) => {
+                    const empresa = dados.empresas?.find((e) => e.id === c.company_id)
+                    return (
                       <Selecionavel
-                        key={c.workerId}
-                        marcado={vinculados.includes(c.workerId)}
-                        onToggle={() => alternarColaborador(c.workerId)}
+                        key={c.id}
+                        marcado={vinculados.includes(c.id)}
+                        onToggle={() => alternarColaborador(c.id)}
                         titulo={c.nome}
-                        sub={[
-                          c.funcao,
-                          c.atividades.length > 0
-                            ? c.atividades.map((a) => `${a.servico} · ${a.local}`).join(', ')
-                            : 'Sem atividade lançada no diário',
-                        ].filter(Boolean).join(' — ')}
+                        sub={[empresa?.nome, c.funcao].filter(Boolean).join(' — ')}
                       />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )}
+              {buscaAdicionar.trim() && resultadosBusca.length === 0 && (
+                <div className="t-caption" style={{ marginTop: 8 }}>Nenhum colaborador com esse nome.</div>
+              )}
+            </div>
           </div>
         )}
       </Sheet>

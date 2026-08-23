@@ -2093,7 +2093,7 @@ export function DadosProvider({ perfil, children }) {
       const { organization_id, worksite_id } = escopo()
       const linha = {
         organization_id, worksite_id,
-        company_id: item.company_id,
+        company_id: item.company_id || null,
         data: item.data,
         quantidade: Number(item.quantidade),
         fornecedor: item.fornecedor || null,

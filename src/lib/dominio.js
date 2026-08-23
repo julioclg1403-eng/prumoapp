@@ -1383,29 +1383,42 @@ export function pedidosEquipamentoSemCadastro(pedidos, equipamentos) {
 }
 
 /* ── Controle de refeições (Almoxarifado) ─────────────────────
-   As duas planilhas do Julio (terceirizado e próprio) são a MESMA
-   coisa — data × empresa × quantidade — só que a de terceirizado
-   tem uma coluna por empresa e a de próprio só uma, porque só
-   tem uma equipe própria na obra. É exatamente a distinção que
-   `empresas.tipo` ('propria'/'empreiteira') já guarda no cadastro,
-   então não vira um campo novo: agrupa pelo tipo da empresa do
-   lançamento, do mesmo jeito que as duas planilhas já vinham
-   separadas, mas numa fonte só. */
-export function resumoRefeicoesDoMes(registros, empresas, mes) {
+   Lançamento é por DIA, não por empresa — um número só, do jeito
+   que o almoxarife manda ("hoje foram 20 almoços"). A quebra por
+   empresa (própria × terceirizada) não vem mais de um campo
+   declarado no lançamento: vem de quem foi vinculado a cada um,
+   olhando a empresa de cada colaborador (`colaboradores`). Por
+   isso `linhas`/`proprias`/`terceirizadas` contam PESSOAS
+   vinculadas, não a quantidade oficial — os dois números só batem
+   quando todo mundo do dia foi vinculado; `totalVinculado` deixa
+   essa diferença visível.
+   Lançamento antigo (de antes dessa mudança, sem worker_ids e com
+   `company_id` preenchido no próprio registro) continua contando
+   do jeito antigo — por isso o fallback abaixo. */
+export function resumoRefeicoesDoMes(registros, empresas, colaboradores, mes) {
   const doMes = (registros || []).filter((r) => r.data.slice(0, 7) === mes)
   const porEmpresa = new Map()
   doMes.forEach((r) => {
-    porEmpresa.set(r.company_id, (porEmpresa.get(r.company_id) || 0) + Number(r.quantidade || 0))
+    if (r.worker_ids && r.worker_ids.length > 0) {
+      r.worker_ids.forEach((workerId) => {
+        const colaborador = (colaboradores || []).find((c) => c.id === workerId)
+        const companyId = colaborador?.company_id || r.company_id || null
+        porEmpresa.set(companyId, (porEmpresa.get(companyId) || 0) + 1)
+      })
+    } else if (r.company_id) {
+      porEmpresa.set(r.company_id, (porEmpresa.get(r.company_id) || 0) + Number(r.quantidade || 0))
+    }
   })
   const linhas = Array.from(porEmpresa.entries()).map(([companyId, total]) => {
     const empresa = (empresas || []).find((e) => e.id === companyId)
-    return { companyId, nome: empresa?.nome || 'Empresa removida', tipo: empresa?.tipo || 'empreiteira', total }
+    return { companyId, nome: empresa?.nome || 'Sem empresa', tipo: empresa?.tipo || 'empreiteira', total }
   }).sort((a, b) => b.total - a.total)
   return {
     registros: doMes,
     linhas,
     proprias: linhas.filter((l) => l.tipo === 'propria'),
     terceirizadas: linhas.filter((l) => l.tipo !== 'propria'),
-    totalGeral: linhas.reduce((s, l) => s + l.total, 0),
+    totalGeral: doMes.reduce((s, r) => s + (Number(r.quantidade) || 0), 0),
+    totalVinculado: linhas.reduce((s, l) => s + l.total, 0),
   }
 }
