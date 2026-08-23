@@ -298,17 +298,17 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                   <Vazio titulo="Nenhuma vencida" texto="Todas as pendências em aberto ainda estão dentro do prazo." />
                 ) : (
                   <div className="stack-1">
-                    {atrasadas.slice(0, 4).map(({ p, s }) => (
-                      <ItemLista
-                        key={p.id} titulo={p.titulo} aviso
-                        sub={`${dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'} · prazo ${formatarData(p.prazo)}`}
-                        direita={<Chip tom={s.tom}>{s.rotulo}</Chip>}
-                        onClick={() => goto('pendencias', { destacar: p.id })}
-                      />
-                    ))}
-                    {atrasadas.length > 4 && (
+                    {/* Só a mais atrasada em destaque — o resto vira uma
+                        frase, pra não abrir um leque grande de cards. */}
+                    <ItemLista
+                      titulo={atrasadas[0].p.titulo} aviso
+                      sub={`${dados.perfilPorId(atrasadas[0].p.responsavel_id)?.nome || 'Sem responsável'} · prazo ${formatarData(atrasadas[0].p.prazo)}`}
+                      direita={<Chip tom={atrasadas[0].s.tom}>{atrasadas[0].s.rotulo}</Chip>}
+                      onClick={() => goto('pendencias', { destacar: atrasadas[0].p.id })}
+                    />
+                    {atrasadas.length > 1 && (
                       <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
-                        + {atrasadas.length - 4} além destas
+                        + {atrasadas.length - 1} além desta
                       </button>
                     )}
                   </div>
