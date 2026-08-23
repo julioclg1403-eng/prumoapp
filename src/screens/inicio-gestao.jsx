@@ -189,7 +189,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               {(etapasMensal.length > 0 || linkPrevision) && (
                 <div className="card">
                   <div className="row-between" style={{ marginBottom: 4 }}>
-                    <div className="t-micro">Planejamento</div>
+                    <TituloPainel icone="planejamento" cor="var(--info)" titulo="Planejamento" />
                     <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'dashboard' })}>
                       Abrir <Icon name="avancar" size={14} />
                     </button>
@@ -234,7 +234,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               {(dados.suprimentos || []).length > 0 && (
                 <div className="card">
                   <div className="row-between" style={{ marginBottom: 4 }}>
-                    <div className="t-micro">Suprimentos</div>
+                    <TituloPainel icone="pedidos" cor="var(--chart-4)" titulo="Suprimentos" />
                     <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('suprimentos', { aba: 'dashboard' })}>
                       Abrir <Icon name="avancar" size={14} />
                     </button>
@@ -263,7 +263,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               {contratosUnicos.length > 0 && (
                 <div className="card">
                   <div className="row-between" style={{ marginBottom: 4 }}>
-                    <div className="t-micro">Contratos</div>
+                    <TituloPainel icone="relatorio" cor="var(--chart-3)" titulo="Contratos" />
                     <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('contratos', { aba: 'dashboard' })}>
                       Abrir <Icon name="avancar" size={14} />
                     </button>
@@ -289,7 +289,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               {/* Pendências — dia a dia x tático */}
               <div className="card">
                 <div className="row-between" style={{ marginBottom: 14 }}>
-                  <div className="t-micro">Pendências</div>
+                  <TituloPainel icone="pendencias" cor="var(--danger)" titulo="Pendências" />
                   <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
                     Abrir <Icon name="avancar" size={14} />
                   </button>
@@ -303,7 +303,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               {/* Compras — etapas */}
               <div className="card">
                 <div className="row-between" style={{ marginBottom: 14 }}>
-                  <div className="t-micro">Compras — por etapa</div>
+                  <TituloPainel icone="pedidos" cor="var(--success)" titulo="Compras — por etapa" />
                   <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('requisicoes')}>
                     Abrir <Icon name="avancar" size={14} />
                   </button>
@@ -329,6 +329,24 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
         </div>
       </div>
     </>
+  )
+}
+
+/* Selo colorido antes do título de cada cartão do Painel geral — só
+   pra escanear rápido qual é qual (uma cor por módulo, sem usar o
+   laranja da marca: ver regra do BRIEFING em index.css). */
+function TituloPainel({ icone, cor, titulo }) {
+  return (
+    <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+      <div style={{
+        width: 26, height: 26, borderRadius: 8, flex: 'none',
+        background: `color-mix(in srgb, ${cor} 14%, transparent)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon name={icone} size={14} style={{ color: cor }} />
+      </div>
+      <div className="t-micro">{titulo}</div>
+    </div>
   )
 }
 
