@@ -40,7 +40,7 @@ function baixarCSV(nomeArquivo, cabecalho, linhas) {
    vez de lançar só a entrada — o que INFLARIA o saldo —, lança
    entrada e saída no mesmo valor, fechando a diferença do
    Suprimentos sem mexer no saldo. */
-function LinhaSuprimento({ r, abrirNovaEntrada, onReconciliar }) {
+function LinhaSuprimento({ r, abrirNovaEntrada, onReconciliar, onVincularManual }) {
   return (
     <ItemLista
       titulo={r.insumo}
@@ -79,6 +79,14 @@ function LinhaSuprimento({ r, abrirNovaEntrada, onReconciliar }) {
                   title="Já foi entregue e consumido antes do app — lança entrada e saída no mesmo valor, sem mudar o saldo do Estoque Atual"
                 >
                   Já consumido
+                </button>
+              )}
+              {!r.material && onVincularManual && (
+                <button
+                  className="btn btn-ghost btn-sm" onClick={() => onVincularManual(r)}
+                  title="O nome não bateu sozinho com nenhum EPI do catálogo — escolha a qual EPI ele corresponde"
+                >
+                  Vincular a EPI existente
                 </button>
               )}
             </div>
@@ -348,6 +356,29 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     texto: `Lança entrada e saída no mesmo valor pra cada um dos ${itensParaReconciliar.length} insumos com diferença e EPI já cadastrado no catálogo — o saldo do Estoque Atual não muda, só fecha a diferença que o Suprimentos mostra.`,
     rotuloOk: 'Reconciliar', onOk: reconciliarTodos,
   })
+
+  /* Quando o nome do insumo do Suprimentos não bate sozinho com
+     nenhum EPI do catálogo (grafia diferente, sinônimo…), a pessoa
+     escolhe à mão a qual EPI ele corresponde de verdade — o técnico
+     já deve ter lançado a quantidade certa nesse EPI por fora, então
+     isso só fecha a diferença sem mudar o saldo, igual reconciliarSemAlterarEstoque. */
+  const [vinculandoManual, setVinculandoManual] = useState(null)
+  const [salvandoVinculo, setSalvandoVinculo] = useState(false)
+  const confirmarVinculoManual = async () => {
+    if (!vinculandoManual?.materialId) return
+    setSalvandoVinculo(true)
+    const materialAtual = (dados.materiaisEpi || []).find((m) => m.id === vinculandoManual.materialId)
+    const insumo = vinculandoManual.r.insumo
+    if (materialAtual && !(materialAtual.apelidos || []).includes(insumo)) {
+      await dados.salvarCadastro('materiaisEpi', {
+        ...materialAtual,
+        apelidos: [...(materialAtual.apelidos || []), insumo],
+      })
+    }
+    await reconciliarSemAlterarEstoque({ ...vinculandoManual.r, material: { id: vinculandoManual.materialId } })
+    setSalvandoVinculo(false)
+    setVinculandoManual(null)
+  }
 
   const abrirNovaSaida = (materialId = '') => {
     setBuscaColaboradorSaida('')
@@ -827,7 +858,11 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   ) : (
                     <div className="stack-1">
                       {suprimentosNaoLancados.map((r) => (
-                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} onReconciliar={reconciliarSemAlterarEstoque} />
+                        <LinhaSuprimento
+                          key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada}
+                          onReconciliar={reconciliarSemAlterarEstoque}
+                          onVincularManual={(item) => setVinculandoManual({ r: item, materialId: '' })}
+                        />
                       ))}
                     </div>
                   )}
@@ -841,7 +876,11 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   ) : (
                     <div className="stack-1">
                       {suprimentosLancados.map((r) => (
-                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} onReconciliar={reconciliarSemAlterarEstoque} />
+                        <LinhaSuprimento
+                          key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada}
+                          onReconciliar={reconciliarSemAlterarEstoque}
+                          onVincularManual={(item) => setVinculandoManual({ r: item, materialId: '' })}
+                        />
                       ))}
                     </div>
                   )}
@@ -851,6 +890,41 @@ export default function SegurancaEpi({ perfil, params = {} }) {
           </div>
         )
       )}
+
+      {/* ── Vincular Suprimentos a um EPI existente (sem alterar estoque) ── */}
+      <Sheet
+        aberto={Boolean(vinculandoManual)}
+        titulo="Vincular a um EPI já cadastrado"
+        onFechar={() => setVinculandoManual(null)}
+        rodape={
+          <div className="row-flex">
+            <button className="btn btn-secondary grow" onClick={() => setVinculandoManual(null)}>Cancelar</button>
+            <button
+              className="btn btn-primary grow" onClick={confirmarVinculoManual}
+              disabled={!vinculandoManual?.materialId || salvandoVinculo}
+            >
+              {salvandoVinculo ? 'Reconciliando…' : 'Reconciliar (sem alterar estoque)'}
+            </button>
+          </div>
+        }
+      >
+        {vinculandoManual && (
+          <div className="stack-2">
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              "{vinculandoManual.r.insumo}" não bateu sozinho com nenhum EPI do catálogo pelo nome.
+              Escolha a qual EPI ele corresponde de verdade — se o técnico já lançou a quantidade certa
+              nesse EPI, isso só fecha a diferença do Suprimentos ({vinculandoManual.r.diferenca}) sem
+              mudar o saldo do Estoque Atual.
+            </div>
+            <SelecaoMaterial
+              materialId={vinculandoManual.materialId}
+              materiais={materiais}
+              dados={dados}
+              onEscolher={(id) => setVinculandoManual((p) => ({ ...p, materialId: id }))}
+            />
+          </div>
+        )}
+      </Sheet>
 
       {/* ── Nova entrada ── */}
       <Sheet

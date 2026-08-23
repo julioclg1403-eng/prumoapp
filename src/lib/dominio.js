@@ -1343,7 +1343,14 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
 
   return [...porInsumo.entries()]
     .map(([insumo, info]) => {
-      const material = (materiais || []).find((m) => insumoCorrespondeMaterial(insumo, m.nome))
+      /* Nome do insumo que não bate sozinho com o nome do material
+         (grafia diferente, "fumê" × "incolor"…) mas já foi vinculado
+         à mão uma vez — ver "Vincular a EPI existente" — casa pelo
+         apelido gravado no material, sem precisar bater de novo toda
+         vez que o Suprimentos reimportar essa planilha. */
+      const material = (materiais || []).find((m) =>
+        insumoCorrespondeMaterial(insumo, m.nome)
+        || (m.apelidos || []).some((apelido) => normalizarParaCasar(apelido) === normalizarParaCasar(insumo)))
       const qtdeManual = material ? (quantidadeManualPorMaterial.get(material.id) || 0) : 0
       return {
         insumo,
