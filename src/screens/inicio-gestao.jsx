@@ -280,44 +280,28 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                       Abrir <Icon name="avancar" size={14} />
                     </button>
                   </div>
-                  {etapasMensal.length > 0 && (
-                    <GraficoDonut
-                      tamanho={104}
-                      itens={[
-                        { chave: 'concluidas', rotulo: 'Concluídas', valor: etapasConcluidas, cor: 'var(--success)' },
-                        { chave: 'andamento', rotulo: 'Em andamento', valor: etapasEmAndamento, cor: 'var(--info)' },
-                        { chave: 'nao-iniciadas', rotulo: 'Não iniciadas', valor: etapasNaoIniciadas, cor: 'var(--border-strong)' },
-                      ]}
-                      formatarValor={(v) => plural(v, 'etapa', 'etapas')}
-                    />
-                  )}
-                  {linkPrevision && (
+                  {/* O anel de etapas (concluídas/andamento/não iniciadas) e o
+                      Realizado/Previsto/"atividade atrasada" já estão no hero
+                      do topo — não repete aqui. Só o que o hero NÃO mostra. */}
+                  {linkPrevision ? (
                     previsionHoje ? (
-                      <div className="stack-1" style={{ marginTop: 10 }}>
+                      <div className="stack-1" style={{ marginTop: 6 }}>
                         <div className="row-wrap" style={{ gap: 16 }}>
                           <span className="t-caption">Base <b>{previsionHoje.base.toFixed(1)}%</b></span>
-                          <span className="t-caption">Previsto <b>{previsionHoje.previsto.toFixed(1)}%</b></span>
-                          <span className="t-caption">
-                            Realizado{' '}
-                            <b style={{ color: previsionHoje.realizado >= previsionHoje.previsto ? 'var(--success)' : 'var(--danger)' }}>
-                              {previsionHoje.realizado.toFixed(1)}%
-                            </b>
-                          </span>
-                        </div>
-                        <div className="row-wrap" style={{ gap: 16 }}>
                           <span className="t-caption">Atividades <b>{atividadesGlobal.length}</b></span>
                           {metaDoMes && (
                             <span className="t-caption">Meta do mês <b>{Number(metaDoMes.percentual).toFixed(2)}%</b></span>
                           )}
                         </div>
-                        {atividadesAtrasadasPrevision > 0 && (
-                          <div className="t-caption" style={{ color: 'var(--danger)' }}>
-                            {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision.
-                          </div>
-                        )}
                       </div>
                     ) : (
-                      <div className="t-caption" style={{ marginTop: 10 }}>Sincronizando com a Prevision…</div>
+                      <div className="t-caption" style={{ marginTop: 6 }}>Sincronizando com a Prevision…</div>
+                    )
+                  ) : (
+                    etapasMensal.length > 0 && (
+                      <div className="t-caption" style={{ marginTop: 6 }}>
+                        Acompanhamento sem Prevision vinculada ainda — só a EAP do Mensal.
+                      </div>
                     )
                   )}
                 </div>
