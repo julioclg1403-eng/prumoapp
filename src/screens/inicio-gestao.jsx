@@ -7,7 +7,7 @@
 
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, somarDias, formatarData, formatarDinheiro, nomeDiaSemana,
+  hojeISO, somarDias, formatarData, formatarDinheiro,
   diarioDaData, totalPresentes,
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
@@ -15,7 +15,7 @@ import {
   previsionCurvaHoje, progressoEsperado,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
-import { GraficoColunas, GraficoDonut, RankingBarras } from '../components/charts'
+import { GraficoDonut, RankingBarras } from '../components/charts'
 
 export default function InicioGestao({ goto, irParaAba, perfil }) {
   const dados = useDados()
@@ -34,13 +34,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const semana = consolidarEfetivo(dados.diarios, { de, ate: hoje })
   const revisoes = pendentesDeRevisao(dados.colaboradores)
 
-  /* Sete colunas fixas, mesmo nos dias sem lançamento — um buraco
-     no gráfico é informação, não deve ser omitido. */
-  const barras = Array.from({ length: 7 }, (_, i) => {
-    const data = somarDias(de, i)
-    const dia = semana.dias.find((d) => d.data === data)
-    return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
-  })
   /* ── Painel geral ── */
   const taticasDaObra = pendenciasTaticas(dados.pendencias)
   const contTatico = contarPendencias(taticasDaObra, hoje)
@@ -80,9 +73,29 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const avancoGeral = previsionHoje ? previsionHoje.realizado : avancoMensal
   const previstoGeral = previsionHoje ? previsionHoje.previsto : null
 
-  /* Suprimentos — pedidos importados do ERP ainda sem Data Entrega,
-     e quantos já passaram da Previsão de Entrega que o Compras deu. */
-  const suprimentosAbertos = (dados.suprimentos || []).filter((p) => !p.data_entrega)
+  /* Meta do mês — a mesma que é digitada à mão no Progresso Mensal
+     (a Prevision não expõe esse percentual pela API, ver Suprimentos
+     ↔ Planejamento). Só do mês corrente. */
+  const mesAtual = hoje.slice(0, 7)
+  const metaDoMes = (dados.metasMensais || []).find((m) => String(m.mes).slice(0, 7) === mesAtual)
+
+  /* Suprimentos — mesmos números do topo do Dashboard de lá: todo
+     pedido importado (não só os em aberto) entra na média de tempo e
+     no valor total. */
+  const todosSuprimentos = dados.suprimentos || []
+  const media = (itens, campo) => {
+    const comValor = itens.filter((p) => p[campo] != null)
+    return comValor.length ? comValor.reduce((s, p) => s + p[campo], 0) / comValor.length : null
+  }
+  const valorTotalSuprimentos = todosSuprimentos.reduce(
+    (s, p) => s + (p.preco != null && p.quantidade != null ? p.preco * p.quantidade : 0), 0,
+  )
+  const mediaPedidoCompraSuprimentos = media(todosSuprimentos, 'dias_pedido_compra')
+  const mediaCompraEntregaSuprimentos = media(todosSuprimentos, 'dias_compra_entrega')
+
+  /* Pedidos importados do ERP ainda sem Data Entrega, e quantos já
+     passaram da Previsão de Entrega que o Compras deu. */
+  const suprimentosAbertos = todosSuprimentos.filter((p) => !p.data_entrega)
   const suprimentosAtrasados = suprimentosAbertos.filter((p) => p.previsao_entrega && p.previsao_entrega < hoje)
 
   /* Contratos — um registro por contrato (os campos do contrato se
@@ -192,20 +205,23 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             />
           </div>
 
-          {/* ── Efetivo por dia ── */}
+          {/* ── Efetivo da semana (só a conta, sem o dia a dia) ── */}
           <div className="card">
-            <div className="row-between" style={{ marginBottom: 14 }}>
-              <div className="t-micro">Efetivo por dia</div>
-              <span className="t-caption">pico {semana.pico}</span>
+            <div className="t-micro" style={{ marginBottom: 10 }}>Efetivo da semana</div>
+            <div className="row-wrap" style={{ gap: 24 }}>
+              <div>
+                <div className="t-caption">Média por dia</div>
+                <div className="t-display" style={{ fontSize: 32, marginTop: 2 }}>{semana.media}</div>
+              </div>
+              <div>
+                <div className="t-caption">Pico</div>
+                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 6 }}>{semana.pico}</div>
+              </div>
+              <div>
+                <div className="t-caption">Total pessoas-dia</div>
+                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 6 }}>{semana.total}</div>
+              </div>
             </div>
-            <GraficoColunas
-              itens={barras.map((b) => ({
-                chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
-                cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
-              }))}
-              formatarValor={(v) => v || '—'}
-              alturaMax={68}
-            />
             <button
               className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
               onClick={() => irParaAba('efetivo')}
@@ -274,13 +290,20 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                     previsionHoje ? (
                       <div className="stack-1" style={{ marginTop: 10 }}>
                         <div className="row-wrap" style={{ gap: 16 }}>
-                          <span className="t-caption">Previsto (Prevision) <b>{previsionHoje.previsto.toFixed(1)}%</b></span>
+                          <span className="t-caption">Base <b>{previsionHoje.base.toFixed(1)}%</b></span>
+                          <span className="t-caption">Previsto <b>{previsionHoje.previsto.toFixed(1)}%</b></span>
                           <span className="t-caption">
                             Realizado{' '}
                             <b style={{ color: previsionHoje.realizado >= previsionHoje.previsto ? 'var(--success)' : 'var(--danger)' }}>
                               {previsionHoje.realizado.toFixed(1)}%
                             </b>
                           </span>
+                        </div>
+                        <div className="row-wrap" style={{ gap: 16 }}>
+                          <span className="t-caption">Atividades <b>{atividadesGlobal.length}</b></span>
+                          {metaDoMes && (
+                            <span className="t-caption">Meta do mês <b>{Number(metaDoMes.percentual).toFixed(2)}%</b></span>
+                          )}
                         </div>
                         {atividadesAtrasadasPrevision > 0 && (
                           <div className="t-caption" style={{ color: 'var(--danger)' }}>
@@ -305,22 +328,25 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                     </button>
                   </div>
                   {suprimentosAbertos.length > 0 ? (
-                    <>
-                      <GraficoDonut
-                        tamanho={104}
-                        itens={[
-                          { chave: 'no-prazo', rotulo: 'Aguardando, dentro do prazo', valor: suprimentosAbertos.length - suprimentosAtrasados.length, cor: 'var(--info)' },
-                          { chave: 'atrasado', rotulo: 'Previsão vencida', valor: suprimentosAtrasados.length, cor: 'var(--danger)' },
-                        ]}
-                        formatarValor={(v) => plural(v, 'pedido', 'pedidos')}
-                      />
-                      <div className="t-caption" style={{ marginTop: 8 }}>
-                        {plural(suprimentosAbertos.length, 'pedido aguardando entrega', 'pedidos aguardando entrega')} no total.
-                      </div>
-                    </>
+                    <GraficoDonut
+                      tamanho={104}
+                      itens={[
+                        { chave: 'no-prazo', rotulo: 'Aguardando, dentro do prazo', valor: suprimentosAbertos.length - suprimentosAtrasados.length, cor: 'var(--info)' },
+                        { chave: 'atrasado', rotulo: 'Previsão vencida', valor: suprimentosAtrasados.length, cor: 'var(--danger)' },
+                      ]}
+                      formatarValor={(v) => plural(v, 'pedido', 'pedidos')}
+                    />
                   ) : (
-                    <div className="t-caption" style={{ padding: '20px 0' }}>Todo pedido importado já tem Data Entrega.</div>
+                    <div className="t-caption" style={{ padding: '10px 0' }}>Todo pedido importado já tem Data Entrega.</div>
                   )}
+                  <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
+                    <span className="t-caption">Pedidos <b>{todosSuprimentos.length}</b></span>
+                    <span className="t-caption">Valor total <b>{formatarDinheiro(valorTotalSuprimentos)}</b></span>
+                  </div>
+                  <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
+                    <span className="t-caption">Pedido → Compra <b>{formatarDias(mediaPedidoCompraSuprimentos)}</b></span>
+                    <span className="t-caption">Compra → Entrega <b>{formatarDias(mediaCompraEntregaSuprimentos)}</b></span>
+                  </div>
                 </div>
               )}
 
@@ -395,6 +421,11 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
       </div>
     </>
   )
+}
+
+function formatarDias(v) {
+  if (v == null) return '—'
+  return `${v.toFixed(1)} dia${v >= 1.95 ? 's' : ''}`
 }
 
 /* Anel de etapas do hero — mesma técnica de offset acumulado do
