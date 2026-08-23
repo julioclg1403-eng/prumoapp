@@ -5,6 +5,7 @@
    esconder rolagem dentro do cartão.
    ============================================================ */
 
+import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, somarDias, formatarData, formatarDinheiro, nomeDiaSemana,
@@ -12,9 +13,9 @@ import {
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
   contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
-  previsionCurvaHoje, previsionProgressoMensal, progressoEsperado,
+  previsionCurvaHoje, previsionProgressoMensal, progressoEsperado, filtrarPorPeriodo,
 } from '../lib/dominio'
-import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
+import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop, Segmentos, Campo } from '../components'
 import { GraficoColunas, GraficoDonut, RankingBarras, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 
 export default function InicioGestao({ goto, irParaAba, perfil }) {
@@ -86,23 +87,38 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const progressoMensal = previsionProgressoMensal(linkPrevision?.scurve).map((m) => ({ ...m, meta: metasPorMes[m.mes] ?? null }))
   const salvarMeta = (mesISO, percentual) => dados.salvarMetaMensal(`${mesISO}-01`, percentual)
 
-  /* Suprimentos — mesmos números do topo do Dashboard de lá: todo
-     pedido importado (não só os em aberto) entra na média de tempo e
-     no valor total. */
+  /* Suprimentos — mesmos números e mesmo filtro de Período (data do
+     pedido) do topo do Dashboard de lá, só sem o recorte por tipo de
+     material (esse fica só na tela de Suprimentos). */
   const todosSuprimentos = dados.suprimentos || []
+  const [periodoModo, setPeriodoModo] = useState('tudo')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
+  const suprimentosPeriodo = filtrarPorPeriodo(
+    todosSuprimentos, periodoModo,
+    { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+    (p) => p.data_pedido,
+  )
   const media = (itens, campo) => {
     const comValor = itens.filter((p) => p[campo] != null)
     return comValor.length ? comValor.reduce((s, p) => s + p[campo], 0) / comValor.length : null
   }
-  const valorTotalSuprimentos = todosSuprimentos.reduce(
+  const valorTotalSuprimentos = suprimentosPeriodo.reduce(
     (s, p) => s + (p.preco != null && p.quantidade != null ? p.preco * p.quantidade : 0), 0,
   )
-  const mediaPedidoCompraSuprimentos = media(todosSuprimentos, 'dias_pedido_compra')
-  const mediaCompraEntregaSuprimentos = media(todosSuprimentos, 'dias_compra_entrega')
+  const mediaPedidoCompraSuprimentos = media(suprimentosPeriodo, 'dias_pedido_compra')
+  const mediaCompraEntregaSuprimentos = media(suprimentosPeriodo, 'dias_compra_entrega')
+  const suprimentosComAmbosTempos = suprimentosPeriodo.filter((p) => p.dias_pedido_compra != null && p.dias_compra_entrega != null)
+  const mediaTotalSuprimentos = suprimentosComAmbosTempos.length
+    ? suprimentosComAmbosTempos.reduce((s, p) => s + p.dias_pedido_compra + p.dias_compra_entrega, 0) / suprimentosComAmbosTempos.length
+    : null
 
-  /* Pedidos importados do ERP ainda sem Data Entrega, e quantos já
-     passaram da Previsão de Entrega que o Compras deu. */
-  const suprimentosAbertos = todosSuprimentos.filter((p) => !p.data_entrega)
+  /* Pedidos importados do ERP, no período escolhido, ainda sem Data
+     Entrega, e quantos já passaram da Previsão de Entrega que o
+     Compras deu. */
+  const suprimentosAbertos = suprimentosPeriodo.filter((p) => !p.data_entrega)
   const suprimentosAtrasados = suprimentosAbertos.filter((p) => p.previsao_entrega && p.previsao_entrega < hoje)
 
   /* Contratos — um registro por contrato (os campos do contrato se
@@ -280,26 +296,62 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                       Abrir <Icon name="avancar" size={14} />
                     </button>
                   </div>
-                  {suprimentosAbertos.length > 0 ? (
-                    <GraficoDonut
-                      tamanho={104}
-                      itens={[
-                        { chave: 'no-prazo', rotulo: 'Aguardando, dentro do prazo', valor: suprimentosAbertos.length - suprimentosAtrasados.length, cor: 'var(--info)' },
-                        { chave: 'atrasado', rotulo: 'Previsão vencida', valor: suprimentosAtrasados.length, cor: 'var(--danger)' },
-                      ]}
-                      formatarValor={(v) => plural(v, 'pedido', 'pedidos')}
-                    />
-                  ) : (
-                    <div className="t-caption" style={{ padding: '10px 0' }}>Todo pedido importado já tem Data Entrega.</div>
+
+                  <Segmentos
+                    valor={periodoModo} onChange={setPeriodoModo}
+                    opcoes={[
+                      { valor: 'tudo', rotulo: 'Tudo' },
+                      { valor: 'dia', rotulo: 'Dia' },
+                      { valor: 'mes', rotulo: 'Mês' },
+                      { valor: 'periodo', rotulo: 'Período' },
+                    ]}
+                  />
+                  {periodoModo === 'dia' && (
+                    <input className="ipt" type="date" value={periodoDia} onChange={(e) => setPeriodoDia(e.target.value)} style={{ marginTop: 6 }} />
                   )}
-                  <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
-                    <span className="t-caption">Pedidos <b>{todosSuprimentos.length}</b></span>
-                    <span className="t-caption">Valor total <b>{formatarDinheiro(valorTotalSuprimentos)}</b></span>
-                  </div>
-                  <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
-                    <span className="t-caption">Pedido → Compra <b>{formatarDias(mediaPedidoCompraSuprimentos)}</b></span>
-                    <span className="t-caption">Compra → Entrega <b>{formatarDias(mediaCompraEntregaSuprimentos)}</b></span>
-                  </div>
+                  {periodoModo === 'mes' && (
+                    <input className="ipt" type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} style={{ marginTop: 6 }} />
+                  )}
+                  {periodoModo === 'periodo' && (
+                    <div className="row-flex" style={{ gap: 8, marginTop: 6 }}>
+                      <Campo label="De">
+                        <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
+                      </Campo>
+                      <Campo label="Até">
+                        <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
+                      </Campo>
+                    </div>
+                  )}
+
+                  {suprimentosPeriodo.length === 0 ? (
+                    <div className="t-caption" style={{ padding: '10px 0' }}>Nenhum pedido nesse período.</div>
+                  ) : (
+                    <>
+                      {suprimentosAbertos.length > 0 ? (
+                        <GraficoDonut
+                          tamanho={104}
+                          itens={[
+                            { chave: 'no-prazo', rotulo: 'Aguardando, dentro do prazo', valor: suprimentosAbertos.length - suprimentosAtrasados.length, cor: 'var(--info)' },
+                            { chave: 'atrasado', rotulo: 'Previsão vencida', valor: suprimentosAtrasados.length, cor: 'var(--danger)' },
+                          ]}
+                          formatarValor={(v) => plural(v, 'pedido', 'pedidos')}
+                        />
+                      ) : (
+                        <div className="t-caption" style={{ padding: '10px 0' }}>Todo pedido do período já tem Data Entrega.</div>
+                      )}
+                      <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
+                        <span className="t-caption">Pedidos (itens) <b>{suprimentosPeriodo.length}</b></span>
+                        <span className="t-caption">Valor total <b>{formatarDinheiro(valorTotalSuprimentos)}</b></span>
+                      </div>
+                      <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
+                        <span className="t-caption">Pedido → Compra <b>{formatarDias(mediaPedidoCompraSuprimentos)}</b></span>
+                        <span className="t-caption">Compra → Entrega <b>{formatarDias(mediaCompraEntregaSuprimentos)}</b></span>
+                      </div>
+                      <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
+                        <span className="t-caption">Total (pedido até chegar) <b>{formatarDias(mediaTotalSuprimentos)}</b></span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
