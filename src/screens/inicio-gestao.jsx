@@ -115,12 +115,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     ? suprimentosComAmbosTempos.reduce((s, p) => s + p.dias_pedido_compra + p.dias_compra_entrega, 0) / suprimentosComAmbosTempos.length
     : null
 
-  /* Pedidos importados do ERP, no período escolhido, ainda sem Data
-     Entrega, e quantos já passaram da Previsão de Entrega que o
-     Compras deu. */
-  const suprimentosAbertos = suprimentosPeriodo.filter((p) => !p.data_entrega)
-  const suprimentosAtrasados = suprimentosAbertos.filter((p) => p.previsao_entrega && p.previsao_entrega < hoje)
-
   /* Contratos — um registro por contrato (os campos do contrato se
      repetem em toda linha de item da planilha achatada). */
   const contratosMapa = new Map()
@@ -327,19 +321,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                     <div className="t-caption" style={{ padding: '10px 0' }}>Nenhum pedido nesse período.</div>
                   ) : (
                     <>
-                      {suprimentosAbertos.length > 0 ? (
-                        <GraficoDonut
-                          tamanho={104}
-                          itens={[
-                            { chave: 'no-prazo', rotulo: 'Aguardando, dentro do prazo', valor: suprimentosAbertos.length - suprimentosAtrasados.length, cor: 'var(--info)' },
-                            { chave: 'atrasado', rotulo: 'Previsão vencida', valor: suprimentosAtrasados.length, cor: 'var(--danger)' },
-                          ]}
-                          formatarValor={(v) => plural(v, 'pedido', 'pedidos')}
-                        />
-                      ) : (
-                        <div className="t-caption" style={{ padding: '10px 0' }}>Todo pedido do período já tem Data Entrega.</div>
-                      )}
-                      <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
+                      <div className="row-wrap" style={{ gap: 16, marginTop: 10 }}>
                         <span className="t-caption">Pedidos (itens) <b>{suprimentosPeriodo.length}</b></span>
                         <span className="t-caption">Valor total <b>{formatarDinheiro(valorTotalSuprimentos)}</b></span>
                       </div>
