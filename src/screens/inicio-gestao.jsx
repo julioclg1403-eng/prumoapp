@@ -247,8 +247,8 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             />
           </div>
 
-          {/* ── Efetivo por dia — ocupa só metade da tela no desktop ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12 }}>
+          {/* ── Efetivo por dia (metade) + Suprimentos (a outra metade) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12, alignItems: 'start' }}>
             <div className="card">
               <div className="row-between" style={{ marginBottom: 14 }}>
                 <div className="t-micro">Efetivo por dia</div>
@@ -269,6 +269,87 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                 Abrir efetivo
               </button>
             </div>
+
+            {(dados.suprimentos || []).length > 0 && (
+              <div className="card">
+                <div className="row-between" style={{ marginBottom: 4 }}>
+                  <TituloPainel icone="pedidos" cor="var(--chart-4)" titulo="Suprimentos" />
+                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('suprimentos', { aba: 'dashboard' })}>
+                    Abrir <Icon name="avancar" size={14} />
+                  </button>
+                </div>
+
+                <Segmentos
+                  valor={periodoModo} onChange={setPeriodoModo}
+                  opcoes={[
+                    { valor: 'tudo', rotulo: 'Tudo' },
+                    { valor: 'dia', rotulo: 'Dia' },
+                    { valor: 'mes', rotulo: 'Mês' },
+                    { valor: 'periodo', rotulo: 'Período' },
+                  ]}
+                />
+                {periodoModo === 'dia' && (
+                  <input className="ipt" type="date" value={periodoDia} onChange={(e) => setPeriodoDia(e.target.value)} style={{ marginTop: 6 }} />
+                )}
+                {periodoModo === 'mes' && (
+                  <input className="ipt" type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} style={{ marginTop: 6 }} />
+                )}
+                {periodoModo === 'periodo' && (
+                  <div className="row-flex" style={{ gap: 8, marginTop: 6 }}>
+                    <Campo label="De">
+                      <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
+                    </Campo>
+                    <Campo label="Até">
+                      <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
+                    </Campo>
+                  </div>
+                )}
+
+                {suprimentosPeriodo.length === 0 ? (
+                  <div className="t-caption" style={{ padding: '10px 0' }}>Nenhum pedido nesse período.</div>
+                ) : (
+                  <>
+                    <div className="row-wrap" style={{ gap: 16, marginTop: 10 }}>
+                      <span className="t-caption">Pedidos (itens) <b>{suprimentosPeriodo.length}</b></span>
+                      <span className="t-caption">Valor total <b>{formatarDinheiro(valorTotalSuprimentos)}</b></span>
+                    </div>
+                    <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
+                      <span className="t-caption">Pedido → Compra <b>{formatarDias(mediaPedidoCompraSuprimentos)}</b></span>
+                      <span className="t-caption">Compra → Entrega <b>{formatarDias(mediaCompraEntregaSuprimentos)}</b></span>
+                    </div>
+                    <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
+                      <span className="t-caption">Total (pedido até chegar) <b>{formatarDias(mediaTotalSuprimentos)}</b></span>
+                    </div>
+
+                    {porDestinoSuprimentos.length > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div className="t-micro" style={{ marginBottom: 6 }}>Por tipo de material</div>
+                        <GraficoDonut
+                          tamanho={104}
+                          itens={porDestinoSuprimentos.map((d) => ({
+                            chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
+                          }))}
+                          formatarValor={formatarDinheiro}
+                        />
+                      </div>
+                    )}
+
+                    {evolucaoMensalSuprimentos.length > 1 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div className="t-micro" style={{ marginBottom: 6 }}>Evolução mensal</div>
+                        <GraficoColunas
+                          itens={evolucaoMensalSuprimentos.map((m) => {
+                            const [ano, mesNum] = m.mes.split('-')
+                            return { chave: m.mes, rotulo: `${MESES_ABREV[Number(mesNum) - 1]}/${ano.slice(2)}`, valor: m.quantidade }
+                          })}
+                          formatarValor={(v) => String(v)}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Pendências vencidas ── */}
@@ -307,90 +388,8 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             <div className="t-micro" style={{ marginBottom: 10 }}>Painel geral</div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-              {/* Planejamento já tem bloco próprio, destacado, no topo
-                  da página — não repete aqui. */}
-
-              {/* Suprimentos */}
-              {(dados.suprimentos || []).length > 0 && (
-                <div className="card">
-                  <div className="row-between" style={{ marginBottom: 4 }}>
-                    <TituloPainel icone="pedidos" cor="var(--chart-4)" titulo="Suprimentos" />
-                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('suprimentos', { aba: 'dashboard' })}>
-                      Abrir <Icon name="avancar" size={14} />
-                    </button>
-                  </div>
-
-                  <Segmentos
-                    valor={periodoModo} onChange={setPeriodoModo}
-                    opcoes={[
-                      { valor: 'tudo', rotulo: 'Tudo' },
-                      { valor: 'dia', rotulo: 'Dia' },
-                      { valor: 'mes', rotulo: 'Mês' },
-                      { valor: 'periodo', rotulo: 'Período' },
-                    ]}
-                  />
-                  {periodoModo === 'dia' && (
-                    <input className="ipt" type="date" value={periodoDia} onChange={(e) => setPeriodoDia(e.target.value)} style={{ marginTop: 6 }} />
-                  )}
-                  {periodoModo === 'mes' && (
-                    <input className="ipt" type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} style={{ marginTop: 6 }} />
-                  )}
-                  {periodoModo === 'periodo' && (
-                    <div className="row-flex" style={{ gap: 8, marginTop: 6 }}>
-                      <Campo label="De">
-                        <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
-                      </Campo>
-                      <Campo label="Até">
-                        <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
-                      </Campo>
-                    </div>
-                  )}
-
-                  {suprimentosPeriodo.length === 0 ? (
-                    <div className="t-caption" style={{ padding: '10px 0' }}>Nenhum pedido nesse período.</div>
-                  ) : (
-                    <>
-                      <div className="row-wrap" style={{ gap: 16, marginTop: 10 }}>
-                        <span className="t-caption">Pedidos (itens) <b>{suprimentosPeriodo.length}</b></span>
-                        <span className="t-caption">Valor total <b>{formatarDinheiro(valorTotalSuprimentos)}</b></span>
-                      </div>
-                      <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
-                        <span className="t-caption">Pedido → Compra <b>{formatarDias(mediaPedidoCompraSuprimentos)}</b></span>
-                        <span className="t-caption">Compra → Entrega <b>{formatarDias(mediaCompraEntregaSuprimentos)}</b></span>
-                      </div>
-                      <div className="row-wrap" style={{ gap: 16, marginTop: 4 }}>
-                        <span className="t-caption">Total (pedido até chegar) <b>{formatarDias(mediaTotalSuprimentos)}</b></span>
-                      </div>
-
-                      {porDestinoSuprimentos.length > 0 && (
-                        <div style={{ marginTop: 14 }}>
-                          <div className="t-micro" style={{ marginBottom: 6 }}>Por tipo de material</div>
-                          <GraficoDonut
-                            tamanho={104}
-                            itens={porDestinoSuprimentos.map((d) => ({
-                              chave: d.destino, rotulo: `${ROTULO_DESTINO[d.destino] || 'Sem destino'} (${d.quantidade})`, valor: d.valor,
-                            }))}
-                            formatarValor={formatarDinheiro}
-                          />
-                        </div>
-                      )}
-
-                      {evolucaoMensalSuprimentos.length > 1 && (
-                        <div style={{ marginTop: 14 }}>
-                          <div className="t-micro" style={{ marginBottom: 6 }}>Evolução mensal</div>
-                          <GraficoColunas
-                            itens={evolucaoMensalSuprimentos.map((m) => {
-                              const [ano, mesNum] = m.mes.split('-')
-                              return { chave: m.mes, rotulo: `${MESES_ABREV[Number(mesNum) - 1]}/${ano.slice(2)}`, valor: m.quantidade }
-                            })}
-                            formatarValor={(v) => String(v)}
-                          />
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+              {/* Planejamento e Suprimentos já têm bloco próprio, mais
+                  acima na página — não repetem aqui. */}
 
               {/* Contratos */}
               {contratosUnicos.length > 0 && (
