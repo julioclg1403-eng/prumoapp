@@ -7,15 +7,15 @@
 
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, somarDias, formatarData, formatarDataCurta, formatarDinheiro, nomeDiaSemana,
-  diarioDaData, situacaoDiario, totalPresentes, progressoDiario,
+  hojeISO, somarDias, formatarData, formatarDinheiro, nomeDiaSemana,
+  diarioDaData, totalPresentes,
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
   contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
   previsionCurvaHoje, progressoEsperado,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
-import { GraficoColunas, RankingBarras } from '../components/charts'
+import { GraficoColunas, GraficoDonut, RankingBarras } from '../components/charts'
 
 export default function InicioGestao({ goto, irParaAba, perfil }) {
   const dados = useDados()
@@ -41,8 +41,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     const dia = semana.dias.find((d) => d.data === data)
     return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
   })
-  const ultimosDiarios = [...dados.diarios].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 4)
-
   /* ── Painel geral ── */
   const taticasDaObra = pendenciasTaticas(dados.pendencias)
   const contTatico = contarPendencias(taticasDaObra, hoje)
@@ -63,6 +61,13 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     if (!i.data_inicio || !i.data_fim || i.percentual_prevision == null) return false
     return progressoEsperado(i, hoje) - (Number(i.percentual_prevision) || 0) > 5
   }).length
+
+  /* Etapas do Mensal por situação — quanto do plano já fechou de
+     verdade (100%), não só o quanto avançou em peso. */
+  const etapasMensal = dados.cronograma || []
+  const etapasConcluidas = etapasMensal.filter((e) => Number(e.percentual) >= 100).length
+  const etapasEmAndamento = etapasMensal.filter((e) => Number(e.percentual) > 0 && Number(e.percentual) < 100).length
+  const etapasNaoIniciadas = etapasMensal.length - etapasConcluidas - etapasEmAndamento
 
   /* Suprimentos — pedidos importados do ERP ainda sem Data Entrega,
      e quantos já passaram da Previsão de Entrega que o Compras deu. */
@@ -175,64 +180,52 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             )}
           </div>
 
-          {/* ── Últimos diários ── */}
-          <div>
-            <div className="row-between" style={{ marginBottom: 10 }}>
-              <div className="t-micro">Últimos diários</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('diarios')}>
-                Ver todos <Icon name="avancar" size={14} />
-              </button>
-            </div>
-            <div className="stack-1">
-              {ultimosDiarios.map((d) => {
-                const s = situacaoDiario(d)
-                const pr = progressoDiario(d)
-                return (
-                  <ItemLista
-                    key={d.id}
-                    titulo={formatarDataCurta(d.data)}
-                    sub={`${plural(totalPresentes(d), 'pessoa', 'pessoas')} · ${pr.concluidas}/${pr.total} frentes`}
-                    direita={<Chip tom={s.tom}>{s.rotulo}</Chip>}
-                    onClick={() => goto('diario', { data: d.data, id: d.id })}
-                  />
-                )
-              })}
-            </div>
-          </div>
-
           {/* ── Painel geral ── */}
           <div>
             <div className="t-micro" style={{ marginBottom: 10 }}>Painel geral</div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-              {/* Planejamento — direto da Prevision */}
-              {linkPrevision && (
+              {/* Planejamento — etapas do Mensal + Prevision */}
+              {(etapasMensal.length > 0 || linkPrevision) && (
                 <div className="card">
                   <div className="row-between" style={{ marginBottom: 4 }}>
-                    <div className="t-micro">Planejamento (Prevision)</div>
+                    <div className="t-micro">Planejamento</div>
                     <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'dashboard' })}>
                       Abrir <Icon name="avancar" size={14} />
                     </button>
                   </div>
-                  {previsionHoje ? (
-                    <div className="stack-1">
-                      <div className="row-wrap" style={{ gap: 16, marginTop: 6 }}>
-                        <span className="t-caption">Previsto <b>{previsionHoje.previsto.toFixed(1)}%</b></span>
-                        <span className="t-caption">
-                          Realizado{' '}
-                          <b style={{ color: previsionHoje.realizado >= previsionHoje.previsto ? 'var(--success)' : 'var(--danger)' }}>
-                            {previsionHoje.realizado.toFixed(1)}%
-                          </b>
-                        </span>
-                      </div>
-                      {atividadesAtrasadasPrevision > 0 && (
-                        <div className="t-caption" style={{ color: 'var(--danger)' }}>
-                          {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision.
+                  {etapasMensal.length > 0 && (
+                    <GraficoDonut
+                      tamanho={104}
+                      itens={[
+                        { chave: 'concluidas', rotulo: 'Concluídas', valor: etapasConcluidas, cor: 'var(--success)' },
+                        { chave: 'andamento', rotulo: 'Em andamento', valor: etapasEmAndamento, cor: 'var(--info)' },
+                        { chave: 'nao-iniciadas', rotulo: 'Não iniciadas', valor: etapasNaoIniciadas, cor: 'var(--border-strong)' },
+                      ]}
+                      formatarValor={(v) => plural(v, 'etapa', 'etapas')}
+                    />
+                  )}
+                  {linkPrevision && (
+                    previsionHoje ? (
+                      <div className="stack-1" style={{ marginTop: 10 }}>
+                        <div className="row-wrap" style={{ gap: 16 }}>
+                          <span className="t-caption">Previsto (Prevision) <b>{previsionHoje.previsto.toFixed(1)}%</b></span>
+                          <span className="t-caption">
+                            Realizado{' '}
+                            <b style={{ color: previsionHoje.realizado >= previsionHoje.previsto ? 'var(--success)' : 'var(--danger)' }}>
+                              {previsionHoje.realizado.toFixed(1)}%
+                            </b>
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="t-caption" style={{ padding: '20px 0' }}>Sincronizando com a Prevision…</div>
+                        {atividadesAtrasadasPrevision > 0 && (
+                          <div className="t-caption" style={{ color: 'var(--danger)' }}>
+                            {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="t-caption" style={{ marginTop: 10 }}>Sincronizando com a Prevision…</div>
+                    )
                   )}
                 </div>
               )}
@@ -246,16 +239,23 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                       Abrir <Icon name="avancar" size={14} />
                     </button>
                   </div>
-                  <div className="stack-1">
-                    <div className="t-caption" style={{ marginTop: 6 }}>
-                      Aguardando entrega <b>{suprimentosAbertos.length}</b>
-                    </div>
-                    {suprimentosAtrasados.length > 0 && (
-                      <div className="t-caption" style={{ color: 'var(--danger)' }}>
-                        {plural(suprimentosAtrasados.length, 'pedido com previsão de entrega vencida', 'pedidos com previsão de entrega vencida')}.
+                  {suprimentosAbertos.length > 0 ? (
+                    <>
+                      <GraficoDonut
+                        tamanho={104}
+                        itens={[
+                          { chave: 'no-prazo', rotulo: 'Aguardando, dentro do prazo', valor: suprimentosAbertos.length - suprimentosAtrasados.length, cor: 'var(--info)' },
+                          { chave: 'atrasado', rotulo: 'Previsão vencida', valor: suprimentosAtrasados.length, cor: 'var(--danger)' },
+                        ]}
+                        formatarValor={(v) => plural(v, 'pedido', 'pedidos')}
+                      />
+                      <div className="t-caption" style={{ marginTop: 8 }}>
+                        {plural(suprimentosAbertos.length, 'pedido aguardando entrega', 'pedidos aguardando entrega')} no total.
                       </div>
-                    )}
-                  </div>
+                    </>
+                  ) : (
+                    <div className="t-caption" style={{ padding: '20px 0' }}>Todo pedido importado já tem Data Entrega.</div>
+                  )}
                 </div>
               )}
 
@@ -268,7 +268,17 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                       Abrir <Icon name="avancar" size={14} />
                     </button>
                   </div>
-                  <div className="row-wrap" style={{ gap: 16, marginTop: 6 }}>
+                  {totalContratado > 0 && (
+                    <GraficoDonut
+                      tamanho={104}
+                      itens={[
+                        { chave: 'medido', rotulo: 'Medido', valor: totalMedido, cor: 'var(--success)' },
+                        { chave: 'saldo', rotulo: 'Saldo a medir', valor: Math.max(0, totalSaldoContratos), cor: 'var(--border-strong)' },
+                      ]}
+                      formatarValor={formatarDinheiro}
+                    />
+                  )}
+                  <div className="row-wrap" style={{ gap: 16, marginTop: 8 }}>
                     <span className="t-caption">Contratado <b>{formatarDinheiro(totalContratado)}</b></span>
                     <span className="t-caption">Medido <b>{formatarDinheiro(totalMedido)}</b></span>
                     <span className="t-caption">Saldo <b>{formatarDinheiro(totalSaldoContratos)}</b></span>
