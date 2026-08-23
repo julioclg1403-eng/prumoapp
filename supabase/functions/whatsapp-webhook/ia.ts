@@ -24,11 +24,10 @@ export async function transcrever(bytes: Uint8Array, mimeType: string): Promise<
 }
 
 export type Classificacao = {
-  categoria: 'pendencia' | 'andamento_servico' | 'lembrete' | 'requisicao' | 'outro'
+  categoria: 'pendencia' | 'andamento_servico' | 'lembrete' | 'outro'
   pendencia: { titulo: string; descricao: string | null } | null
   andamento: { servico: string | null; local: string | null; status: 'nao_iniciada' | 'em_andamento' | 'concluida' } | null
   lembrete: { texto: string; disparar_em: string } | null
-  requisicao: { itens: { descricao: string; quantidade: number; unidade: string | null }[] } | null
   resposta_confirmacao: string
 }
 
@@ -42,10 +41,11 @@ export async function classificar(
 ): Promise<Classificacao | null> {
   const sistema = `Você lê mensagens de WhatsApp de uma obra e devolve JSON estruturado.
 Categorias possíveis:
-- "pendencia": um problema, falta ou risco visto na obra que alguém precisa resolver.
+- "pendencia": um problema, falta ou risco visto na obra que alguém precisa resolver -- inclui
+  pedido de material ("precisa de 10 sacos de cimento", "falta furadeira"): vira pendência com
+  o material pedido no título/descrição.
 - "andamento_servico": informa o status de um serviço/frente (começou, terminou, concluiu).
 - "lembrete": pede para lembrar de algo em um momento futuro ("me lembra de...", "não deixa eu esquecer...").
-- "requisicao": pede material ("precisa de 10 sacos de cimento", "falta furadeira").
 - "outro": não se encaixa em nenhuma das anteriores (saudação, pergunta solta, etc.).
 
 Data e hora agora: ${contexto.agora} (America/Sao_Paulo).

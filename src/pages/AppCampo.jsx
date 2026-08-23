@@ -23,8 +23,6 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
-import Requisicoes from '../screens/requisicoes'
-import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
 import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
@@ -45,7 +43,6 @@ const TODOS_ITENS = [
   { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias' },
   { chave: 'planejamento', rotulo: 'Planejamento', desc: 'A semana da obra e o avanço físico por etapa', icone: 'planejamento' },
   { chave: 'galeria', rotulo: 'Galeria', desc: 'Todas as fotos da obra, por dia', icone: 'galeria' },
-  { chave: 'requisicoes', rotulo: 'Pedidos', desc: 'Pedir material e conferir o que está chegando', icone: 'pedidos' },
   { chave: 'lembretes', rotulo: 'Lembretes', desc: 'O que você marcou pra não esquecer', icone: 'lembrete' },
   { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
   { chave: 'suprimentos', rotulo: 'Suprimentos', desc: 'Pedidos de compra importados do sistema, com dashboard de prazo', icone: 'pedidos' },
@@ -90,7 +87,7 @@ export default function AppCampo({ perfil, onSair }) {
   /* Um atalho do Início ou um link salvo não passa pela lista de
      itens acima, então chega direto no `goto` — segunda trava, além
      do menu escondido. */
-  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes', consultaColaborador: 'seguranca' }
+  const MODULO_DA_TELA = { diario: 'diarios', consultaColaborador: 'seguranca' }
   const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
   const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || moduloPermitido(perfil, chaveDoModulo)
 
@@ -113,8 +110,6 @@ export default function AppCampo({ perfil, onSair }) {
     case 'efetivo':      corpo = <Efetivo goto={goto} perfil={perfil} />; break
     case 'pendencias':   corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
     case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} params={rota.params} />; break
-    case 'requisicoes':  corpo = <Requisicoes goto={goto} perfil={perfil} />; break
-    case 'requisicao':   corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':      corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':    corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Almoxarifado voltar={voltar} perfil={perfil} params={rota.params} />; break

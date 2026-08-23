@@ -327,8 +327,8 @@ export default function Usuarios({ voltar, perfil }) {
             <div className="card-flat" style={{ marginTop: 10 }}>
               <div className="t-caption" style={{ lineHeight: 1.6 }}>
                 Vincular liga o número à conta: mensagens desse número passam a virar
-                pendência, atualização do diário, lembrete, foto ou rascunho de requisição,
-                na obra da pessoa. Sem vínculo, o bot responde pedindo pra você cadastrar.
+                pendência, atualização do diário, lembrete ou foto, na obra da pessoa.
+                Sem vínculo, o bot responde pedindo pra você cadastrar.
               </div>
             </div>
           </div>

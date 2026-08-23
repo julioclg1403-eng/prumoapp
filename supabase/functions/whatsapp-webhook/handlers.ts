@@ -36,33 +36,6 @@ export async function gravarLembrete(perfil: Perfil, dados: NonNullable<Classifi
   return { tabela: 'reminders', id: data?.id, erro: error?.message }
 }
 
-export async function gravarRascunhoRequisicao(perfil: Perfil, dados: NonNullable<Classificacao['requisicao']>) {
-  const validos = dados.itens.filter((i) => i.descricao?.trim())
-  if (!validos.length) return { tabela: 'material_requests', id: undefined, erro: 'sem itens reconhecíveis' }
-
-  const cabecalho = await supabase.from('material_requests').insert({
-    organization_id: perfil.organization_id, worksite_id: perfil.worksite_id,
-    status: 'rascunho', autor_id: perfil.id,
-    observacao: 'Rascunho criado pelo WhatsApp -- confira e envie pelo app.',
-  }).select('id').single()
-  if (cabecalho.error || !cabecalho.data) {
-    console.error('[handlers] gravar requisição:', cabecalho.error)
-    return { tabela: 'material_requests', id: undefined, erro: cabecalho.error?.message }
-  }
-
-  const itens = await supabase.from('material_request_items').insert(
-    validos.map((i, ordem) => ({
-      request_id: cabecalho.data.id,
-      descricao: i.descricao.trim(),
-      quantidade: i.quantidade > 0 ? i.quantidade : 1,
-      unidade: i.unidade || null,
-      ordem,
-    })),
-  )
-  if (itens.error) console.error('[handlers] gravar itens da requisição:', itens.error)
-  return { tabela: 'material_requests', id: cabecalho.data.id, erro: itens.error?.message }
-}
-
 /* Garante o diário do dia (rascunho), criando se ainda não existir --
    mesmo comportamento do app quando alguém tira a primeira foto do
    dia antes de ter salvo nada (DadosContext.jsx, garantirSalvo). */

@@ -13,7 +13,7 @@ import { organizacao, contatoPorTelefone, contextoDaObra, registrarMensagem, atu
 import { enviarTexto, baixarMidia, assinaturaValida } from './meta.ts'
 import { transcrever, classificar } from './ia.ts'
 import {
-  gravarPendencia, gravarLembrete, gravarRascunhoRequisicao,
+  gravarPendencia, gravarLembrete,
   gravarAndamentoServico, gravarFotoDoDia,
 } from './handlers.ts'
 
@@ -133,8 +133,6 @@ async function processarMensagem(
       resultado = await gravarAndamentoServico(perfil, classificacao.andamento, locais, servicos)
     } else if (classificacao.categoria === 'lembrete' && classificacao.lembrete) {
       resultado = await gravarLembrete(perfil, classificacao.lembrete)
-    } else if (classificacao.categoria === 'requisicao' && classificacao.requisicao) {
-      resultado = await gravarRascunhoRequisicao(perfil, classificacao.requisicao)
     }
 
     const respostaFinal = resultado?.erro

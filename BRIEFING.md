@@ -63,7 +63,7 @@ planilha paralela.
 
 **Campo** — mestre de obras, encarregado.
 Mobile-first, botões grandes, poucos passos. Lança diário, presença, atividades,
-ocorrências, fotos e requisições. Consulta pendências e equipamentos.
+ocorrências e fotos. Consulta pendências e equipamentos.
 
 **Gestão** — engenharia, coordenação, administração.
 Desktop completo, mas funcional no celular. Indicadores, planejamento,
@@ -144,7 +144,7 @@ O guia não menciona WhatsApp. Ele entra como **canal**, não como módulo: nada
 | Texto: "me lembra de X" | Lembrete agendado | **1** |
 | Foto + legenda | Foto do diário, com local | **1** |
 | Áudio | Transcrição → um dos acima | **1** |
-| Texto: "precisa de X, Y, Z" | Rascunho de requisição | 2 |
+| Texto: "precisa de X, Y, Z" | Pendência | **1** |
 | Diário completo | — | **Fora.** 4 etapas não cabem em conversa |
 
 #### Travas do registro de serviço pelo WhatsApp
@@ -187,10 +187,6 @@ Boa notícia: a seção 5.9 do guia **já definiu os gatilhos**. Eles viram temp
 
 | Gatilho já especificado | Quem recebe |
 |---|---|
-| Requisição enviada | Gestão |
-| Requisição entrou em cotação | Autor |
-| Pedido entrou em trânsito | Responsável de campo |
-| Entrega atrasada ou parcial | Campo + gestão |
 | Pendência vencida | Responsável |
 | Diário não lançado até certa hora | Campo + gestão |
 | Lembrete na hora marcada | Destinatário |

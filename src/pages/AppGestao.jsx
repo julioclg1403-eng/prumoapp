@@ -11,7 +11,7 @@ import { useDados } from '../lib/DadosContext'
 import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
 import { useAbrirQrColaborador } from '../lib/useAbrirQrColaborador'
 import {
-  contarPendencias, pendenciasGerais, pendentesDeRevisao, contarRequisicoes, situacaoLembrete,
+  contarPendencias, pendenciasGerais, pendentesDeRevisao, situacaoLembrete,
 } from '../lib/dominio'
 import { MarcaLateral, RodapeLateral } from './AppCampo'
 
@@ -23,8 +23,6 @@ import Pendencias from '../screens/pendencias'
 import Cadastros from '../screens/cadastros'
 import Galeria from '../screens/galeria'
 import Planejamento from '../screens/planejamento'
-import Requisicoes from '../screens/requisicoes'
-import Requisicao from '../screens/requisicao'
 import Lembretes from '../screens/lembretes'
 import Almoxarifado from '../screens/almoxarifado'
 import Seguranca from '../screens/seguranca'
@@ -55,7 +53,6 @@ export default function AppGestao({ perfil, onSair }) {
 
   const cont = contarPendencias(pendenciasGerais(dados.pendencias))
   const revisoes = pendentesDeRevisao(dados.colaboradores).length
-  const contPedidos = contarRequisicoes(dados.requisicoes, perfil.id)
   const lembretesAtrasados = dados.lembretes.filter(
     (l) => l.destinatario_id === perfil.id && situacaoLembrete(l).chave === 'atrasado',
   ).length
@@ -70,8 +67,6 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'A semana da obra, o fechamento e o avanço físico por etapa' },
     { chave: 'galeria', rotulo: 'Galeria', icone: 'galeria',
       desc: 'Todas as fotos da obra, por dia' },
-    { chave: 'requisicoes', rotulo: 'Pedidos', icone: 'pedidos', badge: contPedidos.aguardando,
-      desc: 'Requisições de material, da cotação à entrega' },
     { chave: 'lembretes', rotulo: 'Lembretes', icone: 'lembrete', badge: lembretesAtrasados,
       desc: 'O que você marcou pra não esquecer' },
     { chave: 'equipamentos', rotulo: 'Almoxarifado', icone: 'equipamento',
@@ -117,10 +112,10 @@ export default function AppGestao({ perfil, onSair }) {
 
   /* Segunda trava, além do menu escondido: um atalho do Início (ex.
      "Abrir efetivo") ou um link salvo não passam pela lista de itens
-     acima, então chegam direto no `goto`. `diario`/`requisicao` são
-     telas de detalhe sem entrada própria no menu — herdam a permissão
-     do módulo que as abre. */
-  const MODULO_DA_TELA = { diario: 'diarios', requisicao: 'requisicoes', consultaColaborador: 'seguranca' }
+     acima, então chegam direto no `goto`. `diario` é tela de detalhe
+     sem entrada própria no menu — herda a permissão do módulo que a
+     abre. */
+  const MODULO_DA_TELA = { diario: 'diarios', consultaColaborador: 'seguranca' }
   const chaveDoModulo = MODULO_DA_TELA[rota.screen] || rota.screen
   /* Usuários é admin-only de verdade — não passa pela lista de
      módulos restringíveis, vira "sim" só pra quem é admin. Projetos
@@ -153,8 +148,6 @@ export default function AppGestao({ perfil, onSair }) {
     case 'efetivo':    corpo = <Efetivo goto={goto} perfil={perfil} params={rota.params} />; break
     case 'pendencias': corpo = <Pendencias goto={goto} perfil={perfil} params={rota.params} />; break
     case 'planejamento': corpo = <Planejamento goto={goto} perfil={perfil} params={rota.params} />; break
-    case 'requisicoes': corpo = <Requisicoes goto={goto} perfil={perfil} />; break
-    case 'requisicao':  corpo = <Requisicao {...rota.params} voltar={voltar} perfil={perfil} />; break
     case 'galeria':    corpo = <Galeria perfil={perfil} />; break
     case 'lembretes':  corpo = <Lembretes perfil={perfil} />; break
     case 'equipamentos': corpo = <Almoxarifado voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break

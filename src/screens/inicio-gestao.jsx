@@ -12,11 +12,10 @@ import {
   diarioDaData, totalPresentes,
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
-  contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
   previsionCurvaHoje, previsionProgressoMensal, progressoEsperado, filtrarPorPeriodo,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop, Segmentos, Campo } from '../components'
-import { GraficoColunas, GraficoDonut, RankingBarras, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
+import { GraficoColunas, GraficoDonut, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 
 const ROTULO_DESTINO = {
   almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração', equipamentos: 'Equipamentos',
@@ -51,12 +50,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   /* ── Painel geral ── */
   const taticasDaObra = pendenciasTaticas(dados.pendencias)
   const contTatico = contarPendencias(taticasDaObra, hoje)
-
-  const contPedidos = contarRequisicoes(dados.requisicoes, perfil.id, hoje)
-  const porEtapaPedido = ETAPAS_REQUISICAO.map((etapa) => ({
-    etapa, rotulo: ROTULO_REQUISICAO[etapa],
-    total: dados.requisicoes.filter((r) => r.status === etapa).length,
-  }))
 
   /* Planejamento (Prevision) — mesmo dado oficial que o Dashboard de
      Planejamento usa, não o cálculo local do Prumo. Só aparece se a
@@ -433,30 +426,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                 </div>
               )}
 
-              {/* Compras — etapas */}
-              <div className="card">
-                <div className="row-between" style={{ marginBottom: 14 }}>
-                  <TituloPainel icone="pedidos" cor="var(--success)" titulo="Compras — por etapa" />
-                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('requisicoes')}>
-                    Abrir <Icon name="avancar" size={14} />
-                  </button>
-                </div>
-                {dados.requisicoes.length === 0 ? (
-                  <div className="t-caption" style={{ padding: '20px 0' }}>Nenhuma requisição ainda.</div>
-                ) : (
-                  <div className="stack-1">
-                    <RankingBarras
-                      itens={porEtapaPedido.map((e) => ({ chave: e.etapa, rotulo: e.rotulo, valor: e.total }))}
-                      formatarValor={(v) => String(v)}
-                    />
-                    {contPedidos.atrasadas > 0 && (
-                      <div className="t-caption" style={{ color: 'var(--danger)', marginTop: 4 }}>
-                        {plural(contPedidos.atrasadas, 'requisição atrasada', 'requisições atrasadas')}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </div>
