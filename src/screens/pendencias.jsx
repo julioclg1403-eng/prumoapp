@@ -10,8 +10,9 @@ import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, situacaoPendencia, contarPendencias, diffDias,
-  pendenciasGerais, pendenciasTaticas, fecharSemanaTatica, COLUNAS_QUADRO_PENDENCIA,
-  inicioDaSemana, somarDias, rotuloDaSemana,
+  pendenciasGerais, pendenciasTaticas, pendenciasReuniao, ORIGEM_REUNIAO,
+  fecharSemanaTatica, COLUNAS_QUADRO_PENDENCIA,
+  inicioDaSemana, somarDias, rotuloDaSemana, filtrarPorPeriodo,
   ROTULO_PRIORIDADE, PRIORIDADES, plural,
 } from '../lib/dominio'
 import {
@@ -44,6 +45,11 @@ export default function Pendencias({ perfil, params = {} }) {
   const [verFechamentoTatico, setVerFechamentoTatico] = useState(false)
   const [visao, setVisao] = useState('lista')
   const [busca, setBusca] = useState('')
+  const [periodoModo, setPeriodoModo] = useState('tudo')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
 
   const links = useLinksDeFotos(editando?.fotos)
 
@@ -57,11 +63,26 @@ export default function Pendencias({ perfil, params = {} }) {
      mantém seu próprio retrato em % pra sempre. */
   const geraisTodas = pendenciasGerais(dados.pendencias)
   const taticasTodas = pendenciasTaticas(dados.pendencias)
+  const reuniaoTodas = pendenciasReuniao(dados.pendencias)
   const semanaTatica = useMemo(
     () => fecharSemanaTatica(taticasTodas, dados.semanasTaticas, inicio),
     [taticasTodas, dados.semanasTaticas, inicio],
   )
-  const pendenciasDaCategoria = categoria === 'tatico' ? semanaTatica.itens : geraisTodas
+  const pendenciasDaCategoria =
+    categoria === 'tatico' ? semanaTatica.itens : categoria === 'reuniao' ? reuniaoTodas : geraisTodas
+
+  /* Período olha a data em que a pendência foi ABERTA (created_at),
+     não o prazo — "quanto foi aberto em tal mês", não "quanto vence
+     em tal mês". Tático já navega por semana do jeito dele (a semana
+     confirmada do PDF), então não usa este filtro. */
+  const pendenciasDoPeriodo = useMemo(() => {
+    if (categoria === 'tatico' || periodoModo === 'tudo') return pendenciasDaCategoria
+    return filtrarPorPeriodo(
+      pendenciasDaCategoria, periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (p) => p.created_at?.slice(0, 10),
+    )
+  }, [pendenciasDaCategoria, categoria, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
 
   /* A busca filtra o que aparece nos tópicos (Lista e Quadro, os
      dois), mas nunca o fechamento tático (semanaTatica.percentual
@@ -69,10 +90,10 @@ export default function Pendencias({ perfil, params = {} }) {
      conforme alguém digita numa caixa de busca. */
   const pendenciasFiltradas = useMemo(() => {
     const alvo = normalizarComparar(busca)
-    if (!alvo) return pendenciasDaCategoria
-    return pendenciasDaCategoria.filter((p) =>
+    if (!alvo) return pendenciasDoPeriodo
+    return pendenciasDoPeriodo.filter((p) =>
       normalizarComparar(p.titulo).includes(alvo) || normalizarComparar(p.descricao).includes(alvo))
-  }, [pendenciasDaCategoria, busca])
+  }, [pendenciasDoPeriodo, busca])
 
   const cont = contarPendencias(pendenciasFiltradas, hoje)
 
@@ -97,6 +118,7 @@ export default function Pendencias({ perfil, params = {} }) {
     setEditando({
       titulo: '', descricao: '', prioridade: 'media', resolucao: '', fotos: [],
       prazo: '', responsavel_id: perfil.id, status: 'aberta',
+      origem: categoria === 'reuniao' ? ORIGEM_REUNIAO : null,
     })
 
   const salvar = async () => {
@@ -183,7 +205,7 @@ export default function Pendencias({ perfil, params = {} }) {
             {cont.abertas} em aberto{cont.atrasadas > 0 && ` · ${cont.atrasadas} atrasada(s)`}
           </div>
         </div>
-        {categoria === 'geral' && (
+        {categoria !== 'tatico' && (
           <button onClick={abrirNova} aria-label="Nova pendência"><Icon name="mais_sinal" size={22} /></button>
         )}
       </div>
@@ -219,6 +241,7 @@ export default function Pendencias({ perfil, params = {} }) {
             valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('aberta') }}
             opcoes={[
               { valor: 'geral', rotulo: 'Dia a dia', contador: geraisTodas.length },
+              { valor: 'reuniao', rotulo: 'Reunião gerencial', contador: reuniaoTodas.length },
               { valor: 'tatico', rotulo: 'Tático', contador: semanaTatica.total },
             ]}
           />
@@ -235,7 +258,38 @@ export default function Pendencias({ perfil, params = {} }) {
             />
           </div>
 
-          {categoria === 'geral' && (
+          {categoria !== 'tatico' && (
+            <div className="stack-1">
+              <div className="t-caption">Período (data em que foi aberta)</div>
+              <Segmentos
+                valor={periodoModo} onChange={setPeriodoModo}
+                opcoes={[
+                  { valor: 'tudo', rotulo: 'Tudo' },
+                  { valor: 'dia', rotulo: 'Dia' },
+                  { valor: 'mes', rotulo: 'Mês' },
+                  { valor: 'periodo', rotulo: 'Período' },
+                ]}
+              />
+              {periodoModo === 'dia' && (
+                <input className="ipt" type="date" value={periodoDia} onChange={(e) => setPeriodoDia(e.target.value)} />
+              )}
+              {periodoModo === 'mes' && (
+                <input className="ipt" type="month" value={periodoMes} onChange={(e) => setPeriodoMes(e.target.value)} />
+              )}
+              {periodoModo === 'periodo' && (
+                <div className="row-flex">
+                  <Campo label="De">
+                    <input className="ipt" type="date" value={periodoInicio} onChange={(e) => setPeriodoInicio(e.target.value)} />
+                  </Campo>
+                  <Campo label="Até">
+                    <input className="ipt" type="date" value={periodoFim} onChange={(e) => setPeriodoFim(e.target.value)} />
+                  </Campo>
+                </div>
+              )}
+            </div>
+          )}
+
+          {categoria !== 'tatico' && (
             <Segmentos
               valor={visao} onChange={setVisao}
               opcoes={[
@@ -284,9 +338,9 @@ export default function Pendencias({ perfil, params = {} }) {
             </div>
           )}
 
-          {categoria === 'geral' && visao === 'dashboard' ? (
-            <AbaDashboardPendencias itens={geraisTodas} dados={dados} />
-          ) : categoria === 'geral' && visao === 'quadro' ? (
+          {categoria !== 'tatico' && visao === 'dashboard' ? (
+            <AbaDashboardPendencias itens={pendenciasDoPeriodo} dados={dados} />
+          ) : categoria !== 'tatico' && visao === 'quadro' ? (
             <QuadroPendencias
               itens={pendenciasFiltradas} dados={dados} destaque={destaque}
               onAbrir={(p) => { setDestaque(null); setEditando({ ...p, prazo: p.prazo || '', resolucao: p.resolucao || '', fotos: p.fotos || [] }) }}
@@ -308,6 +362,8 @@ export default function Pendencias({ perfil, params = {} }) {
                 texto={
                   categoria === 'tatico'
                     ? 'Nenhuma pendência tática neste tópico. Importe o PDF do planejamento tático para trazer as da semana.'
+                    : categoria === 'reuniao'
+                    ? 'Nenhuma pendência de reunião gerencial neste tópico. Registre o que ficou combinado na reunião.'
                     : 'Nenhuma pendência neste tópico. Registre o que precisa de alguém para resolver.'
                 }
                 acao={
@@ -535,7 +591,7 @@ export default function Pendencias({ perfil, params = {} }) {
 
       <RelatorioFolha
         titulo="Pendências"
-        sub={`${categoria === 'tatico' ? 'Tático' : 'Dia a dia'} · ${ROTULO_FILTRO[filtro]}`}
+        sub={`${categoria === 'tatico' ? 'Tático' : categoria === 'reuniao' ? 'Reunião gerencial' : 'Dia a dia'} · ${ROTULO_FILTRO[filtro]}`}
         obra={dados.obra.nome} org={dados.org.nome}
       >
         <SecaoRelatorio>
@@ -560,10 +616,11 @@ const ROTULO_FILTRO = {
   aberta: 'A Fazer', em_andamento: 'Em Andamento', resolvida: 'Concluído',
 }
 
-/* ── Dashboard (só Dia a dia — Tático já tem seu Fechamento) ──
-   Sempre olha geraisTodas (não pendenciasFiltradas): dashboard é um
-   retrato geral da categoria, não deve balançar com a busca de texto
-   (mesmo princípio do Fechamento tático). */
+/* ── Dashboard (Dia a dia e Reunião gerencial — Tático já tem seu
+   Fechamento) ── Sempre olha a categoria inteira (não
+   pendenciasFiltradas): dashboard é um retrato geral da categoria,
+   não deve balançar com a busca de texto (mesmo princípio do
+   Fechamento tático). */
 const FAIXAS_AGING = [
   { rotulo: '0-3 dias', min: 0, max: 3, cor: 'var(--graphite)' },
   { rotulo: '4-7 dias', min: 4, max: 7, cor: 'var(--graphite)' },
@@ -688,8 +745,8 @@ function AbaDashboardPendencias({ itens, dados }) {
 }
 
 /* ── Quadro (visão Trello) ────────────────────────────────
-   Só o Dia a dia tem quadro — Tático já tem seu próprio jeito de
-   olhar a semana (Fechamento). Sem arrastar nada (o app inteiro é
+   Dia a dia e Reunião gerencial têm quadro — Tático já tem seu
+   próprio jeito de olhar a semana (Fechamento). Sem arrastar nada (o app inteiro é
    por toque, não por arrastar, e cartão lado a lado é ruim de
    arrastar no celular): cada cartão tem ‹ › pra mover pra coluna
    vizinha, uma de cada vez. */

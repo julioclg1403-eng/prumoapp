@@ -402,18 +402,24 @@ export function contarPendencias(lista, hoje = hojeISO()) {
 }
 
 /* As pendências do PDF tático (restrições da obra, revisadas semana
-   a semana) são uma categoria à parte das pendências do dia a dia
-   (manuais ou vindas do diário) — ritmo e urgência diferentes. O
-   contador do menu e o Início só devem alertar sobre o dia a dia;
-   o tático tem sua própria aba, dentro da tela de Pendências. */
+   a semana) e Reunião gerencial (feitas na reunião semanal de gestão)
+   são categorias à parte das pendências do dia a dia (manuais ou
+   vindas do diário) — ritmo e urgência diferentes. O contador do
+   menu e o Início só devem alertar sobre o dia a dia; as outras duas
+   têm sua própria aba, dentro da tela de Pendências. */
 export const ORIGEM_TATICO = 'tatico_pdf'
+export const ORIGEM_REUNIAO = 'reuniao_gerencial'
 
 export function pendenciasGerais(lista) {
-  return lista.filter((p) => p.origem !== ORIGEM_TATICO)
+  return lista.filter((p) => p.origem !== ORIGEM_TATICO && p.origem !== ORIGEM_REUNIAO)
 }
 
 export function pendenciasTaticas(lista) {
   return lista.filter((p) => p.origem === ORIGEM_TATICO)
+}
+
+export function pendenciasReuniao(lista) {
+  return lista.filter((p) => p.origem === ORIGEM_REUNIAO)
 }
 
 /* O fechamento da semana tática: entre as pendências táticas,
