@@ -287,7 +287,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                 </div>
               </div>
 
-              <div className="card">
+              <div className="card" style={{ flex: 1 }}>
                 <div className="row-between" style={{ marginBottom: 14 }}>
                   <TituloPainel icone="pendencias" cor="var(--danger)" titulo="Pendências vencidas" />
                   <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('pendencias')}>
@@ -317,7 +317,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             </div>
 
             {(dados.suprimentos || []).length > 0 && (
-              <div className="card" style={{ height: '100%' }}>
+              <div className="card">
                 <div className="row-between" style={{ marginBottom: 4 }}>
                   <TituloPainel icone="pedidos" cor="var(--chart-4)" titulo="Suprimentos" />
                   <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('suprimentos', { aba: 'dashboard' })}>
