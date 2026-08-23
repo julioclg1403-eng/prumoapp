@@ -34,8 +34,13 @@ function baixarCSV(nomeArquivo, cabecalho, linhas) {
 }
 
 /* Uma linha da lista de Suprimentos (usada nas duas divisões —
-   lançados e não lançados). */
-function LinhaSuprimento({ r, abrirNovaEntrada }) {
+   lançados e não lançados). "Já consumido" existe pra quando o
+   material chegou e já foi todo distribuído ANTES do app existir
+   (o técnico já ajustou o Estoque Atual na mão pro valor real): em
+   vez de lançar só a entrada — o que INFLARIA o saldo —, lança
+   entrada e saída no mesmo valor, fechando a diferença do
+   Suprimentos sem mexer no saldo. */
+function LinhaSuprimento({ r, abrirNovaEntrada, onReconciliar }) {
   return (
     <ItemLista
       titulo={r.insumo}
@@ -59,7 +64,7 @@ function LinhaSuprimento({ r, abrirNovaEntrada }) {
             </Chip>
           )}
           {r.diferenca > 0 && (
-            <div style={{ marginTop: 4 }}>
+            <div style={{ marginTop: 4, display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => abrirNovaEntrada({
@@ -68,6 +73,14 @@ function LinhaSuprimento({ r, abrirNovaEntrada }) {
               >
                 Lançar entrada
               </button>
+              {r.material && onReconciliar && (
+                <button
+                  className="btn btn-ghost btn-sm" onClick={() => onReconciliar(r)}
+                  title="Já foi entregue e consumido antes do app — lança entrada e saída no mesmo valor, sem mudar o saldo do Estoque Atual"
+                >
+                  Já consumido
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -84,6 +97,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [aba, setAba] = useState('estoqueAtual')
   const [busca, setBusca] = useState('')
   const [buscaSuprimentos, setBuscaSuprimentos] = useState('')
+  const [reconciliandoTudo, setReconciliandoTudo] = useState(false)
   const [buscaEntradas, setBuscaEntradas] = useState('')
   const [buscaSaidas, setBuscaSaidas] = useState('')
   const [novaEntrada, setNovaEntrada] = useState(null)
@@ -300,6 +314,39 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     data: hoje, material_id: materialId, quantidade,
     fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
     nomeSugerido,
+  })
+
+  /* Lança entrada e saída no mesmo valor (data da última entrega,
+     ou hoje se não tiver) — fecha a diferença do Suprimentos sem
+     mudar o saldo do Estoque Atual, pro caso de material que já foi
+     entregue e consumido antes de o app existir. */
+  const reconciliarSemAlterarEstoque = async (r) => {
+    if (!r.material || r.diferenca <= 0) return
+    const data = r.ultimaEntrega || hoje
+    await dados.salvarEntradaEpi({
+      material_id: r.material.id, data, quantidade: r.diferenca,
+      fornecedor: '', nota_fiscal: '', data_nota: '', valor_total: '', recebido_por: '',
+    })
+    await dados.salvarSaidaEpi({
+      material_id: r.material.id, data, quantidade: r.diferenca,
+      destino: 'Baixa anterior ao aplicativo (reconciliação Suprimentos)', worker_id: '',
+    })
+  }
+
+  const itensParaReconciliar = useMemo(
+    () => resumoSuprimentosFiltrado.filter((r) => r.material && r.diferenca > 0),
+    [resumoSuprimentosFiltrado],
+  )
+  const reconciliarTodos = async () => {
+    setConfirmar(null)
+    setReconciliandoTudo(true)
+    for (const r of itensParaReconciliar) await reconciliarSemAlterarEstoque(r)
+    setReconciliandoTudo(false)
+  }
+  const pedirReconciliarTodos = () => setConfirmar({
+    titulo: 'Reconciliar todos os pendentes?',
+    texto: `Lança entrada e saída no mesmo valor pra cada um dos ${itensParaReconciliar.length} insumos com diferença e EPI já cadastrado no catálogo — o saldo do Estoque Atual não muda, só fecha a diferença que o Suprimentos mostra.`,
+    rotuloOk: 'Reconciliar', onOk: reconciliarTodos,
   })
 
   const abrirNovaSaida = (materialId = '') => {
@@ -754,6 +801,19 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               className="ipt" value={buscaSuprimentos} onChange={(e) => setBuscaSuprimentos(e.target.value)}
               placeholder="Buscar insumo…"
             />
+            {itensParaReconciliar.length > 0 && (
+              <div className="card-flat row-between" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <div className="t-caption">
+                  {plural(itensParaReconciliar.length, 'insumo', 'insumos')} com diferença e EPI já cadastrado —
+                  já foram entregues e consumidos antes do app?
+                </div>
+                <button
+                  className="btn btn-secondary btn-sm" onClick={pedirReconciliarTodos} disabled={reconciliandoTudo}
+                >
+                  {reconciliandoTudo ? 'Reconciliando…' : 'Reconciliar todos (sem alterar estoque)'}
+                </button>
+              </div>
+            )}
             {resumoSuprimentosFiltrado.length === 0 ? (
               <div className="card-flat"><Vazio titulo="Nada com esse nome" texto="Troque a busca." /></div>
             ) : (
@@ -767,7 +827,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   ) : (
                     <div className="stack-1">
                       {suprimentosNaoLancados.map((r) => (
-                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} />
+                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} onReconciliar={reconciliarSemAlterarEstoque} />
                       ))}
                     </div>
                   )}
@@ -781,7 +841,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                   ) : (
                     <div className="stack-1">
                       {suprimentosLancados.map((r) => (
-                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} />
+                        <LinhaSuprimento key={r.insumo} r={r} abrirNovaEntrada={abrirNovaEntrada} onReconciliar={reconciliarSemAlterarEstoque} />
                       ))}
                     </div>
                   )}
