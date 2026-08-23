@@ -251,7 +251,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               (Suprimentos) — a esquerda empilha pra acompanhar a altura
               do card de Suprimentos, que é mais alto por causa dos
               gráficos. ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12 }}>
             <div className="stack-3">
               <div className="card">
                 <div className="row-between" style={{ marginBottom: 14 }}>
@@ -317,7 +317,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             </div>
 
             {(dados.suprimentos || []).length > 0 && (
-              <div className="card">
+              <div className="card" style={{ height: '100%' }}>
                 <div className="row-between" style={{ marginBottom: 4 }}>
                   <TituloPainel icone="pedidos" cor="var(--chart-4)" titulo="Suprimentos" />
                   <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('suprimentos', { aba: 'dashboard' })}>
