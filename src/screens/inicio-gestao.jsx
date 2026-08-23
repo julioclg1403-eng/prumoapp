@@ -7,7 +7,7 @@
 
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, somarDias, formatarData, formatarDinheiro,
+  hojeISO, somarDias, formatarData, formatarDinheiro, nomeDiaSemana,
   diarioDaData, totalPresentes,
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
@@ -15,7 +15,7 @@ import {
   previsionCurvaHoje, progressoEsperado,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
-import { GraficoDonut, RankingBarras } from '../components/charts'
+import { GraficoColunas, GraficoDonut, RankingBarras } from '../components/charts'
 
 export default function InicioGestao({ goto, irParaAba, perfil }) {
   const dados = useDados()
@@ -33,6 +33,14 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
 
   const semana = consolidarEfetivo(dados.diarios, { de, ate: hoje })
   const revisoes = pendentesDeRevisao(dados.colaboradores)
+
+  /* Sete colunas fixas, mesmo nos dias sem lançamento — um buraco
+     no gráfico é informação, não deve ser omitido. */
+  const barras = Array.from({ length: 7 }, (_, i) => {
+    const data = somarDias(de, i)
+    const dia = semana.dias.find((d) => d.data === data)
+    return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
+  })
 
   /* ── Painel geral ── */
   const taticasDaObra = pendenciasTaticas(dados.pendencias)
@@ -205,23 +213,20 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             />
           </div>
 
-          {/* ── Efetivo da semana (só a conta, sem o dia a dia) ── */}
+          {/* ── Efetivo por dia ── */}
           <div className="card">
-            <div className="t-micro" style={{ marginBottom: 10 }}>Efetivo da semana</div>
-            <div className="row-wrap" style={{ gap: 24 }}>
-              <div>
-                <div className="t-caption">Média por dia</div>
-                <div className="t-display" style={{ fontSize: 32, marginTop: 2 }}>{semana.media}</div>
-              </div>
-              <div>
-                <div className="t-caption">Pico</div>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 6 }}>{semana.pico}</div>
-              </div>
-              <div>
-                <div className="t-caption">Total pessoas-dia</div>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 6 }}>{semana.total}</div>
-              </div>
+            <div className="row-between" style={{ marginBottom: 14 }}>
+              <div className="t-micro">Efetivo por dia</div>
+              <span className="t-caption">pico {semana.pico}</span>
             </div>
+            <GraficoColunas
+              itens={barras.map((b) => ({
+                chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
+                cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
+              }))}
+              formatarValor={(v) => v || '—'}
+              alturaMax={68}
+            />
             <button
               className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
               onClick={() => irParaAba('efetivo')}
