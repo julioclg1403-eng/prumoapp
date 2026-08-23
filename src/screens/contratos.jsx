@@ -36,11 +36,11 @@ function formatarNumero(v) {
   return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })
 }
 
-export default function Contratos({ voltar, perfil }) {
+export default function Contratos({ voltar, perfil, params = {} }) {
   const dados = useDados()
   const podeEditar = perfil.role !== 'campo'
 
-  const [aba, setAba] = useState('dados')
+  const [aba, setAba] = useState(params.aba === 'dashboard' ? 'dashboard' : 'dados')
   const [importando, setImportando] = useState(false)
 
   const itens = dados.contratos || []

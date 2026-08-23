@@ -7,11 +7,12 @@
 
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, somarDias, diffDias, formatarData, formatarDataCurta, nomeDiaSemana,
+  hojeISO, somarDias, formatarData, formatarDataCurta, formatarDinheiro, nomeDiaSemana,
   diarioDaData, situacaoDiario, totalPresentes, progressoDiario,
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
-  curvaFisica, pontosDaCurvaS, contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
+  contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
+  previsionCurvaHoje, progressoEsperado,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
 import { GraficoColunas, RankingBarras } from '../components/charts'
@@ -23,9 +24,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const de = somarDias(hoje, -6)
 
   const diarioHoje = diarioDaData(dados.diarios, hoje, dados.obra.id)
-  const sitDiario = situacaoDiario(diarioHoje)
-  const progresso = progressoDiario(diarioHoje)
-  const previstasHoje = dados.planejamento.filter((p) => p.data === hoje)
 
   const pendenciasGeraisDaObra = pendenciasGerais(dados.pendencias)
   const cont = contarPendencias(pendenciasGeraisDaObra, hoje)
@@ -46,18 +44,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const ultimosDiarios = [...dados.diarios].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 4)
 
   /* ── Painel geral ── */
-  const curvaFisicaHoje = curvaFisica(dados.cronograma, hoje)
-  const curvaS = pontosDaCurvaS(dados.cronograma, hoje)
-
-  const de30 = somarDias(hoje, -29)
-  const efetivoMes = consolidarEfetivo(dados.diarios, { de: de30, ate: hoje })
-  const barrasMes = Array.from({ length: 30 }, (_, i) => {
-    const data = somarDias(de30, i)
-    const dia = efetivoMes.dias.find((d) => d.data === data)
-    return { data, total: dia ? dia.total : 0 }
-  })
-  const picoMes = Math.max(1, ...barrasMes.map((b) => b.total))
-
   const taticasDaObra = pendenciasTaticas(dados.pendencias)
   const contTatico = contarPendencias(taticasDaObra, hoje)
 
@@ -66,6 +52,36 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     etapa, rotulo: ROTULO_REQUISICAO[etapa],
     total: dados.requisicoes.filter((r) => r.status === etapa).length,
   }))
+
+  /* Planejamento (Prevision) — mesmo dado oficial que o Dashboard de
+     Planejamento usa, não o cálculo local do Prumo. Só aparece se a
+     obra já tem um projeto da Prevision vinculado. */
+  const linkPrevision = dados.previsionProjectLinks?.[0]
+  const previsionHoje = previsionCurvaHoje(linkPrevision?.scurve, hoje)
+  const atividadesGlobal = dados.cronogramaGlobal || []
+  const atividadesAtrasadasPrevision = atividadesGlobal.filter((i) => {
+    if (!i.data_inicio || !i.data_fim || i.percentual_prevision == null) return false
+    return progressoEsperado(i, hoje) - (Number(i.percentual_prevision) || 0) > 5
+  }).length
+
+  /* Suprimentos — pedidos importados do ERP ainda sem Data Entrega,
+     e quantos já passaram da Previsão de Entrega que o Compras deu. */
+  const suprimentosAbertos = (dados.suprimentos || []).filter((p) => !p.data_entrega)
+  const suprimentosAtrasados = suprimentosAbertos.filter((p) => p.previsao_entrega && p.previsao_entrega < hoje)
+
+  /* Contratos — um registro por contrato (os campos do contrato se
+     repetem em toda linha de item da planilha achatada). */
+  const contratosMapa = new Map()
+  for (const i of dados.contratos || []) {
+    if (!contratosMapa.has(i.cod_contrato)) {
+      contratosMapa.set(i.cod_contrato, { total: i.total_contrato, medido: i.valor_medido_contrato, saldo: i.saldo_contrato })
+    }
+  }
+  const contratosUnicos = [...contratosMapa.values()]
+  const totalContratado = contratosUnicos.reduce((s, c) => s + (Number(c.total) || 0), 0)
+  const totalMedido = contratosUnicos.reduce((s, c) => s + (Number(c.medido) || 0), 0)
+  const totalSaldoContratos = contratosUnicos.reduce((s, c) => s + (Number(c.saldo) || 0), 0)
+
   return (
     <>
       <div className="topbar">
@@ -106,63 +122,26 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-            {/* ── Diário do dia ── */}
-            <div className="card">
-              <div className="row-between" style={{ marginBottom: 12 }}>
-                <div className="t-micro">Diário de hoje</div>
-                <Chip tom={sitDiario.tom}>{sitDiario.rotulo}</Chip>
-              </div>
-              {diarioHoje ? (
-                <div className="stack-1">
-                  <div className="t-caption">
-                    {plural(totalPresentes(diarioHoje), 'pessoa registrada', 'pessoas registradas')} ·{' '}
-                    {progresso.concluidas} de {progresso.total} frentes concluídas
-                  </div>
-                  <Barra percentual={progresso.percentual} />
-                  <button
-                    className="btn btn-secondary btn-block" style={{ marginTop: 8 }}
-                    onClick={() => goto('diario', { data: hoje, id: diarioHoje.id })}
-                  >
-                    Abrir o diário
-                  </button>
-                </div>
-              ) : (
-                <div className="stack-2">
-                  <div className="alert danger">
-                    O diário de hoje ainda não foi lançado pelo campo.
-                  </div>
-                  <div className="t-caption">
-                    {plural(previstasHoje.length, 'frente prevista', 'frentes previstas')} para hoje.
-                  </div>
-                  <button className="btn btn-secondary btn-block" onClick={() => irParaAba('diarios')}>
-                    Ver histórico de diários
-                  </button>
-                </div>
-              )}
+          {/* ── Efetivo por dia ── */}
+          <div className="card">
+            <div className="row-between" style={{ marginBottom: 14 }}>
+              <div className="t-micro">Efetivo por dia</div>
+              <span className="t-caption">pico {semana.pico}</span>
             </div>
-
-            {/* ── Efetivo da semana ── */}
-            <div className="card">
-              <div className="row-between" style={{ marginBottom: 14 }}>
-                <div className="t-micro">Efetivo por dia</div>
-                <span className="t-caption">pico {semana.pico}</span>
-              </div>
-              <GraficoColunas
-                itens={barras.map((b) => ({
-                  chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
-                  cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
-                }))}
-                formatarValor={(v) => v || '—'}
-                alturaMax={68}
-              />
-              <button
-                className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
-                onClick={() => irParaAba('efetivo')}
-              >
-                Abrir efetivo
-              </button>
-            </div>
+            <GraficoColunas
+              itens={barras.map((b) => ({
+                chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
+                cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
+              }))}
+              formatarValor={(v) => v || '—'}
+              alturaMax={68}
+            />
+            <button
+              className="btn btn-secondary btn-block" style={{ marginTop: 14 }}
+              onClick={() => irParaAba('efetivo')}
+            >
+              Abrir efetivo
+            </button>
           </div>
 
           {/* ── Pendências vencidas ── */}
@@ -226,65 +205,76 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             <div className="t-micro" style={{ marginBottom: 10 }}>Painel geral</div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-              {/* Curva S do cronograma */}
-              <div className="card">
-                <div className="row-between" style={{ marginBottom: 4 }}>
-                  <div className="t-micro">Curva S — cronograma físico</div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'mensal' })}>
-                    Abrir <Icon name="avancar" size={14} />
-                  </button>
-                </div>
-                {curvaS.pontos.length === 0 ? (
-                  <div className="t-caption" style={{ padding: '20px 0' }}>
-                    Sem etapas cadastradas ainda. Importe o cronograma para ver a curva.
+              {/* Planejamento — direto da Prevision */}
+              {linkPrevision && (
+                <div className="card">
+                  <div className="row-between" style={{ marginBottom: 4 }}>
+                    <div className="t-micro">Planejamento (Prevision)</div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'dashboard' })}>
+                      Abrir <Icon name="avancar" size={14} />
+                    </button>
                   </div>
-                ) : (
-                  <>
-                    <CurvaS
-                      pontos={curvaS.pontos} inicio={curvaS.inicio} fim={curvaS.fim}
-                      hoje={hoje} real={curvaFisicaHoje.percentualReal} previstoHoje={curvaFisicaHoje.percentualPrevisto}
-                    />
-                    <div className="row-wrap" style={{ gap: 12, marginTop: 6 }}>
-                      <span className="t-caption">
-                        <b style={{ color: 'var(--graphite)' }}>●</b> Previsto hoje: {curvaFisicaHoje.percentualPrevisto}%
-                      </span>
-                      <span className="t-caption">
-                        <b style={{ color: curvaFisicaHoje.percentualReal >= curvaFisicaHoje.percentualPrevisto ? 'var(--success)' : 'var(--danger)' }}>●</b>{' '}
-                        Realizado: {curvaFisicaHoje.percentualReal}%
-                      </span>
+                  {previsionHoje ? (
+                    <div className="stack-1">
+                      <div className="row-wrap" style={{ gap: 16, marginTop: 6 }}>
+                        <span className="t-caption">Previsto <b>{previsionHoje.previsto.toFixed(1)}%</b></span>
+                        <span className="t-caption">
+                          Realizado{' '}
+                          <b style={{ color: previsionHoje.realizado >= previsionHoje.previsto ? 'var(--success)' : 'var(--danger)' }}>
+                            {previsionHoje.realizado.toFixed(1)}%
+                          </b>
+                        </span>
+                      </div>
+                      {atividadesAtrasadasPrevision > 0 && (
+                        <div className="t-caption" style={{ color: 'var(--danger)' }}>
+                          {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision.
+                        </div>
+                      )}
                     </div>
-                    <div className="t-caption" style={{ marginTop: 4, color: 'var(--text-3)' }}>
-                      A linha é o previsto (dá pra calcular para qualquer data). O realizado só tem o
-                      ponto de hoje — o app guarda a medição atual de cada etapa, não um histórico.
-                    </div>
-                  </>
-                )}
-              </div>
+                  ) : (
+                    <div className="t-caption" style={{ padding: '20px 0' }}>Sincronizando com a Prevision…</div>
+                  )}
+                </div>
+              )}
 
-              {/* Efetivo — 30 dias */}
-              <div className="card">
-                <div className="row-between" style={{ marginBottom: 14 }}>
-                  <div className="t-micro">Efetivo — últimos 30 dias</div>
-                  <span className="t-caption">média {efetivoMes.media} · pico {efetivoMes.pico}</span>
+              {/* Suprimentos */}
+              {(dados.suprimentos || []).length > 0 && (
+                <div className="card">
+                  <div className="row-between" style={{ marginBottom: 4 }}>
+                    <div className="t-micro">Suprimentos</div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('suprimentos', { aba: 'dashboard' })}>
+                      Abrir <Icon name="avancar" size={14} />
+                    </button>
+                  </div>
+                  <div className="stack-1">
+                    <div className="t-caption" style={{ marginTop: 6 }}>
+                      Aguardando entrega <b>{suprimentosAbertos.length}</b>
+                    </div>
+                    {suprimentosAtrasados.length > 0 && (
+                      <div className="t-caption" style={{ color: 'var(--danger)' }}>
+                        {plural(suprimentosAtrasados.length, 'pedido com previsão de entrega vencida', 'pedidos com previsão de entrega vencida')}.
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 92 }}>
-                  {barrasMes.map((b) => (
-                    <div
-                      key={b.data} className="grow" title={`${formatarData(b.data)}: ${b.total}`}
-                      style={{
-                        height: Math.max(2, (b.total / picoMes) * 84),
-                        background: b.data === hoje ? 'var(--primary)' : 'var(--graphite)',
-                        opacity: b.total ? 1 : 0.15,
-                        borderRadius: 2,
-                      }}
-                    />
-                  ))}
+              )}
+
+              {/* Contratos */}
+              {contratosUnicos.length > 0 && (
+                <div className="card">
+                  <div className="row-between" style={{ marginBottom: 4 }}>
+                    <div className="t-micro">Contratos</div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('contratos', { aba: 'dashboard' })}>
+                      Abrir <Icon name="avancar" size={14} />
+                    </button>
+                  </div>
+                  <div className="row-wrap" style={{ gap: 16, marginTop: 6 }}>
+                    <span className="t-caption">Contratado <b>{formatarDinheiro(totalContratado)}</b></span>
+                    <span className="t-caption">Medido <b>{formatarDinheiro(totalMedido)}</b></span>
+                    <span className="t-caption">Saldo <b>{formatarDinheiro(totalSaldoContratos)}</b></span>
+                  </div>
                 </div>
-                <div className="row-between" style={{ marginTop: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatarDataCurta(de30)}</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatarDataCurta(hoje)}</span>
-                </div>
-              </div>
+              )}
 
               {/* Pendências — dia a dia x tático */}
               <div className="card">
@@ -329,41 +319,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
         </div>
       </div>
     </>
-  )
-}
-
-function Barra({ percentual }) {
-  return (
-    <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
-      <div style={{ width: `${percentual}%`, height: '100%', background: 'var(--success)' }} />
-    </div>
-  )
-}
-
-/* A linha do previsto + um ponto para o realizado de hoje — ver a
-   explicação em pontosDaCurvaS() sobre por que não existe uma linha
-   de realizado inteira. */
-function CurvaS({ pontos, inicio, fim, hoje, real, previstoHoje }) {
-  const W = 600
-  const H = 130
-  const PAD_TOP = 8
-  const PAD_BOT = 18
-  const totalDias = Math.max(1, diffDias(fim, inicio))
-  const xDe = (data) => (diffDias(data, inicio) / totalDias) * W
-  const yDe = (pct) => PAD_TOP + (1 - pct / 100) * (H - PAD_TOP - PAD_BOT)
-  const linha = pontos.map((p) => `${xDe(p.data)},${yDe(p.previsto)}`).join(' ')
-  const xHoje = Math.min(W, Math.max(0, xDe(hoje)))
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 130, display: 'block' }}>
-      {[0, 50, 100].map((p) => (
-        <line key={p} x1={0} x2={W} y1={yDe(p)} y2={yDe(p)} stroke="var(--border)" strokeWidth={1} />
-      ))}
-      <polyline points={linha} fill="none" stroke="var(--graphite)" strokeWidth={2} />
-      <line x1={xHoje} x2={xHoje} y1={PAD_TOP} y2={H - PAD_BOT} stroke="var(--text-3)" strokeDasharray="3,3" />
-      <circle cx={xHoje} cy={yDe(previstoHoje)} r={4} fill="var(--graphite)" />
-      <circle cx={xHoje} cy={yDe(real)} r={5} fill={real >= previstoHoje ? 'var(--success)' : 'var(--danger)'} />
-    </svg>
   )
 }
 

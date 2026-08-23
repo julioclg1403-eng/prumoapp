@@ -89,11 +89,11 @@ const ETAPAS_FLUXO = [
   { chave: 'data_entrega', rotulo: 'Entrega' },
 ]
 
-export default function Suprimentos({ voltar, perfil }) {
+export default function Suprimentos({ voltar, perfil, params = {} }) {
   const dados = useDados()
   const podeEditar = perfil.role !== 'campo'
 
-  const [aba, setAba] = useState('dados')
+  const [aba, setAba] = useState(params.aba === 'dashboard' || params.aba === 'vinculos' ? params.aba : 'dados')
   const [importando, setImportando] = useState(false)
 
   const pedidos = dados.suprimentos || []
