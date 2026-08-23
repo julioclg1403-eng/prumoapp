@@ -12,10 +12,10 @@ import {
   filtrarPendencias, situacaoPendencia, contarPendencias, pendenciasGerais, pendenciasTaticas,
   consolidarEfetivo, pendentesDeRevisao, plural,
   contarRequisicoes, ETAPAS_REQUISICAO, ROTULO_REQUISICAO,
-  previsionCurvaHoje, progressoEsperado,
+  previsionCurvaHoje, previsionProgressoMensal, progressoEsperado,
 } from '../lib/dominio'
 import { Icon, Chip, Indicador, ItemLista, PageHeader, Vazio, SeletorObra, useDesktop } from '../components'
-import { GraficoColunas, GraficoDonut, RankingBarras } from '../components/charts'
+import { GraficoColunas, GraficoDonut, RankingBarras, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 
 export default function InicioGestao({ goto, irParaAba, perfil }) {
   const dados = useDados()
@@ -63,29 +63,28 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     return progressoEsperado(i, hoje) - (Number(i.percentual_prevision) || 0) > 5
   }).length
 
-  /* Etapas do Mensal por situação — quanto do plano já fechou de
-     verdade (100%), não só o quanto avançou em peso. */
   const etapasMensal = dados.cronograma || []
-  const etapasConcluidas = etapasMensal.filter((e) => Number(e.percentual) >= 100).length
-  const etapasEmAndamento = etapasMensal.filter((e) => Number(e.percentual) > 0 && Number(e.percentual) < 100).length
-  const etapasNaoIniciadas = etapasMensal.length - etapasConcluidas - etapasEmAndamento
 
-  /* Avanço geral — hero do topo. Prevision quando tem (é o dado
-     oficial, ponderado por eles); senão, a média do Mensal ponderada
-     pelo peso de cada etapa, mesma fórmula que curvaFisica() já usa
-     em Planejamento. Sem nenhum dos dois, não inventa número. */
+  /* Avanço geral só quando não tem Prevision vinculada — quando tem,
+     o bloco do Planejamento já mostra o Realizado oficial deles.
+     Mesma fórmula que curvaFisica() já usa em Planejamento. */
   const pesoTotalMensal = etapasMensal.reduce((s, e) => s + (Number(e.peso) || 0), 0)
   const avancoMensal = pesoTotalMensal > 0
     ? etapasMensal.reduce((s, e) => s + (Number(e.percentual) || 0) * (Number(e.peso) || 0), 0) / pesoTotalMensal
     : null
-  const avancoGeral = previsionHoje ? previsionHoje.realizado : avancoMensal
-  const previstoGeral = previsionHoje ? previsionHoje.previsto : null
 
   /* Meta do mês — a mesma que é digitada à mão no Progresso Mensal
      (a Prevision não expõe esse percentual pela API, ver Suprimentos
      ↔ Planejamento). Só do mês corrente. */
   const mesAtual = hoje.slice(0, 7)
   const metaDoMes = (dados.metasMensais || []).find((m) => String(m.mes).slice(0, 7) === mesAtual)
+
+  /* Curva S + Progresso Mensal — mesmos dados e mesmos componentes
+     do Dashboard de Planejamento (não é um cálculo paralelo). */
+  const metasPorMes = {}
+  for (const m of dados.metasMensais || []) metasPorMes[String(m.mes).slice(0, 7)] = Number(m.percentual)
+  const progressoMensal = previsionProgressoMensal(linkPrevision?.scurve).map((m) => ({ ...m, meta: metasPorMes[m.mes] ?? null }))
+  const salvarMeta = (mesISO, percentual) => dados.salvarMetaMensal(`${mesISO}-01`, percentual)
 
   /* Suprimentos — mesmos números do topo do Dashboard de lá: todo
      pedido importado (não só os em aberto) entra na média de tempo e
@@ -140,57 +139,55 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
         <PageHeader titulo="Visão da obra" sub={`Últimos 7 dias · até ${formatarData(hoje)}`} />
 
         <div className="stack-3">
-          {/* ── Hero: avanço geral da obra ── */}
-          {avancoGeral != null && (
-            <div
-              className="card"
-              style={{
-                background: 'linear-gradient(135deg, var(--graphite), var(--graphite-2))',
-                color: 'var(--on-graphite)', border: 'none',
-              }}
-            >
-              <div className="row-between" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 20 }}>
-                <div>
-                  <div className="t-micro" style={{ color: 'var(--on-graphite-2)' }}>
-                    Avanço geral da obra {previsionHoje ? '· Prevision' : '· Mensal'}
-                  </div>
-                  <div className="t-display" style={{ fontSize: 44, color: 'var(--on-graphite)', marginTop: 4 }}>
-                    {avancoGeral.toFixed(1)}%
-                  </div>
-                  {previstoGeral != null && (
-                    <div className="row-flex" style={{ gap: 6, alignItems: 'center', marginTop: 6 }}>
-                      <span
-                        className="t-caption"
-                        style={{
-                          color: avancoGeral >= previstoGeral ? 'var(--success)' : 'var(--danger)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {avancoGeral >= previstoGeral ? '▲' : '▼'} {Math.abs(avancoGeral - previstoGeral).toFixed(1)} p.p.
-                      </span>
-                      <span className="t-caption" style={{ color: 'var(--on-graphite-2)' }}>
-                        {avancoGeral >= previstoGeral ? 'à frente do' : 'atrás do'} previsto ({previstoGeral.toFixed(1)}%)
-                      </span>
-                    </div>
-                  )}
-                  {atividadesAtrasadasPrevision > 0 && (
-                    <div className="t-caption" style={{ color: '#E8897A', marginTop: 4 }}>
-                      {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision
-                    </div>
-                  )}
-                </div>
-
-                {etapasMensal.length > 0 && (
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                    <AneleEtapas concluidas={etapasConcluidas} andamento={etapasEmAndamento} naoIniciadas={etapasNaoIniciadas} />
-                    <div className="stack-1">
-                      <LegendaAnel cor="var(--success)" rotulo="Concluídas" valor={etapasConcluidas} />
-                      <LegendaAnel cor="var(--info)" rotulo="Em andamento" valor={etapasEmAndamento} />
-                      <LegendaAnel cor="rgba(255,255,255,0.25)" rotulo="Não iniciadas" valor={etapasNaoIniciadas} />
-                    </div>
-                  </div>
-                )}
+          {/* ── Planejamento: mesmo dado oficial do Dashboard da Prevision ── */}
+          {(linkPrevision || etapasMensal.length > 0) && (
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 4 }}>
+                <TituloPainel icone="planejamento" cor="var(--info)" titulo={`Avanço geral da obra · ${linkPrevision ? 'Prevision' : 'Mensal'}`} />
+                <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'dashboard' })}>
+                  Abrir <Icon name="avancar" size={14} />
+                </button>
               </div>
+
+              {linkPrevision ? (
+                previsionHoje ? (
+                  <div className="stack-2" style={{ marginTop: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                      <Indicador rotulo="Base" valor={`${previsionHoje.base.toFixed(1)}%`} />
+                      <Indicador rotulo="Previsto" valor={`${previsionHoje.previsto.toFixed(1)}%`} />
+                      <Indicador
+                        rotulo="Realizado" valor={`${previsionHoje.realizado.toFixed(1)}%`}
+                        tom={previsionHoje.realizado >= previsionHoje.previsto ? 'success' : 'danger'}
+                      />
+                      <Indicador rotulo="Atividades" valor={atividadesGlobal.length} />
+                      <Indicador rotulo="Meta do mês" valor={metaDoMes ? `${Number(metaDoMes.percentual).toFixed(2)}%` : '—'} />
+                    </div>
+
+                    {atividadesAtrasadasPrevision > 0 && (
+                      <div className="t-caption" style={{ color: 'var(--danger)' }}>
+                        {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12 }}>
+                      <div className="card-flat chart-panel stack-2">
+                        <div className="t-micro">Curva S — Base × Previsto × Realizado</div>
+                        <CurvaSPrevision scurve={linkPrevision.scurve} />
+                      </div>
+                      <div className="card-flat chart-panel stack-2">
+                        <div className="t-micro">Progresso mensal — Base × Previsto × Realizado</div>
+                        <ProgressoMensalPrevision meses={progressoMensal} onSalvarMeta={salvarMeta} />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="t-caption" style={{ marginTop: 6 }}>Sincronizando com a Prevision…</div>
+                )
+              ) : (
+                avancoMensal != null && (
+                  <div className="t-display" style={{ fontSize: 36, marginTop: 6 }}>{avancoMensal.toFixed(1)}%</div>
+                )
+              )}
             </div>
           )}
 
@@ -271,41 +268,8 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
             <div className="t-micro" style={{ marginBottom: 10 }}>Painel geral</div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-              {/* Planejamento — etapas do Mensal + Prevision */}
-              {(etapasMensal.length > 0 || linkPrevision) && (
-                <div className="card">
-                  <div className="row-between" style={{ marginBottom: 4 }}>
-                    <TituloPainel icone="planejamento" cor="var(--info)" titulo="Planejamento" />
-                    <button className="btn btn-ghost btn-sm" onClick={() => irParaAba('planejamento', { aba: 'dashboard' })}>
-                      Abrir <Icon name="avancar" size={14} />
-                    </button>
-                  </div>
-                  {/* O anel de etapas (concluídas/andamento/não iniciadas) e o
-                      Realizado/Previsto/"atividade atrasada" já estão no hero
-                      do topo — não repete aqui. Só o que o hero NÃO mostra. */}
-                  {linkPrevision ? (
-                    previsionHoje ? (
-                      <div className="stack-1" style={{ marginTop: 6 }}>
-                        <div className="row-wrap" style={{ gap: 16 }}>
-                          <span className="t-caption">Base <b>{previsionHoje.base.toFixed(1)}%</b></span>
-                          <span className="t-caption">Atividades <b>{atividadesGlobal.length}</b></span>
-                          {metaDoMes && (
-                            <span className="t-caption">Meta do mês <b>{Number(metaDoMes.percentual).toFixed(2)}%</b></span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="t-caption" style={{ marginTop: 6 }}>Sincronizando com a Prevision…</div>
-                    )
-                  ) : (
-                    etapasMensal.length > 0 && (
-                      <div className="t-caption" style={{ marginTop: 6 }}>
-                        Acompanhamento sem Prevision vinculada ainda — só a EAP do Mensal.
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
+              {/* Planejamento já tem bloco próprio, destacado, no topo
+                  da página — não repete aqui. */}
 
               {/* Suprimentos */}
               {(dados.suprimentos || []).length > 0 && (
@@ -415,49 +379,6 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
 function formatarDias(v) {
   if (v == null) return '—'
   return `${v.toFixed(1)} dia${v >= 1.95 ? 's' : ''}`
-}
-
-/* Anel de etapas do hero — mesma técnica de offset acumulado do
-   GraficoDonut, só que sem legenda embutida (a legenda do hero vai
-   ao lado, em texto claro sobre fundo escuro) e sem depender de
-   tokens de cor claros (o "não iniciadas" precisa ser translúcido
-   branco pra aparecer no fundo grafite). */
-function AneleEtapas({ concluidas, andamento, naoIniciadas }) {
-  const total = concluidas + andamento + naoIniciadas
-  if (total === 0) return null
-  const segmentos = [
-    { valor: concluidas, cor: 'var(--success)' },
-    { valor: andamento, cor: 'var(--info)' },
-    { valor: naoIniciadas, cor: 'rgba(255,255,255,0.18)' },
-  ]
-  let acumulado = 0
-  return (
-    <svg viewBox="0 0 100 100" width={76} height={76} style={{ flex: 'none', transform: 'rotate(-90deg)' }}>
-      {segmentos.map((s, i) => {
-        const pct = (s.valor / total) * 100
-        if (pct <= 0) return null
-        const el = (
-          <circle
-            key={i} cx="50" cy="50" r={34} fill="none" stroke={s.cor} strokeWidth={16}
-            strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={-acumulado} pathLength="100"
-          />
-        )
-        acumulado += pct
-        return el
-      })}
-    </svg>
-  )
-}
-
-function LegendaAnel({ cor, rotulo, valor }) {
-  return (
-    <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
-      <span style={{ width: 8, height: 8, borderRadius: 2, background: cor, flex: 'none' }} />
-      <span className="t-caption" style={{ color: 'var(--on-graphite-2)' }}>
-        {rotulo} <b style={{ color: 'var(--on-graphite)' }}>{valor}</b>
-      </span>
-    </div>
-  )
 }
 
 /* Selo colorido antes do título de cada cartão do Painel geral — só
