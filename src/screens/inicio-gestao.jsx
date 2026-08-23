@@ -69,6 +69,17 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const etapasEmAndamento = etapasMensal.filter((e) => Number(e.percentual) > 0 && Number(e.percentual) < 100).length
   const etapasNaoIniciadas = etapasMensal.length - etapasConcluidas - etapasEmAndamento
 
+  /* Avanço geral — hero do topo. Prevision quando tem (é o dado
+     oficial, ponderado por eles); senão, a média do Mensal ponderada
+     pelo peso de cada etapa, mesma fórmula que curvaFisica() já usa
+     em Planejamento. Sem nenhum dos dois, não inventa número. */
+  const pesoTotalMensal = etapasMensal.reduce((s, e) => s + (Number(e.peso) || 0), 0)
+  const avancoMensal = pesoTotalMensal > 0
+    ? etapasMensal.reduce((s, e) => s + (Number(e.percentual) || 0) * (Number(e.peso) || 0), 0) / pesoTotalMensal
+    : null
+  const avancoGeral = previsionHoje ? previsionHoje.realizado : avancoMensal
+  const previstoGeral = previsionHoje ? previsionHoje.previsto : null
+
   /* Suprimentos — pedidos importados do ERP ainda sem Data Entrega,
      e quantos já passaram da Previsão de Entrega que o Compras deu. */
   const suprimentosAbertos = (dados.suprimentos || []).filter((p) => !p.data_entrega)
@@ -108,6 +119,60 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
         <PageHeader titulo="Visão da obra" sub={`Últimos 7 dias · até ${formatarData(hoje)}`} />
 
         <div className="stack-3">
+          {/* ── Hero: avanço geral da obra ── */}
+          {avancoGeral != null && (
+            <div
+              className="card"
+              style={{
+                background: 'linear-gradient(135deg, var(--graphite), var(--graphite-2))',
+                color: 'var(--on-graphite)', border: 'none',
+              }}
+            >
+              <div className="row-between" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 20 }}>
+                <div>
+                  <div className="t-micro" style={{ color: 'var(--on-graphite-2)' }}>
+                    Avanço geral da obra {previsionHoje ? '· Prevision' : '· Mensal'}
+                  </div>
+                  <div className="t-display" style={{ fontSize: 44, color: 'var(--on-graphite)', marginTop: 4 }}>
+                    {avancoGeral.toFixed(1)}%
+                  </div>
+                  {previstoGeral != null && (
+                    <div className="row-flex" style={{ gap: 6, alignItems: 'center', marginTop: 6 }}>
+                      <span
+                        className="t-caption"
+                        style={{
+                          color: avancoGeral >= previstoGeral ? 'var(--success)' : 'var(--danger)',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {avancoGeral >= previstoGeral ? '▲' : '▼'} {Math.abs(avancoGeral - previstoGeral).toFixed(1)} p.p.
+                      </span>
+                      <span className="t-caption" style={{ color: 'var(--on-graphite-2)' }}>
+                        {avancoGeral >= previstoGeral ? 'à frente do' : 'atrás do'} previsto ({previstoGeral.toFixed(1)}%)
+                      </span>
+                    </div>
+                  )}
+                  {atividadesAtrasadasPrevision > 0 && (
+                    <div className="t-caption" style={{ color: '#E8897A', marginTop: 4 }}>
+                      {plural(atividadesAtrasadasPrevision, 'atividade atrasada', 'atividades atrasadas')} segundo a Prevision
+                    </div>
+                  )}
+                </div>
+
+                {etapasMensal.length > 0 && (
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <AneleEtapas concluidas={etapasConcluidas} andamento={etapasEmAndamento} naoIniciadas={etapasNaoIniciadas} />
+                    <div className="stack-1">
+                      <LegendaAnel cor="var(--success)" rotulo="Concluídas" valor={etapasConcluidas} />
+                      <LegendaAnel cor="var(--info)" rotulo="Em andamento" valor={etapasEmAndamento} />
+                      <LegendaAnel cor="rgba(255,255,255,0.25)" rotulo="Não iniciadas" valor={etapasNaoIniciadas} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── Indicadores ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
             <Indicador
@@ -329,6 +394,49 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
         </div>
       </div>
     </>
+  )
+}
+
+/* Anel de etapas do hero — mesma técnica de offset acumulado do
+   GraficoDonut, só que sem legenda embutida (a legenda do hero vai
+   ao lado, em texto claro sobre fundo escuro) e sem depender de
+   tokens de cor claros (o "não iniciadas" precisa ser translúcido
+   branco pra aparecer no fundo grafite). */
+function AneleEtapas({ concluidas, andamento, naoIniciadas }) {
+  const total = concluidas + andamento + naoIniciadas
+  if (total === 0) return null
+  const segmentos = [
+    { valor: concluidas, cor: 'var(--success)' },
+    { valor: andamento, cor: 'var(--info)' },
+    { valor: naoIniciadas, cor: 'rgba(255,255,255,0.18)' },
+  ]
+  let acumulado = 0
+  return (
+    <svg viewBox="0 0 100 100" width={76} height={76} style={{ flex: 'none', transform: 'rotate(-90deg)' }}>
+      {segmentos.map((s, i) => {
+        const pct = (s.valor / total) * 100
+        if (pct <= 0) return null
+        const el = (
+          <circle
+            key={i} cx="50" cy="50" r={34} fill="none" stroke={s.cor} strokeWidth={16}
+            strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={-acumulado} pathLength="100"
+          />
+        )
+        acumulado += pct
+        return el
+      })}
+    </svg>
+  )
+}
+
+function LegendaAnel({ cor, rotulo, valor }) {
+  return (
+    <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: cor, flex: 'none' }} />
+      <span className="t-caption" style={{ color: 'var(--on-graphite-2)' }}>
+        {rotulo} <b style={{ color: 'var(--on-graphite)' }}>{valor}</b>
+      </span>
+    </div>
   )
 }
 
