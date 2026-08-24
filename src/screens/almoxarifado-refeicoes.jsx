@@ -27,6 +27,12 @@ import {
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 
+function ultimoDiaDoMes(mesISO) {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const d = new Date(ano, mes, 0) // dia 0 do mês seguinte = último dia do mês atual
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function normalizarComparar(s) {
   return String(s || '')
     .normalize('NFD').replace(/\p{Diacritic}/gu, '')
@@ -187,6 +193,9 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const [buscaAdicionar, setBuscaAdicionar] = useState('')
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [modoRelatorio, setModoRelatorio] = useState('periodo') // 'dia' | 'mes' | 'periodo'
+  const [relatorioDia, setRelatorioDia] = useState(hoje)
+  const [relatorioMes, setRelatorioMes] = useState(() => hoje.slice(0, 7))
   const [relatorioInicio, setRelatorioInicio] = useState(() => `${hoje.slice(0, 7)}-01`)
   const [relatorioFim, setRelatorioFim] = useState(hoje)
 
@@ -199,8 +208,15 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
     [resumo.registros],
   )
 
-  const periodoIni = relatorioInicio <= relatorioFim ? relatorioInicio : relatorioFim
-  const periodoFim = relatorioInicio <= relatorioFim ? relatorioFim : relatorioInicio
+  let periodoIni = relatorioInicio <= relatorioFim ? relatorioInicio : relatorioFim
+  let periodoFim = relatorioInicio <= relatorioFim ? relatorioFim : relatorioInicio
+  if (modoRelatorio === 'dia') {
+    periodoIni = relatorioDia
+    periodoFim = relatorioDia
+  } else if (modoRelatorio === 'mes') {
+    periodoIni = `${relatorioMes}-01`
+    periodoFim = ultimoDiaDoMes(relatorioMes)
+  }
 
   const registrosDoRelatorio = useMemo(() => {
     return (dados.refeicoes || []).filter((r) => r.data >= periodoIni && r.data <= periodoFim)
@@ -367,17 +383,56 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
       </div>
 
       <SecaoRecolhivel
-        titulo="Relatório por período"
-        resumo={`${formatarDataCurta(relatorioInicio)}–${formatarDataCurta(relatorioFim)}`}
+        titulo="Relatório"
+        resumo={
+          modoRelatorio === 'dia' ? formatarDataCurta(relatorioDia)
+            : modoRelatorio === 'mes' ? rotuloMes(relatorioMes)
+              : `${formatarDataCurta(periodoIni)}–${formatarDataCurta(periodoFim)}`
+        }
       >
-        <div className="row-flex">
-          <Campo label="De">
-            <input className="ipt" type="date" value={relatorioInicio} onChange={(e) => setRelatorioInicio(e.target.value)} />
-          </Campo>
-          <Campo label="Até">
-            <input className="ipt" type="date" value={relatorioFim} onChange={(e) => setRelatorioFim(e.target.value)} />
-          </Campo>
+        <div className="row-flex" style={{ gap: 6 }}>
+          <button
+            className={`btn btn-sm ${modoRelatorio === 'dia' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setModoRelatorio('dia')}
+          >
+            Dia
+          </button>
+          <button
+            className={`btn btn-sm ${modoRelatorio === 'mes' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setModoRelatorio('mes')}
+          >
+            Mês
+          </button>
+          <button
+            className={`btn btn-sm ${modoRelatorio === 'periodo' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setModoRelatorio('periodo')}
+          >
+            Período
+          </button>
         </div>
+
+        {modoRelatorio === 'dia' && (
+          <Campo label="Dia">
+            <input className="ipt" type="date" value={relatorioDia} onChange={(e) => setRelatorioDia(e.target.value)} />
+          </Campo>
+        )}
+
+        {modoRelatorio === 'mes' && (
+          <Campo label="Mês">
+            <input className="ipt" type="month" value={relatorioMes} onChange={(e) => setRelatorioMes(e.target.value)} />
+          </Campo>
+        )}
+
+        {modoRelatorio === 'periodo' && (
+          <div className="row-flex">
+            <Campo label="De">
+              <input className="ipt" type="date" value={relatorioInicio} onChange={(e) => setRelatorioInicio(e.target.value)} />
+            </Campo>
+            <Campo label="Até">
+              <input className="ipt" type="date" value={relatorioFim} onChange={(e) => setRelatorioFim(e.target.value)} />
+            </Campo>
+          </div>
+        )}
 
         {resumoPeriodo.totalVinculado > 0 && (
           <div className="stack-2">
@@ -742,7 +797,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
       <RelatorioFolha
         titulo="Refeições"
-        sub={`${formatarData(relatorioInicio)} a ${formatarData(relatorioFim)}`}
+        sub={periodoIni === periodoFim ? formatarData(periodoIni) : `${formatarData(periodoIni)} a ${formatarData(periodoFim)}`}
         obra={dados.obra.nome} org={dados.org.nome}
       >
         {diasDoRelatorio.length === 0 ? (
