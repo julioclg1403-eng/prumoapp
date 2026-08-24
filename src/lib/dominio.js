@@ -1429,3 +1429,44 @@ export function resumoRefeicoesDoMes(registros, empresas, colaboradores, mes) {
     totalVinculado: linhas.reduce((s, l) => s + l.total, 0),
   }
 }
+
+/* Mesma ideia do resumo mensal, mas por período livre (De/Até) e
+   quebrado por PESSOA além de por empresa — pra saber quem mais
+   almoçou, não só quanto cada empreiteira consumiu. Porcentagem é
+   sempre sobre o total VINCULADO do período (não a quantidade
+   oficial lançada, que pode ter gente ainda não identificada). */
+export function resumoRefeicoesPorPeriodo(registros, empresas, colaboradores, dataIni, dataFim) {
+  const doPeriodo = (registros || []).filter((r) => r.data >= dataIni && r.data <= dataFim)
+  const porColaborador = new Map()
+  const porEmpresa = new Map()
+
+  doPeriodo.forEach((r) => {
+    (r.worker_ids || []).forEach((workerId) => {
+      porColaborador.set(workerId, (porColaborador.get(workerId) || 0) + 1)
+      const colaborador = (colaboradores || []).find((c) => c.id === workerId)
+      const companyId = colaborador?.company_id || r.company_id || null
+      porEmpresa.set(companyId, (porEmpresa.get(companyId) || 0) + 1)
+    })
+  })
+
+  const totalVinculado = doPeriodo.reduce((s, r) => s + (r.worker_ids?.length || 0), 0)
+  const percentual = (total) => (totalVinculado ? Math.round((total / totalVinculado) * 1000) / 10 : 0)
+
+  const porColaboradorArr = Array.from(porColaborador.entries()).map(([workerId, total]) => {
+    const colaborador = (colaboradores || []).find((c) => c.id === workerId)
+    return { workerId, nome: colaborador?.nome || 'Colaborador removido', total, percentual: percentual(total) }
+  }).sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome))
+
+  const porEmpresaArr = Array.from(porEmpresa.entries()).map(([companyId, total]) => {
+    const empresa = (empresas || []).find((e) => e.id === companyId)
+    return { companyId, nome: empresa?.nome || 'Sem empresa', total, percentual: percentual(total) }
+  }).sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome))
+
+  return {
+    registros: doPeriodo,
+    totalGeral: doPeriodo.reduce((s, r) => s + (Number(r.quantidade) || 0), 0),
+    totalVinculado,
+    porColaborador: porColaboradorArr,
+    porEmpresa: porEmpresaArr,
+  }
+}

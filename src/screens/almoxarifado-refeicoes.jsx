@@ -19,7 +19,8 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, formatarDataCurta, somarMeses, rotuloMes, plural, resumoRefeicoesDoMes, diarioDaData,
+  hojeISO, formatarData, formatarDataCurta, somarMeses, rotuloMes, plural,
+  resumoRefeicoesDoMes, resumoRefeicoesPorPeriodo, diarioDaData,
 } from '../lib/dominio'
 import {
   Icon, PageHeader, Sheet, Campo, Confirmar, Vazio, ItemLista, Selecionavel, SecaoRecolhivel,
@@ -148,15 +149,31 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
     [resumo.registros],
   )
 
+  const periodoIni = relatorioInicio <= relatorioFim ? relatorioInicio : relatorioFim
+  const periodoFim = relatorioInicio <= relatorioFim ? relatorioFim : relatorioInicio
+
   const registrosDoRelatorio = useMemo(() => {
-    const ini = relatorioInicio <= relatorioFim ? relatorioInicio : relatorioFim
-    const fim = relatorioInicio <= relatorioFim ? relatorioFim : relatorioInicio
-    return (dados.refeicoes || []).filter((r) => r.data >= ini && r.data <= fim)
-  }, [dados.refeicoes, relatorioInicio, relatorioFim])
+    return (dados.refeicoes || []).filter((r) => r.data >= periodoIni && r.data <= periodoFim)
+  }, [dados.refeicoes, periodoIni, periodoFim])
   const diasDoRelatorio = useMemo(
     () => agruparRefeicoesPorDia(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
+  const resumoPeriodo = useMemo(
+    () => resumoRefeicoesPorPeriodo(dados.refeicoes, dados.empresas, dados.colaboradores, periodoIni, periodoFim),
+    [dados.refeicoes, dados.empresas, dados.colaboradores, periodoIni, periodoFim],
+  )
+
+  /* Vincular direto do relatório: pega o lançamento daquele dia (o
+     modelo é um lançamento por dia) e abre o mesmo formulário de
+     edição de sempre — não existe uma UI de vínculo separada, é a
+     mesma, só que disparada daqui em vez de lá de cima na lista. */
+  const abrirVinculoDoDia = (data) => {
+    const registro = registrosDoRelatorio.find((r) => r.data === data)
+    if (!registro) return
+    setBuscaAdicionar('')
+    setEditando({ ...registro, worker_ids: registro.worker_ids || [] })
+  }
 
   /* Ao trocar a data de um lançamento NOVO, se ainda não tem
      ninguém vinculado à mão, vincula automaticamente só quem o
@@ -296,8 +313,62 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             <input className="ipt" type="date" value={relatorioFim} onChange={(e) => setRelatorioFim(e.target.value)} />
           </Campo>
         </div>
+
+        {resumoPeriodo.totalVinculado > 0 && (
+          <div className="stack-2">
+            <div>
+              <div className="t-micro" style={{ marginBottom: 6 }}>
+                Por colaborador ({resumoPeriodo.totalVinculado} vinculado{resumoPeriodo.totalVinculado === 1 ? '' : 's'} no período)
+              </div>
+              <div className="stack-1">
+                {resumoPeriodo.porColaborador.map((c) => (
+                  <div key={c.workerId} className="row-between" style={{ fontSize: 13 }}>
+                    <span>{c.nome}</span>
+                    <span className="t-caption">{c.total} · {c.percentual}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="t-micro" style={{ marginBottom: 6 }}>Por empresa</div>
+              <div className="stack-1">
+                {resumoPeriodo.porEmpresa.map((e) => (
+                  <div key={e.companyId || 'sem-empresa'} className="row-between" style={{ fontSize: 13 }}>
+                    <span>{e.nome}</span>
+                    <span className="t-caption">{e.total} · {e.percentual}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {diasDoRelatorio.length > 0 && (
+          <div>
+            <div className="t-micro" style={{ marginBottom: 6 }}>Dia a dia</div>
+            <div className="stack-1">
+              {diasDoRelatorio.map((dia) => {
+                const vinculadosNoDia = dia.pessoas.length
+                const precisaVincular = vinculadosNoDia < dia.quantidade
+                return (
+                  <ItemLista
+                    key={dia.data}
+                    titulo={formatarDataCurta(dia.data)}
+                    sub={`${vinculadosNoDia}/${dia.quantidade} vinculado(s)${vinculadosNoDia ? ' — ' + dia.pessoas.map((p) => p.nome).join(', ') : ''}`}
+                    direita={precisaVincular && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => abrirVinculoDoDia(dia.data)}>
+                        Vincular
+                      </button>
+                    )}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <button className="btn btn-primary btn-block" style={{ marginTop: 10 }} onClick={() => window.print()}>
-          <Icon name="relatorio" size={17} /> Gerar relatório ({plural(diasDoRelatorio.length, 'dia', 'dias')})
+          <Icon name="relatorio" size={17} /> Imprimir / baixar PDF ({plural(diasDoRelatorio.length, 'dia', 'dias')})
         </button>
       </SecaoRecolhivel>
 
@@ -550,18 +621,32 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             <div style={{ fontSize: 12, color: '#71717A' }}>Nenhum lançamento nesse período.</div>
           </SecaoRelatorio>
         ) : (
-          diasDoRelatorio.map((dia) => (
-            <SecaoRelatorio key={dia.data} titulo={`${formatarData(dia.data)} — ${plural(dia.quantidade, 'refeição', 'refeições')}`}>
-              {dia.pessoas.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#71717A' }}>Nenhum colaborador vinculado nesse lançamento.</div>
-              ) : (
-                <TabelaRelatorio
-                  colunas={['Nome', 'Empresa', 'Serviço / Frente']}
-                  linhas={dia.pessoas.map((p) => [p.nome, p.empresa, p.servico])}
-                />
-              )}
+          <>
+            <SecaoRelatorio titulo={`Por colaborador (${resumoPeriodo.totalVinculado} vinculado(s))`}>
+              <TabelaRelatorio
+                colunas={['Nome', 'Refeições', '%']}
+                linhas={resumoPeriodo.porColaborador.map((c) => [c.nome, c.total, `${c.percentual}%`])}
+              />
             </SecaoRelatorio>
-          ))
+            <SecaoRelatorio titulo="Por empresa">
+              <TabelaRelatorio
+                colunas={['Empresa', 'Refeições', '%']}
+                linhas={resumoPeriodo.porEmpresa.map((e) => [e.nome, e.total, `${e.percentual}%`])}
+              />
+            </SecaoRelatorio>
+            {diasDoRelatorio.map((dia) => (
+              <SecaoRelatorio key={dia.data} titulo={`${formatarData(dia.data)} — ${plural(dia.quantidade, 'refeição', 'refeições')}`}>
+                {dia.pessoas.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#71717A' }}>Nenhum colaborador vinculado nesse lançamento.</div>
+                ) : (
+                  <TabelaRelatorio
+                    colunas={['Nome', 'Empresa', 'Serviço / Frente']}
+                    linhas={dia.pessoas.map((p) => [p.nome, p.empresa, p.servico])}
+                  />
+                )}
+              </SecaoRelatorio>
+            ))}
+          </>
         )}
       </RelatorioFolha>
     </div>
