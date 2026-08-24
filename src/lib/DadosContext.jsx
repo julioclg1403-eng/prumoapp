@@ -2119,6 +2119,7 @@ export function DadosProvider({ perfil, children }) {
         quantidade: Number(item.quantidade),
         fornecedor: item.fornecedor || null,
         worker_ids: item.worker_ids || [],
+        servicos_manuais: item.servicos_manuais || {},
         autor_id: perfil.id,
       }
       if (item.id) linha.id = item.id

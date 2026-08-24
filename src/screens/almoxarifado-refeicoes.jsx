@@ -95,6 +95,24 @@ function colaboradoresDoDiario(dados, data) {
     .sort((a, b) => a.empresa.localeCompare(b.empresa) || a.nome.localeCompare(b.nome))
 }
 
+/* Resolve o "quem" de uma pessoa vinculada num lançamento: nome,
+   empresa e o serviço/frente — do Diário quando tem atividade
+   lançada naquele dia; senão, do que foi digitado à mão nesse
+   lançamento (servicos_manuais). Sem nenhum dos dois, fica sem
+   serviço mesmo — não inventa. */
+function pessoaDoLancamento(dados, r, workerId) {
+  const colaborador = dados.colaboradorPorId(workerId)
+  const empresaId = colaborador?.company_id || r.company_id
+  const empresa = dados.empresas?.find((e) => e.id === empresaId)?.nome || 'Empresa removida'
+  const diario = diarioDaData(dados.diarios, r.data, dados.obra.id)
+  const atividades = diario
+    ? diario.atividades.filter((a) => a.worker_ids.includes(workerId)).map((a) => dados.rotuloAtividade(a.planned_id))
+    : []
+  const servicoManual = (r.servicos_manuais || {})[workerId]?.trim()
+  const servico = atividades.length ? atividades.map((a) => `${a.servico} · ${a.local}`).join(', ') : (servicoManual || null)
+  return { nome: colaborador?.nome || 'Colaborador removido', empresa, servico }
+}
+
 /* Relatório por período: agrupa os lançamentos por dia (mais de um
    lançamento no mesmo dia soma a quantidade) e lista quem foi
    vinculado, com a empresa e o serviço/frente de cada um naquele
@@ -107,24 +125,34 @@ function agruparRefeicoesPorDia(dados, registros) {
     if (!porDia.has(r.data)) porDia.set(r.data, { data: r.data, quantidade: 0, pessoas: [] })
     const grupo = porDia.get(r.data)
     grupo.quantidade += Number(r.quantidade) || 0
-    const diario = diarioDaData(dados.diarios, r.data, dados.obra.id)
     for (const workerId of r.worker_ids || []) {
-      const colaborador = dados.colaboradorPorId(workerId)
-      const empresaId = colaborador?.company_id || r.company_id
-      const empresa = dados.empresas?.find((e) => e.id === empresaId)?.nome || 'Empresa removida'
-      const atividades = diario
-        ? diario.atividades.filter((a) => a.worker_ids.includes(workerId)).map((a) => dados.rotuloAtividade(a.planned_id))
-        : []
-      grupo.pessoas.push({
-        nome: colaborador?.nome || 'Colaborador removido',
-        empresa,
-        servico: atividades.length ? atividades.map((a) => `${a.servico} · ${a.local}`).join(', ') : '—',
-      })
+      const p = pessoaDoLancamento(dados, r, workerId)
+      grupo.pessoas.push({ nome: p.nome, empresa: p.empresa, servico: p.servico || '—' })
     }
   }
   return [...porDia.values()]
     .map((g) => ({ ...g, pessoas: g.pessoas.sort((a, b) => a.nome.localeCompare(b.nome)) }))
     .sort((a, b) => (a.data < b.data ? -1 : 1))
+}
+
+/* Mesma fonte de serviço (diário ou manual), agrupada por período —
+   pra ver quanto cada frente consumiu, não só cada empresa/pessoa.
+   Porcentagem sobre o total vinculado, igual porColaborador/porEmpresa. */
+function resumoServicosPorPeriodo(dados, registros) {
+  const porServico = new Map()
+  let totalVinculado = 0
+  registros.forEach((r) => {
+    (r.worker_ids || []).forEach((workerId) => {
+      const p = pessoaDoLancamento(dados, r, workerId)
+      const chave = p.servico || 'Sem serviço vinculado'
+      porServico.set(chave, (porServico.get(chave) || 0) + 1)
+      totalVinculado += 1
+    })
+  })
+  const percentual = (total) => (totalVinculado ? Math.round((total / totalVinculado) * 1000) / 10 : 0)
+  return Array.from(porServico.entries())
+    .map(([servico, total]) => ({ servico, total, percentual: percentual(total) }))
+    .sort((a, b) => b.total - a.total || a.servico.localeCompare(b.servico))
 }
 
 export default function AlmoxarifadoRefeicoes({ perfil }) {
@@ -162,6 +190,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const resumoPeriodo = useMemo(
     () => resumoRefeicoesPorPeriodo(dados.refeicoes, dados.empresas, dados.colaboradores, periodoIni, periodoFim),
     [dados.refeicoes, dados.empresas, dados.colaboradores, periodoIni, periodoFim],
+  )
+  const servicosDoPeriodo = useMemo(
+    () => resumoServicosPorPeriodo(dados, registrosDoRelatorio),
+    [dados, registrosDoRelatorio],
   )
 
   /* Vincular direto do relatório: pega o lançamento daquele dia (o
@@ -272,6 +304,13 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
     })
   }
 
+  /* Serviço/frente digitado à mão pra quem não tem atividade lançada
+     no diário nesse dia — fica guardado no próprio lançamento, por
+     colaborador (servicos_manuais: { [workerId]: texto }). */
+  const atualizarServicoManual = (workerId, texto) => {
+    setEditando((p) => ({ ...p, servicos_manuais: { ...(p.servicos_manuais || {}), [workerId]: texto } }))
+  }
+
   return (
     <div className="page stack-2">
       <PageHeader
@@ -336,6 +375,17 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                   <div key={e.companyId || 'sem-empresa'} className="row-between" style={{ fontSize: 13 }}>
                     <span>{e.nome}</span>
                     <span className="t-caption">{e.total} · {e.percentual}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="t-micro" style={{ marginBottom: 6 }}>Por serviço / frente</div>
+              <div className="stack-1">
+                {servicosDoPeriodo.map((s) => (
+                  <div key={s.servico} className="row-between" style={{ fontSize: 13 }}>
+                    <span>{s.servico}</span>
+                    <span className="t-caption">{s.total} · {s.percentual}%</span>
                   </div>
                 ))}
               </div>
@@ -521,18 +571,27 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                 <div className="stack-1" style={{ marginBottom: 12 }}>
                   <div className="t-caption" style={{ fontWeight: 700 }}>Confirmados no diário desse dia</div>
                   {doDiario.map((c) => (
-                    <Selecionavel
-                      key={c.workerId}
-                      marcado={vinculados.includes(c.workerId)}
-                      onToggle={() => alternarColaborador(c.workerId)}
-                      titulo={c.nome}
-                      sub={[
-                        c.empresa, c.funcao,
-                        c.atividades.length > 0
-                          ? c.atividades.map((a) => `${a.servico} · ${a.local}`).join(', ')
-                          : 'Sem atividade lançada no diário',
-                      ].filter(Boolean).join(' — ')}
-                    />
+                    <div key={c.workerId} className="stack-1">
+                      <Selecionavel
+                        marcado={vinculados.includes(c.workerId)}
+                        onToggle={() => alternarColaborador(c.workerId)}
+                        titulo={c.nome}
+                        sub={[
+                          c.empresa, c.funcao,
+                          c.atividades.length > 0
+                            ? c.atividades.map((a) => `${a.servico} · ${a.local}`).join(', ')
+                            : 'Sem atividade lançada no diário',
+                        ].filter(Boolean).join(' — ')}
+                      />
+                      {c.atividades.length === 0 && vinculados.includes(c.workerId) && (
+                        <input
+                          className="ipt"
+                          placeholder="Serviço/frente (opcional — digite à mão já que o diário não tem)"
+                          value={editando.servicos_manuais?.[c.workerId] || ''}
+                          onChange={(e) => atualizarServicoManual(c.workerId, e.target.value)}
+                        />
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -541,14 +600,23 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                 <div className="stack-1" style={{ marginBottom: 12 }}>
                   <div className="t-caption" style={{ fontWeight: 700 }}>Administrativo (não passa pelo diário)</div>
                   {administrativos.map((c) => (
-                    <LinhaColaborador
-                      key={c.workerId}
-                      marcado={vinculados.includes(c.workerId)}
-                      onToggle={() => alternarColaborador(c.workerId)}
-                      titulo={c.nome}
-                      sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
-                      onDesfixar={() => dados.definirAdministrativoColaborador(c.workerId, false)}
-                    />
+                    <div key={c.workerId} className="stack-1">
+                      <LinhaColaborador
+                        marcado={vinculados.includes(c.workerId)}
+                        onToggle={() => alternarColaborador(c.workerId)}
+                        titulo={c.nome}
+                        sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
+                        onDesfixar={() => dados.definirAdministrativoColaborador(c.workerId, false)}
+                      />
+                      {vinculados.includes(c.workerId) && (
+                        <input
+                          className="ipt"
+                          placeholder="Serviço/frente (opcional)"
+                          value={editando.servicos_manuais?.[c.workerId] || ''}
+                          onChange={(e) => atualizarServicoManual(c.workerId, e.target.value)}
+                        />
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -557,14 +625,21 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                 <div className="stack-1" style={{ marginBottom: 12 }}>
                   <div className="t-caption" style={{ fontWeight: 700 }}>Adicionados à mão</div>
                   {adicionadosManualmente.map((c) => (
-                    <LinhaColaborador
-                      key={c.workerId}
-                      marcado
-                      onToggle={() => alternarColaborador(c.workerId)}
-                      titulo={c.nome}
-                      sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
-                      onFixar={() => dados.definirAdministrativoColaborador(c.workerId, true)}
-                    />
+                    <div key={c.workerId} className="stack-1">
+                      <LinhaColaborador
+                        marcado
+                        onToggle={() => alternarColaborador(c.workerId)}
+                        titulo={c.nome}
+                        sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
+                        onFixar={() => dados.definirAdministrativoColaborador(c.workerId, true)}
+                      />
+                      <input
+                        className="ipt"
+                        placeholder="Serviço/frente (opcional)"
+                        value={editando.servicos_manuais?.[c.workerId] || ''}
+                        onChange={(e) => atualizarServicoManual(c.workerId, e.target.value)}
+                      />
+                    </div>
                   ))}
                 </div>
               )}
@@ -632,6 +707,12 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               <TabelaRelatorio
                 colunas={['Empresa', 'Refeições', '%']}
                 linhas={resumoPeriodo.porEmpresa.map((e) => [e.nome, e.total, `${e.percentual}%`])}
+              />
+            </SecaoRelatorio>
+            <SecaoRelatorio titulo="Por serviço / frente">
+              <TabelaRelatorio
+                colunas={['Serviço / Frente', 'Refeições', '%']}
+                linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
               />
             </SecaoRelatorio>
             {diasDoRelatorio.map((dia) => (
