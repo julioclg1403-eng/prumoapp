@@ -155,6 +155,28 @@ function resumoServicosPorPeriodo(dados, registros) {
     .sort((a, b) => b.total - a.total || a.servico.localeCompare(b.servico))
 }
 
+/* Tabela de frequência: uma linha por colaborador (nome exatamente
+   como está cadastrado), uma coluna por dia com lançamento no
+   período — a célula já traz o serviço/frente vinculado naquele
+   dia (ou "Sem serviço vinculado"), não só uma marcação genérica de
+   presença. Só entram os dias que realmente tiveram lançamento
+   (mesmo conjunto de dias do "Dia a dia" acima). */
+function matrizFrequenciaRefeicoes(dados, registros) {
+  const dias = [...new Set(registros.map((r) => r.data))].sort()
+  const porPessoa = new Map()
+  registros.forEach((r) => {
+    (r.worker_ids || []).forEach((workerId) => {
+      const p = pessoaDoLancamento(dados, r, workerId)
+      if (!porPessoa.has(workerId)) porPessoa.set(workerId, { nome: p.nome, porDia: new Map() })
+      porPessoa.get(workerId).porDia.set(r.data, p.servico || 'Sem serviço vinculado')
+    })
+  })
+  const linhas = Array.from(porPessoa.values())
+    .sort((a, b) => a.nome.localeCompare(b.nome))
+    .map((p) => ({ nome: p.nome, celulas: dias.map((d) => p.porDia.get(d) || '') }))
+  return { dias, linhas }
+}
+
 export default function AlmoxarifadoRefeicoes({ perfil }) {
   const dados = useDados()
   const hoje = hojeISO()
@@ -193,6 +215,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   )
   const servicosDoPeriodo = useMemo(
     () => resumoServicosPorPeriodo(dados, registrosDoRelatorio),
+    [dados, registrosDoRelatorio],
+  )
+  const matrizFrequencia = useMemo(
+    () => matrizFrequenciaRefeicoes(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
 
@@ -389,6 +415,34 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {matrizFrequencia.linhas.length > 0 && (
+          <div>
+            <div className="t-micro" style={{ marginBottom: 6 }}>
+              Frequência — quem comeu em cada dia, e onde estava vinculado
+            </div>
+            <div className="scroll-x">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    {matrizFrequencia.dias.map((d) => <th key={d}>{formatarDataCurta(d)}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrizFrequencia.linhas.map((l) => (
+                    <tr key={l.nome}>
+                      <td className="t-strong" style={{ whiteSpace: 'nowrap' }}>{l.nome}</td>
+                      {l.celulas.map((c, i) => (
+                        <td key={i} style={{ fontSize: 12, color: c ? 'inherit' : 'var(--text-3)' }}>{c || '—'}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -713,6 +767,12 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               <TabelaRelatorio
                 colunas={['Serviço / Frente', 'Refeições', '%']}
                 linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
+              />
+            </SecaoRelatorio>
+            <SecaoRelatorio titulo="Frequência — quem comeu em cada dia, e onde estava vinculado">
+              <TabelaRelatorio
+                colunas={['Nome', ...matrizFrequencia.dias.map((d) => formatarDataCurta(d))]}
+                linhas={matrizFrequencia.linhas.map((l) => [l.nome, ...l.celulas.map((c) => c || '—')])}
               />
             </SecaoRelatorio>
             {diasDoRelatorio.map((dia) => (
