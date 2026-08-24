@@ -22,6 +22,7 @@ import {
   temComentarioNovoEmAndamento,
   VISIBILIDADE_APONTAMENTO, ROTULO_VISIBILIDADE_APONTAMENTO,
   apontamentoTravado, pendenciasParaAbrirApontamento,
+  descreverEdicaoApontamento,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
@@ -97,14 +98,24 @@ export default function Projetos({ goto, voltar, perfil }) {
     if (salvo) setEditando(null)
   }
 
-  /* Sempre grava o que está no formulário, não só na primeira vez —
-     senão trocar de aba (Detalhes → Disciplinas, por exemplo) sem
-     apertar "Salvar" antes descartava título/descrição/etc. em
-     silêncio: a próxima ação (adicionar disciplina, comentário,
-     anexo) recarregava do banco a versão antiga por cima. */
+  /* Grava o que está no formulário antes de comentar/anexar/vincular
+     disciplina — senão trocar de aba (Detalhes → Disciplinas, por
+     exemplo) sem apertar "Salvar" antes descartava título/descrição/
+     etc. em silêncio: a próxima ação recarregava do banco a versão
+     antiga por cima. MAS só reenvia o apontamento se algo realmente
+     mudou: comentário e disciplina não travam mesmo depois de
+     publicado (ver dominio.apontamentoTravado), e a RLS de
+     project_notes só deixa admin dar UPDATE nesse estado — regravar
+     à toa quebraria comentário pra quem não é admin mesmo sem ter
+     editado nada. */
   const garantirSalvo = async () => {
     if (!editando.titulo?.trim()) return editando.id ? editando : null
-    const salvo = await dados.salvarApontamento({ ...editando, titulo: editando.titulo.trim() })
+    const proposto = { ...editando, titulo: editando.titulo.trim() }
+    if (editando.id) {
+      const atual = dados.apontamentos.find((a) => a.id === editando.id)
+      if (atual && !descreverEdicaoApontamento(atual, proposto)) return editando
+    }
+    const salvo = await dados.salvarApontamento(proposto)
     if (salvo) setEditando(salvo)
     return salvo
   }
