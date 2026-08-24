@@ -183,6 +183,39 @@ function matrizFrequenciaRefeicoes(dados, registros) {
   return { dias, linhas }
 }
 
+/* Cruzamento colaborador × serviço: pra cada pessoa, quanto (em %)
+   das refeições DELA no período foram em cada serviço/frente — não
+   é a mesma coisa que "Por serviço" (que é % sobre o total geral).
+   Aqui a porcentagem é sobre o total de CADA colaborador, então a
+   linha de cada um soma 100%. */
+function matrizColaboradorServico(dados, registros) {
+  const porPessoa = new Map()
+  const servicosVistos = new Set()
+  registros.forEach((r) => {
+    (r.worker_ids || []).forEach((workerId) => {
+      const p = pessoaDoLancamento(dados, r, workerId)
+      const servico = p.servico || 'Sem serviço vinculado'
+      servicosVistos.add(servico)
+      if (!porPessoa.has(workerId)) porPessoa.set(workerId, { nome: p.nome, porServico: new Map(), total: 0 })
+      const pessoa = porPessoa.get(workerId)
+      pessoa.porServico.set(servico, (pessoa.porServico.get(servico) || 0) + 1)
+      pessoa.total += 1
+    })
+  })
+  const servicos = [...servicosVistos].sort()
+  const linhas = Array.from(porPessoa.values())
+    .sort((a, b) => a.nome.localeCompare(b.nome))
+    .map((p) => ({
+      nome: p.nome,
+      total: p.total,
+      celulas: servicos.map((s) => {
+        const qtd = p.porServico.get(s) || 0
+        return { qtd, percentual: p.total ? Math.round((qtd / p.total) * 1000) / 10 : 0 }
+      }),
+    }))
+  return { servicos, linhas }
+}
+
 export default function AlmoxarifadoRefeicoes({ perfil }) {
   const dados = useDados()
   const hoje = hojeISO()
@@ -235,6 +268,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   )
   const matrizFrequencia = useMemo(
     () => matrizFrequenciaRefeicoes(dados, registrosDoRelatorio),
+    [dados, registrosDoRelatorio],
+  )
+  const matrizColabServico = useMemo(
+    () => matrizColaboradorServico(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
 
@@ -470,6 +507,38 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {matrizColabServico.linhas.length > 0 && (
+          <div>
+            <div className="t-micro" style={{ marginBottom: 6 }}>
+              Colaborador × serviço — % das refeições de cada um em cada frente
+            </div>
+            <div className="scroll-x">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    {matrizColabServico.servicos.map((s) => <th key={s}>{s}</th>)}
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrizColabServico.linhas.map((l) => (
+                    <tr key={l.nome}>
+                      <td className="t-strong" style={{ whiteSpace: 'nowrap' }}>{l.nome}</td>
+                      {l.celulas.map((c, i) => (
+                        <td key={i} style={{ fontSize: 12, color: c.qtd ? 'inherit' : 'var(--text-3)' }}>
+                          {c.qtd ? `${c.percentual}% (${c.qtd})` : '—'}
+                        </td>
+                      ))}
+                      <td className="t-strong">{l.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -822,6 +891,14 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               <TabelaRelatorio
                 colunas={['Serviço / Frente', 'Refeições', '%']}
                 linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
+              />
+            </SecaoRelatorio>
+            <SecaoRelatorio titulo="Colaborador × serviço — % das refeições de cada um em cada frente">
+              <TabelaRelatorio
+                colunas={['Nome', ...matrizColabServico.servicos, 'Total']}
+                linhas={matrizColabServico.linhas.map((l) => [
+                  l.nome, ...l.celulas.map((c) => (c.qtd ? `${c.percentual}% (${c.qtd})` : '—')), l.total,
+                ])}
               />
             </SecaoRelatorio>
             <SecaoRelatorio titulo="Frequência — quem comeu em cada dia, e onde estava vinculado">
