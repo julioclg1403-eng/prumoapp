@@ -406,6 +406,8 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
       categoria: (editandoMaterial.categoria || '').trim() || null,
       codigo: (editandoMaterial.codigo || '').trim() || null,
       estoque_minimo: editandoMaterial.estoque_minimo === '' ? null : Number(editandoMaterial.estoque_minimo),
+      reutilizavel: Boolean(editandoMaterial.reutilizavel),
+      observacao: (editandoMaterial.observacao || '').trim() || null,
     })
     setSalvando(false)
     if (ok) setEditandoMaterial(null)
@@ -457,11 +459,12 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     if (aba === 'estoqueAtual') {
       baixarCSV(
         `estoque-${sigla}-${hoje}.csv`,
-        ['Material', 'Unidade', 'Quantidade', 'Custo Unitário Médio', 'Custo Total', 'Quantidade de Saída', 'Estoque', 'Estoque regulador'],
+        ['Material', 'Unidade', 'Quantidade', 'Custo Unitário Médio', 'Custo Total', 'Quantidade de Saída', 'Estoque', 'Estoque regulador', 'Observação'],
         emEstoque.map((s) => [
           s.material.nome, s.material.unidade, s.quantidadeEntrada,
           s.custoMedio.toFixed(2), s.custoTotal.toFixed(2), s.quantidadeSaida, s.saldo,
           s.material.estoque_minimo ?? '',
+          s.material.reutilizavel ? (s.material.observacao || '') : '',
         ]),
       )
     } else if (aba === 'entradas') {
@@ -671,10 +674,12 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                       s.material.categoria,
                       s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null,
                       s.periodoFim ? `importado até ${formatarDataCurta(s.periodoFim)}` : 'nunca importado',
+                      s.material.reutilizavel && s.material.observacao ? `em uso: ${s.material.observacao}` : null,
                     ].filter(Boolean).join(' · ')}
                     onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
                     direita={
                       <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+                        {s.material.reutilizavel && <Chip tom="info">Reutilizável</Chip>}
                         {s.abaixoDoMinimo && <Chip tom="danger">Abaixo do mínimo</Chip>}
                         <span className="t-strong" style={{ fontSize: 15, minWidth: 70, textAlign: 'right' }}>
                           {s.saldo} {s.material.unidade}
@@ -1068,6 +1073,30 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                 onChange={(e) => setEditandoMaterial((p) => ({ ...p, estoque_minimo: e.target.value }))}
               />
             </Campo>
+            <label className="pick" data-on={editandoMaterial.reutilizavel ? '1' : '0'} style={{ cursor: 'pointer' }}>
+              <input
+                type="checkbox" style={{ display: 'none' }}
+                checked={Boolean(editandoMaterial.reutilizavel)}
+                onChange={(e) => setEditandoMaterial((p) => ({ ...p, reutilizavel: e.target.checked }))}
+              />
+              <span className="box"><Icon name="check" size={14} /></span>
+              <span className="grow">
+                Item reutilizável — não sai definitivamente do estoque
+                <span className="t-caption" style={{ display: 'block', marginTop: 2 }}>
+                  Ferramenta/equipamento que empresta e volta (furadeira, carrinho…), não um consumível.
+                </span>
+              </span>
+            </label>
+            {editandoMaterial.reutilizavel && (
+              <Campo label="Observação" dica="Onde está sendo usado agora — entra na coluna Observação quando baixar a planilha do Estoque Atual.">
+                <textarea
+                  className="ipt" style={{ minHeight: 60 }}
+                  value={editandoMaterial.observacao || ''}
+                  onChange={(e) => setEditandoMaterial((p) => ({ ...p, observacao: e.target.value }))}
+                  placeholder="Ex.: emprestada pro Bloco Vendas, com o Fulano…"
+                />
+              </Campo>
+            )}
             {saldos.find((s) => s.material.id === editandoMaterial.id)?.periodoFim && (
               <div className="t-caption">
                 Saldo importado do Relatório de Estoque até {formatarDataCurta(saldos.find((s) => s.material.id === editandoMaterial.id).periodoFim)}.
