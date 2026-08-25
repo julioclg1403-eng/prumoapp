@@ -87,6 +87,59 @@ function LinhaColaborador({ marcado, onToggle, titulo, sub, onFixar, onDesfixar 
   )
 }
 
+/* Serviço/frente de quem não tem atividade lançada no diário: em vez
+   de só digitar à mão (e cada um escrever a mesma função de um jeito
+   diferente), oferece escolher direto do Planejamento UAU — a mesma
+   lista de função/cargo que a exportação em PDF usa (Cadastros →
+   Planejamento UAU). "Outro" mantém a digitação livre pra quem não
+   está naquela lista. Modo (lista vs. livre) parte do valor já
+   salvo: se bate com uma função cadastrada, começa na lista; senão,
+   começa no campo livre — não perde o que já foi digitado antes
+   dessa mudança. */
+function CampoServicoManual({ dados, valor, onChange }) {
+  const opcoes = useMemo(() => {
+    const nomes = new Set()
+    ;(dados.estruturaPlanejada || []).forEach((x) => { if (x.ativo !== false) nomes.add(x.nome) })
+    return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [dados.estruturaPlanejada])
+
+  const bateComOpcao = valor && opcoes.includes(valor)
+  const [modoLivre, setModoLivre] = useState(Boolean(valor) && !bateComOpcao)
+
+  if (opcoes.length === 0 || modoLivre) {
+    return (
+      <div className="stack-1">
+        <input
+          className="ipt"
+          placeholder="Serviço/frente (opcional — digite à mão)"
+          value={valor}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {opcoes.length > 0 && (
+          <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setModoLivre(false)}>
+            Escolher do Planejamento UAU
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <select
+      className="sel"
+      value={bateComOpcao ? valor : ''}
+      onChange={(e) => {
+        if (e.target.value === '__outro__') { setModoLivre(true); return }
+        onChange(e.target.value)
+      }}
+    >
+      <option value="">Serviço/frente (opcional)</option>
+      {opcoes.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+      <option value="__outro__">Outro (digitar à mão)…</option>
+    </select>
+  )
+}
+
 /* Todo colaborador que o Diário daquele dia marcou presente, de
    QUALQUER empresa — é a lista-fonte "buscada um a um". Sem diário
    lançado nesse dia (ou sem data escolhida ainda), devolve lista
@@ -837,11 +890,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                         ].filter(Boolean).join(' — ')}
                       />
                       {c.atividades.length === 0 && vinculados.includes(c.workerId) && (
-                        <input
-                          className="ipt"
-                          placeholder="Serviço/frente (opcional — digite à mão já que o diário não tem)"
-                          value={editando.servicos_manuais?.[c.workerId] || ''}
-                          onChange={(e) => atualizarServicoManual(c.workerId, e.target.value)}
+                        <CampoServicoManual
+                          dados={dados}
+                          valor={editando.servicos_manuais?.[c.workerId] || ''}
+                          onChange={(texto) => atualizarServicoManual(c.workerId, texto)}
                         />
                       )}
                     </div>
@@ -862,11 +914,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                         onDesfixar={() => dados.definirAdministrativoColaborador(c.workerId, false)}
                       />
                       {vinculados.includes(c.workerId) && (
-                        <input
-                          className="ipt"
-                          placeholder="Serviço/frente (opcional)"
-                          value={editando.servicos_manuais?.[c.workerId] || ''}
-                          onChange={(e) => atualizarServicoManual(c.workerId, e.target.value)}
+                        <CampoServicoManual
+                          dados={dados}
+                          valor={editando.servicos_manuais?.[c.workerId] || ''}
+                          onChange={(texto) => atualizarServicoManual(c.workerId, texto)}
                         />
                       )}
                     </div>
@@ -886,11 +937,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                         sub={[c.empresa, c.funcao].filter(Boolean).join(' — ')}
                         onFixar={() => dados.definirAdministrativoColaborador(c.workerId, true)}
                       />
-                      <input
-                        className="ipt"
-                        placeholder="Serviço/frente (opcional)"
-                        value={editando.servicos_manuais?.[c.workerId] || ''}
-                        onChange={(e) => atualizarServicoManual(c.workerId, e.target.value)}
+                      <CampoServicoManual
+                        dados={dados}
+                        valor={editando.servicos_manuais?.[c.workerId] || ''}
+                        onChange={(texto) => atualizarServicoManual(c.workerId, texto)}
                       />
                     </div>
                   ))}
