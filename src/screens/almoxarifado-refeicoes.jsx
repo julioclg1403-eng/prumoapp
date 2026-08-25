@@ -87,17 +87,14 @@ function LinhaColaborador({ marcado, onToggle, titulo, sub, onFixar, onDesfixar 
   )
 }
 
-/* Serviço/frente de quem não tem atividade lançada no diário: em vez
-   de só digitar à mão (e cada um escrever a mesma coisa de um jeito
-   diferente), oferece ESCOLHER (clicar), com o código, direto do
-   Planejamento (Cadastros → Planejamento — a estrutura de custos da
-   UAU) — só os itens de nível Insumo, que é o nível que corresponde
-   a um cargo/atividade de verdade (Tipo/Etapa/Sub-etapa são
-   categorias grandes demais pra isso). "Outro" mantém a digitação
-   livre pra quem não está naquela lista. Modo (lista vs. livre) parte
-   do valor já salvo: se bate com um insumo cadastrado, começa na
-   lista; senão, começa no campo livre — não perde o que já foi
-   digitado antes dessa mudança. */
+/* Serviço/frente de quem não tem atividade lançada no diário: um
+   campo só, que digita E escolhe — digitar filtra a lista de insumos
+   do Planejamento (Cadastros → Planejamento, estrutura de custos da
+   UAU; só nível Insumo, que é o que corresponde a um cargo/atividade
+   de verdade) que aparece embaixo pra clicar; clicar preenche com o
+   nome oficial. Quem não achar nada pra clicar, o que foi digitado
+   continua salvo do jeito livre — a lista é só atalho, não trava a
+   digitação. */
 function CampoServicoManual({ dados, valor, onChange }) {
   const opcoes = useMemo(() => {
     return (dados.estruturaCustos || [])
@@ -106,40 +103,42 @@ function CampoServicoManual({ dados, valor, onChange }) {
       .sort((a, b) => a.valor.localeCompare(b.valor, 'pt-BR'))
   }, [dados.estruturaCustos])
 
+  const [focado, setFocado] = useState(false)
   const bateComOpcao = valor && opcoes.some((o) => o.valor === valor)
-  const [modoLivre, setModoLivre] = useState(Boolean(valor) && !bateComOpcao)
 
-  if (opcoes.length === 0 || modoLivre) {
-    return (
-      <div className="stack-1">
-        <input
-          className="ipt"
-          placeholder="Serviço/frente (opcional — digite à mão)"
-          value={valor}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        {opcoes.length > 0 && (
-          <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setModoLivre(false)}>
-            Escolher do Planejamento
-          </button>
-        )}
-      </div>
-    )
-  }
+  const resultados = useMemo(() => {
+    if (bateComOpcao) return []
+    const alvo = normalizarComparar(valor)
+    const lista = alvo ? opcoes.filter((o) => normalizarComparar(o.rotulo).includes(alvo)) : opcoes
+    return lista.slice(0, 30)
+  }, [valor, opcoes, bateComOpcao])
 
   return (
-    <select
-      className="sel"
-      value={bateComOpcao ? valor : ''}
-      onChange={(e) => {
-        if (e.target.value === '__outro__') { setModoLivre(true); return }
-        onChange(e.target.value)
-      }}
-    >
-      <option value="">Vincular ao Planejamento</option>
-      {opcoes.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
-      <option value="__outro__">Outro (digitar à mão)…</option>
-    </select>
+    <div className="stack-1">
+      <input
+        className="ipt"
+        placeholder="Serviço/frente — digite pra buscar no Planejamento, ou escreva livre"
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocado(true)}
+        onBlur={() => setTimeout(() => setFocado(false), 150)}
+      />
+      {focado && !bateComOpcao && resultados.length > 0 && (
+        <div className="stack-1" style={{ maxHeight: 180, overflowY: 'auto' }}>
+          {resultados.map((o) => (
+            <button
+              key={o.valor}
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+              onMouseDown={() => onChange(o.valor)}
+            >
+              {o.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
