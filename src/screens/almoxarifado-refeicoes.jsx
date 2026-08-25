@@ -23,9 +23,23 @@ import {
   resumoRefeicoesDoMes, resumoRefeicoesPorPeriodo, diarioDaData,
 } from '../lib/dominio'
 import {
-  Icon, PageHeader, Sheet, Campo, Confirmar, Vazio, ItemLista, Selecionavel, SecaoRecolhivel,
+  Icon, PageHeader, Sheet, Campo, Confirmar, Vazio, ItemLista, Selecionavel, SecaoRecolhivel, ChipToggle,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
+
+/* Cada tipo de relatório que a exportação sabe montar — marcados por
+   padrão (comportamento de antes: exportava tudo), mas a pessoa pode
+   desmarcar o que não quer levar pro PDF/impressão. O "Dia a dia" é
+   tratado à parte no fim (uma seção por dia, não uma seção só). */
+const TIPOS_RELATORIO = [
+  { valor: 'colaborador', rotulo: 'Por nome' },
+  { valor: 'empresa', rotulo: 'Por empresa' },
+  { valor: 'servico', rotulo: 'Por serviço/frente' },
+  { valor: 'funcao', rotulo: 'Por função' },
+  { valor: 'matriz', rotulo: 'Colaborador × serviço' },
+  { valor: 'frequencia', rotulo: 'Frequência' },
+  { valor: 'diario', rotulo: 'Dia a dia' },
+]
 
 function ultimoDiaDoMes(mesISO) {
   const [ano, mes] = mesISO.split('-').map(Number)
@@ -253,6 +267,15 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const [relatorioMes, setRelatorioMes] = useState(() => hoje.slice(0, 7))
   const [relatorioInicio, setRelatorioInicio] = useState(() => `${hoje.slice(0, 7)}-01`)
   const [relatorioFim, setRelatorioFim] = useState(hoje)
+  const [tiposRelatorio, setTiposRelatorio] = useState(() => new Set(TIPOS_RELATORIO.map((t) => t.valor)))
+
+  const alternarTipoRelatorio = (valor) => {
+    setTiposRelatorio((atual) => {
+      const novo = new Set(atual)
+      if (novo.has(valor)) novo.delete(valor); else novo.add(valor)
+      return novo
+    })
+  }
 
   const resumo = useMemo(
     () => resumoRefeicoesDoMes(dados.refeicoes, dados.empresas, dados.colaboradores, mes),
@@ -632,7 +655,22 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           </div>
         )}
 
-        <button className="btn btn-primary btn-block" style={{ marginTop: 10 }} onClick={() => window.print()}>
+        <div style={{ marginTop: 10 }}>
+          <div className="t-micro" style={{ marginBottom: 6 }}>O que entra na exportação</div>
+          <div className="row-wrap">
+            {TIPOS_RELATORIO.map((t) => (
+              <ChipToggle key={t.valor} ativo={tiposRelatorio.has(t.valor)} onClick={() => alternarTipoRelatorio(t.valor)}>
+                {t.rotulo}
+              </ChipToggle>
+            ))}
+          </div>
+        </div>
+
+        <button
+          className="btn btn-primary btn-block" style={{ marginTop: 10 }}
+          onClick={() => window.print()}
+          disabled={tiposRelatorio.size === 0}
+        >
           <Icon name="relatorio" size={17} /> Imprimir / baixar PDF ({plural(diasDoRelatorio.length, 'dia', 'dias')})
         </button>
       </SecaoRecolhivel>
@@ -912,45 +950,57 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           </SecaoRelatorio>
         ) : (
           <>
-            <SecaoRelatorio titulo={`Por colaborador (${resumoPeriodo.totalVinculado} vinculado(s))`}>
-              <TabelaRelatorio
-                colunas={['Nome', 'Refeições', '%']}
-                linhas={resumoPeriodo.porColaborador.map((c) => [c.nome, c.total, `${c.percentual}%`])}
-              />
-            </SecaoRelatorio>
-            <SecaoRelatorio titulo="Por empresa">
-              <TabelaRelatorio
-                colunas={['Empresa', 'Refeições', '%']}
-                linhas={resumoPeriodo.porEmpresa.map((e) => [e.nome, e.total, `${e.percentual}%`])}
-              />
-            </SecaoRelatorio>
-            <SecaoRelatorio titulo="Por serviço / frente">
-              <TabelaRelatorio
-                colunas={['Serviço / Frente', 'Refeições', '%']}
-                linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
-              />
-            </SecaoRelatorio>
-            <SecaoRelatorio titulo="Por função">
-              <TabelaRelatorio
-                colunas={['Função', 'Refeições', '%']}
-                linhas={funcoesDoPeriodo.map((f) => [f.funcao, f.total, `${f.percentual}%`])}
-              />
-            </SecaoRelatorio>
-            <SecaoRelatorio titulo="Colaborador × serviço — % das refeições de cada um em cada frente">
-              <TabelaRelatorio
-                colunas={['Nome', ...matrizColabServico.servicos, 'Total']}
-                linhas={matrizColabServico.linhas.map((l) => [
-                  l.nome, ...l.celulas.map((c) => (c.qtd ? `${c.percentual}% (${c.qtd})` : '—')), l.total,
-                ])}
-              />
-            </SecaoRelatorio>
-            <SecaoRelatorio titulo="Frequência — quem comeu em cada dia, e onde estava vinculado">
-              <TabelaRelatorio
-                colunas={['Nome', ...matrizFrequencia.dias.map((d) => formatarDataCurta(d))]}
-                linhas={matrizFrequencia.linhas.map((l) => [l.nome, ...l.celulas.map((c) => c || '—')])}
-              />
-            </SecaoRelatorio>
-            {diasDoRelatorio.map((dia) => (
+            {tiposRelatorio.has('colaborador') && (
+              <SecaoRelatorio titulo={`Por colaborador (${resumoPeriodo.totalVinculado} vinculado(s))`}>
+                <TabelaRelatorio
+                  colunas={['Nome', 'Refeições', '%']}
+                  linhas={resumoPeriodo.porColaborador.map((c) => [c.nome, c.total, `${c.percentual}%`])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('empresa') && (
+              <SecaoRelatorio titulo="Por empresa">
+                <TabelaRelatorio
+                  colunas={['Empresa', 'Refeições', '%']}
+                  linhas={resumoPeriodo.porEmpresa.map((e) => [e.nome, e.total, `${e.percentual}%`])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('servico') && (
+              <SecaoRelatorio titulo="Por serviço / frente">
+                <TabelaRelatorio
+                  colunas={['Serviço / Frente', 'Refeições', '%']}
+                  linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('funcao') && (
+              <SecaoRelatorio titulo="Por função">
+                <TabelaRelatorio
+                  colunas={['Função', 'Refeições', '%']}
+                  linhas={funcoesDoPeriodo.map((f) => [f.funcao, f.total, `${f.percentual}%`])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('matriz') && (
+              <SecaoRelatorio titulo="Colaborador × serviço — % das refeições de cada um em cada frente">
+                <TabelaRelatorio
+                  colunas={['Nome', ...matrizColabServico.servicos, 'Total']}
+                  linhas={matrizColabServico.linhas.map((l) => [
+                    l.nome, ...l.celulas.map((c) => (c.qtd ? `${c.percentual}% (${c.qtd})` : '—')), l.total,
+                  ])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('frequencia') && (
+              <SecaoRelatorio titulo="Frequência — quem comeu em cada dia, e onde estava vinculado">
+                <TabelaRelatorio
+                  colunas={['Nome', ...matrizFrequencia.dias.map((d) => formatarDataCurta(d))]}
+                  linhas={matrizFrequencia.linhas.map((l) => [l.nome, ...l.celulas.map((c) => c || '—')])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('diario') && diasDoRelatorio.map((dia) => (
               <SecaoRelatorio key={dia.data} titulo={`${formatarData(dia.data)} — ${plural(dia.quantidade, 'refeição', 'refeições')}`}>
                 {dia.pessoas.length === 0 ? (
                   <div style={{ fontSize: 12, color: '#71717A' }}>Nenhum colaborador vinculado nesse lançamento.</div>
