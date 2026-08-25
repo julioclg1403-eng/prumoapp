@@ -1438,6 +1438,19 @@ function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
     [dados.materiaisEstoque],
   )
 
+  /* Saldo de ANTES desta importação, pra dizer se cada material subiu
+     ou desceu — o mais recente já importado (maior período_fim) pra
+     cada material, do jeito que dominio.saldoEstoqueImportado também
+     calcula "estoque atual" hoje, antes desta planilha nova entrar. */
+  const saldoAnteriorPorMaterial = useMemo(() => {
+    const maisRecente = new Map()
+    for (const mov of (dados.movimentosEstoque || [])) {
+      const atual = maisRecente.get(mov.material_id)
+      if (!atual || mov.periodo_fim > atual.periodo_fim) maisRecente.set(mov.material_id, mov)
+    }
+    return new Map([...maisRecente.entries()].map(([materialId, mov]) => [materialId, Number(mov.saldo)]))
+  }, [dados.movimentosEstoque])
+
   const onArquivo = async (e) => {
     const arquivo = e.target.files?.[0]
     if (!arquivo) return
@@ -1457,9 +1470,16 @@ function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
   }
 
   const itensComStatus = useMemo(() => {
-    return (resultado?.itens || []).map((i) => ({ item: i, materialExistente: materiaisPorCodigo.get(i.codigo) || null }))
-  }, [resultado, materiaisPorCodigo])
+    return (resultado?.itens || []).map((i) => {
+      const materialExistente = materiaisPorCodigo.get(i.codigo) || null
+      const saldoAnterior = materialExistente ? (saldoAnteriorPorMaterial.get(materialExistente.id) ?? 0) : null
+      const diferenca = saldoAnterior == null ? null : Math.round((i.saldo - saldoAnterior) * 100) / 100
+      return { item: i, materialExistente, saldoAnterior, diferenca }
+    })
+  }, [resultado, materiaisPorCodigo, saldoAnteriorPorMaterial])
   const novos = itensComStatus.filter((x) => !x.materialExistente).length
+  const subiram = itensComStatus.filter((x) => x.diferenca > 0).length
+  const desceram = itensComStatus.filter((x) => x.diferenca < 0).length
 
   const confirmar = async () => {
     if (!resultado?.itens?.length) return
@@ -1479,6 +1499,8 @@ function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
             <div className="alert success">
               {plural(feito.movimentos, 'material atualizado', 'materiais atualizados')} com o saldo deste período.
               {feito.materiaisNovos > 0 && ` ${plural(feito.materiaisNovos, 'material novo cadastrado', 'materiais novos cadastrados')} na hora.`}
+              {subiram > 0 && ` ${subiram} ↑ subiu/subiram.`}
+              {desceram > 0 && ` ${desceram} ↓ desceu/desceram.`}
             </div>
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
@@ -1505,11 +1527,13 @@ function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
                 <div className="alert info">
                   Período de {formatarDataCurta(resultado.periodoInicio)} a {formatarDataCurta(resultado.periodoFim)} ·{' '}
                   {plural(resultado.itens.length, 'material', 'materiais')}
-                  {novos > 0 ? ` · ${plural(novos, 'novo (será cadastrado)', 'novos (serão cadastrados)')}` : ''}.
+                  {novos > 0 ? ` · ${plural(novos, 'novo (será cadastrado)', 'novos (serão cadastrados)')}` : ''}
+                  {subiram > 0 ? ` · ${subiram} ↑ subiu/subiram` : ''}
+                  {desceram > 0 ? ` · ${desceram} ↓ desceu/desceram` : ''}.
                 </div>
 
                 <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
-                  {itensComStatus.map(({ item, materialExistente }) => (
+                  {itensComStatus.map(({ item, materialExistente, saldoAnterior, diferenca }) => (
                     <div
                       key={item.codigo}
                       style={{
@@ -1528,6 +1552,15 @@ function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
                         entrada {item.qtde_entrada} · baixa {item.qtde_baixa} · saldo {item.saldo} {item.unidade}
                         {item.lotes > 1 ? ` (${plural(item.lotes, 'lote', 'lotes')} somados)` : ''}
                       </div>
+                      {diferenca != null && diferenca !== 0 && (
+                        <div style={{ marginTop: 2, fontWeight: 600, color: diferenca > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          {diferenca > 0 ? '↑' : '↓'} {diferenca > 0 ? 'subiu' : 'desceu'} {Math.abs(diferenca)} {item.unidade}
+                          {' '}(era {saldoAnterior} {item.unidade})
+                        </div>
+                      )}
+                      {diferenca === 0 && (
+                        <div style={{ marginTop: 2, color: 'var(--text-3)' }}>sem mudança de saldo</div>
+                      )}
                     </div>
                   ))}
                 </div>
