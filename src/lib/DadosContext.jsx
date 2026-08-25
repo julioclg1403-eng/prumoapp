@@ -189,7 +189,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
-      estruturaPlanejada, estruturaCustos,
+      estruturaPlanejada, estruturaCustos, movimentosEstoque,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -235,6 +235,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('prevision_metas_mensais').select('*')),
       buscarPaginado(() => supabase.from('workforce_plan').select('*').order('nome')),
       buscarPaginado(() => supabase.from('structure_items').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('stock_movements').select('*').order('periodo_fim', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -245,7 +246,8 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
-      previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos].find((r) => r.error)
+      previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
+      movimentosEstoque].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -315,6 +317,7 @@ export function DadosProvider({ perfil, children }) {
       metasMensais: metasMensais.data || [],
       estruturaPlanejada: estruturaPlanejada.data || [],
       estruturaCustos: estruturaCustos.data || [],
+      movimentosEstoque: movimentosEstoque.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -416,6 +419,7 @@ export function DadosProvider({ perfil, children }) {
       metasMensais: filtrar(tudo.metasMensais),
       estruturaPlanejada: filtrar(tudo.estruturaPlanejada),
       estruturaCustos: filtrar(tudo.estruturaCustos),
+      movimentosEstoque: filtrar(tudo.movimentosEstoque),
     }
   }, [tudo, obraId])
 
@@ -1673,6 +1677,61 @@ export function DadosProvider({ perfil, children }) {
       return true
     },
     [checar, avisarErro],
+  )
+
+  /* Importação do "Relatório de Estoque" da UAU (lib/planilhaMovimentoEstoque.js)
+     — cada item já vem consolidado por código (um só por material,
+     lotes somados). Dois passos: (1) acha o material existente pelo
+     código, ou cadastra um novo — nome/unidade vêm da própria
+     planilha, então cadastrar não depende de ninguém abrir Cadastros
+     antes; (2) grava o movimento do período. Chave (worksite_id,
+     material_id, periodo_fim): reimportar o MESMO período atualiza,
+     um período novo vira uma linha nova, preservando o histórico de
+     cada importação — é dali que "Estoque atual" lê (o período mais
+     recente de cada material), sem descartar os anteriores. */
+  const importarMovimentoEstoque = useCallback(
+    async (itens, { periodoInicio, periodoFim }) => {
+      if (!itens.length) return null
+      const { organization_id, worksite_id } = escopo()
+
+      const existentesR = await supabase.from('stock_materials')
+        .select('id, codigo').eq('worksite_id', worksite_id).not('codigo', 'is', null)
+      if (existentesR.error) { checar(existentesR, 'importar o movimento de estoque'); return null }
+      const materialIdPorCodigo = new Map((existentesR.data || []).map((m) => [m.codigo, m.id]))
+
+      const paraCriar = itens.filter((i) => !materialIdPorCodigo.has(i.codigo))
+      if (paraCriar.length) {
+        const criados = checar(
+          await supabase.from('stock_materials')
+            .insert(paraCriar.map((i) => ({
+              organization_id, worksite_id, codigo: i.codigo, nome: i.nome, unidade: i.unidade,
+            })))
+            .select('id, codigo'),
+          'cadastrar os materiais novos desta importação',
+        )
+        if (!criados) return null
+        criados.forEach((m) => materialIdPorCodigo.set(m.codigo, m.id))
+      }
+
+      const linhas = itens.map((i) => ({
+        organization_id, worksite_id, material_id: materialIdPorCodigo.get(i.codigo),
+        periodo_inicio: periodoInicio, periodo_fim: periodoFim,
+        qtde_entrada: i.qtde_entrada, qtde_baixa: i.qtde_baixa, saldo: i.saldo,
+        preco_medio: i.preco_medio, valor_total: i.valor_total,
+        importado_em: new Date().toISOString(), importado_por: perfil.id,
+      }))
+      const salvos = checar(
+        await supabase.from('stock_movements')
+          .upsert(linhas, { onConflict: 'worksite_id,material_id,periodo_fim' })
+          .select('*'),
+        'importar o movimento de estoque',
+      )
+      if (!salvos) return null
+
+      await recarregar()
+      return { materiaisNovos: paraCriar.length, movimentos: salvos.length }
+    },
+    [escopo, perfil.id, checar, recarregar],
   )
 
   // ── Controle de estoque de EPI (Segurança) ─────────────────
@@ -2983,7 +3042,7 @@ export function DadosProvider({ perfil, children }) {
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
-      salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
+      salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque, importarMovimentoEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
@@ -3016,7 +3075,7 @@ export function DadosProvider({ perfil, children }) {
       salvarComentarioApontamento, apagarComentarioApontamento,
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
-      salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque,
+      salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque, importarMovimentoEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,

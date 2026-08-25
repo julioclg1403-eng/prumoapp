@@ -15,7 +15,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, resumoRecebidoSuprimentos, normalizarParaCasar,
+  hojeISO, formatarData, formatarDataCurta, plural, saldoEstoqueImportado, resumoRecebidoSuprimentos, normalizarParaCasar,
   insumoCorrespondeMaterial, filtrarPorPeriodo, rotuloPeriodo,
 } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
@@ -99,6 +99,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   const [novaSaida, setNovaSaida] = useState(null)
   const [editandoMaterial, setEditandoMaterial] = useState(null)
   const [importando, setImportando] = useState(false)
+  const [importandoMovimento, setImportandoMovimento] = useState(false)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [etiquetando, setEtiquetando] = useState(false)
@@ -131,8 +132,8 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     [dados.materiaisEstoque],
   )
   const saldos = useMemo(
-    () => saldoEstoque(materiais, dados.entradasEstoque, dados.saidasEstoque),
-    [materiais, dados.entradasEstoque, dados.saidasEstoque],
+    () => saldoEstoqueImportado(materiais, dados.movimentosEstoque),
+    [materiais, dados.movimentosEstoque],
   )
   const saldosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -157,12 +158,23 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   )
 
   /* Compara o que o Suprimentos (planilha do ERP) diz que já chegou
-     — marcado com Destino "Almoxarifado" — contra o que foi lançado
-     na mão em Entradas, pra achar o que chegou e ninguém lançou
-     ainda (ou lançou quantidade diferente). Não mexe no saldo. */
+     — marcado com Destino "Almoxarifado" — contra o total de entrada
+     que já veio pelo Relatório de Estoque importado (somado de todos
+     os períodos já importados, não só o mais recente), pra achar o
+     que o Suprimentos já confirma mas o Estoque ainda não trouxe. Não
+     mexe no saldo — só ajuda a achar a diferença. O casamento entre
+     pedido e material agora prioriza código (mais confiável), com o
+     nome como reserva (ver resumoRecebidoSuprimentos). */
+  const entradaImportadaPorMaterial = useMemo(() => {
+    const somas = new Map()
+    for (const m of (dados.movimentosEstoque || [])) {
+      somas.set(m.material_id, (somas.get(m.material_id) || 0) + Number(m.qtde_entrada || 0))
+    }
+    return [...somas.entries()].map(([material_id, quantidade]) => ({ material_id, quantidade }))
+  }, [dados.movimentosEstoque])
   const resumoSuprimentos = useMemo(
-    () => resumoRecebidoSuprimentos(dados.suprimentos, 'almoxarifado', dados.materiaisEstoque, dados.entradasEstoque),
-    [dados.suprimentos, dados.materiaisEstoque, dados.entradasEstoque],
+    () => resumoRecebidoSuprimentos(dados.suprimentos, 'almoxarifado', dados.materiaisEstoque, entradaImportadaPorMaterial),
+    [dados.suprimentos, dados.materiaisEstoque, entradaImportadaPorMaterial],
   )
   const resumoSuprimentosFiltrado = useMemo(() => {
     const termo = buscaSuprimentos.trim().toLowerCase()
@@ -392,6 +404,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
       nome: editandoMaterial.nome.trim(),
       unidade: editandoMaterial.unidade.trim(),
       categoria: (editandoMaterial.categoria || '').trim() || null,
+      codigo: (editandoMaterial.codigo || '').trim() || null,
       estoque_minimo: editandoMaterial.estoque_minimo === '' ? null : Number(editandoMaterial.estoque_minimo),
     })
     setSalvando(false)
@@ -484,7 +497,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
         acao={
           <div className="row-flex" style={{ flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" onClick={() => setImportando(true)}>
-              <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
+              <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar cadastro
             </button>
             <button className="btn btn-secondary" onClick={() => setEtiquetando(true)}>
               <Icon name="qrcode" size={16} /> Etiquetas QR
@@ -492,7 +505,10 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
             <button className="btn btn-secondary" onClick={() => abrirNovaSaida()}>
               <Icon name="baixar" size={16} /> Registrar saída
             </button>
-            <button className="btn btn-primary" onClick={() => abrirNovaEntrada()}>
+            <button className="btn btn-primary" onClick={() => setImportandoMovimento(true)}>
+              <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar planilha
+            </button>
+            <button className="btn btn-secondary" onClick={() => abrirNovaEntrada()}>
               <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Nova entrada
             </button>
           </div>
@@ -634,12 +650,12 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                   titulo={materiais.length === 0 ? 'Nenhum material cadastrado' : 'Nada com esse nome'}
                   texto={
                     materiais.length === 0
-                      ? 'Cadastre o primeiro material lançando uma entrada — não precisa de passo separado.'
-                      : 'Nenhum material com saldo ainda — lance uma entrada, ou troque a busca.'
+                      ? 'Importe o Relatório de Estoque da UAU pra trazer os materiais com código, saldo e histórico de uma vez.'
+                      : 'Nenhum material com saldo ainda — importe a planilha, ou troque a busca.'
                   }
                   acao={materiais.length === 0 && (
-                    <button className="btn btn-primary" onClick={() => abrirNovaEntrada()}>
-                      Lançar entrada
+                    <button className="btn btn-primary" onClick={() => setImportandoMovimento(true)}>
+                      Importar planilha
                     </button>
                   )}
                 />
@@ -650,7 +666,12 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                   <ItemLista
                     key={s.material.id}
                     titulo={s.material.nome}
-                    sub={[s.material.categoria, s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null].filter(Boolean).join(' · ')}
+                    sub={[
+                      s.material.codigo,
+                      s.material.categoria,
+                      s.material.estoque_minimo != null && s.material.estoque_minimo !== '' ? `mínimo ${s.material.estoque_minimo} ${s.material.unidade}` : null,
+                      s.periodoFim ? `importado até ${formatarDataCurta(s.periodoFim)}` : 'nunca importado',
+                    ].filter(Boolean).join(' · ')}
                     onClick={() => setEditandoMaterial({ ...s.material, estoque_minimo: s.material.estoque_minimo ?? '' })}
                     direita={
                       <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
@@ -1030,6 +1051,16 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                 />
               </Campo>
             </div>
+            <Campo
+              label="Código (UAU)"
+              dica="Opcional — o código do insumo no sistema (ex.: IF010002). É o que casa este material com a importação do Relatório de Estoque e com os pedidos de Suprimentos."
+            >
+              <input
+                className="ipt" value={editandoMaterial.codigo || ''}
+                onChange={(e) => setEditandoMaterial((p) => ({ ...p, codigo: e.target.value }))}
+                placeholder="IF010002"
+              />
+            </Campo>
             <Campo label="Estoque mínimo" dica="Opcional — abaixo disso, o material aparece marcado na aba Saldo.">
               <input
                 className="ipt" type="number" inputMode="decimal" min="0" step="any"
@@ -1037,6 +1068,11 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                 onChange={(e) => setEditandoMaterial((p) => ({ ...p, estoque_minimo: e.target.value }))}
               />
             </Campo>
+            {saldos.find((s) => s.material.id === editandoMaterial.id)?.periodoFim && (
+              <div className="t-caption">
+                Saldo importado do Relatório de Estoque até {formatarDataCurta(saldos.find((s) => s.material.id === editandoMaterial.id).periodoFim)}.
+              </div>
+            )}
             <div className="row-flex">
               <button
                 className="btn btn-secondary grow"
@@ -1224,6 +1260,12 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
         materiaisExistentes={dados.materiaisEstoque || []}
       />
 
+      <ImportarMovimentoEstoque
+        aberto={importandoMovimento}
+        onFechar={() => setImportandoMovimento(false)}
+        dados={dados}
+      />
+
       <EtiquetasQR
         aberto={etiquetando}
         onFechar={() => setEtiquetando(false)}
@@ -1362,6 +1404,141 @@ function ImportarMateriais({ aberto, onFechar, dados, materiaisExistentes }) {
                     disabled={!novos.length || importandoAgora}
                   >
                     {importandoAgora ? 'Importando…' : `Importar ${plural(novos.length, 'material', 'materiais')}`}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </Sheet>
+  )
+}
+
+/* ── Importação do movimento de estoque (Relatório de Estoque) ──
+   O import de verdade agora: traz entrada, baixa e saldo do
+   período direto da UAU, consolidado por material (lotes somados —
+   ver lib/planilhaMovimentoEstoque.js). Material que ainda não
+   existe (código novo) é cadastrado na hora, sem passo separado.
+   Reimportar o mesmo período atualiza; um período novo soma ao
+   histórico, sem apagar o anterior. */
+function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
+  const [lendo, setLendo] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [nomeArquivo, setNomeArquivo] = useState('')
+  const [importandoAgora, setImportandoAgora] = useState(false)
+  const [feito, setFeito] = useState(null)
+
+  const fechar = () => {
+    setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
+  }
+
+  const materiaisPorCodigo = useMemo(
+    () => new Map((dados.materiaisEstoque || []).filter((m) => m.codigo).map((m) => [m.codigo, m])),
+    [dados.materiaisEstoque],
+  )
+
+  const onArquivo = async (e) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    e.target.value = ''
+    setNomeArquivo(arquivo.name)
+    setLendo(true)
+    setResultado(null)
+    setFeito(null)
+    try {
+      const { lerMovimentoEstoque } = await import('../lib/planilhaMovimentoEstoque')
+      setResultado(await lerMovimentoEstoque(arquivo))
+    } catch (err) {
+      setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  const itensComStatus = useMemo(() => {
+    return (resultado?.itens || []).map((i) => ({ item: i, materialExistente: materiaisPorCodigo.get(i.codigo) || null }))
+  }, [resultado, materiaisPorCodigo])
+  const novos = itensComStatus.filter((x) => !x.materialExistente).length
+
+  const confirmar = async () => {
+    if (!resultado?.itens?.length) return
+    setImportandoAgora(true)
+    const r = await dados.importarMovimentoEstoque(resultado.itens, {
+      periodoInicio: resultado.periodoInicio, periodoFim: resultado.periodoFim,
+    })
+    setImportandoAgora(false)
+    if (r) setFeito(r)
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo="Importar planilha de estoque" onFechar={fechar}>
+      <div className="stack-2">
+        {feito ? (
+          <>
+            <div className="alert success">
+              {plural(feito.movimentos, 'material atualizado', 'materiais atualizados')} com o saldo deste período.
+              {feito.materiaisNovos > 0 && ` ${plural(feito.materiaisNovos, 'material novo cadastrado', 'materiais novos cadastrados')} na hora.`}
+            </div>
+            <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
+          </>
+        ) : (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              O "Relatório de Estoque" que você baixa da UAU (.xls), com entrada, baixa e saldo do
+              período. Cada material entra com o total já somado, mesmo tendo vindo em mais de um
+              lote/compra na planilha. Vira a fonte do saldo — reimporte sempre que quiser atualizar.
+            </div>
+
+            <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
+              {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xls'}
+              <input
+                type="file" accept=".xls,.xlsx" onChange={onArquivo}
+                style={{ display: 'none' }} disabled={lendo}
+              />
+            </label>
+
+            {resultado?.erroGeral && <div className="alert danger">{resultado.erroGeral}</div>}
+
+            {resultado && !resultado.erroGeral && (
+              <>
+                <div className="alert info">
+                  Período de {formatarDataCurta(resultado.periodoInicio)} a {formatarDataCurta(resultado.periodoFim)} ·{' '}
+                  {plural(resultado.itens.length, 'material', 'materiais')}
+                  {novos > 0 ? ` · ${plural(novos, 'novo (será cadastrado)', 'novos (serão cadastrados)')}` : ''}.
+                </div>
+
+                <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
+                  {itensComStatus.map(({ item, materialExistente }) => (
+                    <div
+                      key={item.codigo}
+                      style={{
+                        fontSize: 12, padding: 8, borderRadius: 8,
+                        border: `1px solid ${materialExistente ? 'var(--border)' : 'var(--success)'}`,
+                        background: materialExistente ? 'var(--surface-2)' : 'var(--success-tint)',
+                      }}
+                    >
+                      <div className="row-between">
+                        <strong>{item.codigo} · {item.nome}</strong>
+                        <span style={{ color: materialExistente ? 'var(--text-3)' : 'var(--success)', fontWeight: 600 }}>
+                          {materialExistente ? 'já cadastrado' : 'novo'}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 2 }}>
+                        entrada {item.qtde_entrada} · baixa {item.qtde_baixa} · saldo {item.saldo} {item.unidade}
+                        {item.lotes > 1 ? ` (${plural(item.lotes, 'lote', 'lotes')} somados)` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="row-flex">
+                  <button className="btn btn-secondary grow" onClick={() => setResultado(null)}>Corrigir</button>
+                  <button
+                    className="btn btn-primary grow" onClick={confirmar}
+                    disabled={!resultado.itens.length || importandoAgora}
+                  >
+                    {importandoAgora ? 'Importando…' : `Importar ${plural(resultado.itens.length, 'material', 'materiais')}`}
                   </button>
                 </div>
               </>

@@ -1305,6 +1305,40 @@ export function saldoEstoque(materiais, entradas, saidas) {
   })
 }
 
+/* Saldo do Almoxarifado (não de EPI, que continua em saldoEstoque
+   acima) a partir do "Relatório de Estoque" importado da UAU
+   (lib/planilhaMovimentoEstoque.js), não mais de entrada−saída
+   lançada na mão — o sistema de origem é a fonte oficial agora,
+   reimportado periodicamente. Um material pode ter vários
+   `stock_movements` (um por período já importado, é o histórico);
+   "estoque atual" é sempre o de período_fim mais recente — os
+   anteriores continuam no banco, só não contam pro saldo de hoje.
+   Entrada/saída lançada no app não entra nessa conta: virou só
+   registro de "pra quem foi" (ver ficha por colaborador), não define
+   mais saldo. */
+export function saldoEstoqueImportado(materiais, movimentos) {
+  const maisRecentePorMaterial = new Map()
+  for (const mov of (movimentos || [])) {
+    const atual = maisRecentePorMaterial.get(mov.material_id)
+    if (!atual || mov.periodo_fim > atual.periodo_fim) maisRecentePorMaterial.set(mov.material_id, mov)
+  }
+  return (materiais || []).map((m) => {
+    const mov = maisRecentePorMaterial.get(m.id)
+    const saldo = mov ? Number(mov.saldo) : 0
+    return {
+      material: m,
+      quantidadeEntrada: mov ? Number(mov.qtde_entrada) : 0,
+      quantidadeSaida: mov ? Number(mov.qtde_baixa) : 0,
+      saldo,
+      custoTotal: mov?.valor_total != null ? Number(mov.valor_total) : 0,
+      custoMedio: mov?.preco_medio != null ? Number(mov.preco_medio) : 0,
+      periodoFim: mov?.periodo_fim || null,
+      importadoEm: mov?.importado_em || null,
+      abaixoDoMinimo: m.estoque_minimo != null && m.estoque_minimo !== '' && saldo < Number(m.estoque_minimo),
+    }
+  })
+}
+
 /* Reconciliação Suprimentos × estoque lançado na mão: agrupa os
    pedidos JÁ CONFIRMADOS ("5 - Confirmado") de um Destino (almoxari-
    fado/epi) por nome de insumo, soma a quantidade que a planilha diz
@@ -1330,8 +1364,9 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
   const porInsumo = new Map()
   for (const p of (pedidos || [])) {
     if (p.destino !== destino || p.estagio !== '5 - Confirmado') continue
-    const atual = porInsumo.get(p.insumo) || { qtdeSuprimentos: 0, ultimaEntrega: null, pedidos: 0, pedidosSemData: 0 }
+    const atual = porInsumo.get(p.insumo) || { qtdeSuprimentos: 0, ultimaEntrega: null, pedidos: 0, pedidosSemData: 0, codigoInsumo: null }
     atual.pedidos += 1
+    if (!atual.codigoInsumo && p.codigo_insumo) atual.codigoInsumo = p.codigo_insumo
     if (p.data_entrega) {
       atual.qtdeSuprimentos += Number(p.quantidade || 0)
       if (!atual.ultimaEntrega || p.data_entrega > atual.ultimaEntrega) atual.ultimaEntrega = p.data_entrega
@@ -1343,14 +1378,19 @@ export function resumoRecebidoSuprimentos(pedidos, destino, materiais, entradas)
 
   return [...porInsumo.entries()]
     .map(([insumo, info]) => {
-      /* Nome do insumo que não bate sozinho com o nome do material
-         (grafia diferente, "fumê" × "incolor"…) mas já foi vinculado
-         à mão uma vez — ver "Vincular a EPI existente" — casa pelo
-         apelido gravado no material, sem precisar bater de novo toda
+      /* Código do insumo (quando o material do Almoxarifado tem
+         `codigo` cadastrado — vem da importação do Relatório de
+         Estoque da UAU) é o casamento mais confiável que existe:
+         mesmo código UAU dos dois lados, sem depender de nome bater.
+         Sem código dos dois lados (é o caso de EPI, que não tem
+         `codigo`, ou de material ainda não importado), cai pro nome —
+         casa sozinho, ou pelo apelido gravado à mão uma vez (ver
+         "Vincular a EPI existente"), sem precisar bater de novo toda
          vez que o Suprimentos reimportar essa planilha. */
-      const material = (materiais || []).find((m) =>
-        insumoCorrespondeMaterial(insumo, m.nome)
-        || (m.apelidos || []).some((apelido) => normalizarParaCasar(apelido) === normalizarParaCasar(insumo)))
+      const material = (materiais || []).find((m) => info.codigoInsumo && m.codigo && m.codigo === info.codigoInsumo)
+        || (materiais || []).find((m) =>
+          insumoCorrespondeMaterial(insumo, m.nome)
+          || (m.apelidos || []).some((apelido) => normalizarParaCasar(apelido) === normalizarParaCasar(insumo)))
       const qtdeManual = material ? (quantidadeManualPorMaterial.get(material.id) || 0) : 0
       return {
         insumo,
