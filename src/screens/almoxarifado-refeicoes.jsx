@@ -451,23 +451,6 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
         }
       />
 
-      <div className="row-between" style={{ flexWrap: 'wrap' }}>
-        <button className="btn btn-secondary btn-sm" onClick={() => setMes(hoje.slice(0, 7))}>
-          Este mês
-        </button>
-        <div className="row-flex" style={{ gap: 4 }}>
-          <button className="btn btn-ghost btn-sm" aria-label="Mês anterior" onClick={() => setMes(somarMeses(mes, -1))}>
-            <Icon name="voltar" size={16} />
-          </button>
-          <div className="t-strong" style={{ fontSize: 14, minWidth: 140, textAlign: 'center' }}>
-            {rotuloMes(mes)}
-          </div>
-          <button className="btn btn-ghost btn-sm" aria-label="Próximo mês" onClick={() => setMes(somarMeses(mes, 1))}>
-            <Icon name="avancar" size={16} />
-          </button>
-        </div>
-      </div>
-
       <SecaoRecolhivel
         titulo="Relatório"
         resumo={
@@ -674,6 +657,23 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           <Icon name="relatorio" size={17} /> Imprimir / baixar PDF ({plural(diasDoRelatorio.length, 'dia', 'dias')})
         </button>
       </SecaoRecolhivel>
+
+      <div className="row-between" style={{ flexWrap: 'wrap' }}>
+        <button className="btn btn-secondary btn-sm" onClick={() => setMes(hoje.slice(0, 7))}>
+          Este mês
+        </button>
+        <div className="row-flex" style={{ gap: 4 }}>
+          <button className="btn btn-ghost btn-sm" aria-label="Mês anterior" onClick={() => setMes(somarMeses(mes, -1))}>
+            <Icon name="voltar" size={16} />
+          </button>
+          <div className="t-strong" style={{ fontSize: 14, minWidth: 140, textAlign: 'center' }}>
+            {rotuloMes(mes)}
+          </div>
+          <button className="btn btn-ghost btn-sm" aria-label="Próximo mês" onClick={() => setMes(somarMeses(mes, 1))}>
+            <Icon name="avancar" size={16} />
+          </button>
+        </div>
+      </div>
 
       {resumo.totalGeral > 0 && (
         <div className="card stack-2">
