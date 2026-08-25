@@ -88,22 +88,25 @@ function LinhaColaborador({ marcado, onToggle, titulo, sub, onFixar, onDesfixar 
 }
 
 /* Serviço/frente de quem não tem atividade lançada no diário: em vez
-   de só digitar à mão (e cada um escrever a mesma função de um jeito
-   diferente), oferece escolher direto do Planejamento UAU — a mesma
-   lista de função/cargo que a exportação em PDF usa (Cadastros →
-   Planejamento UAU). "Outro" mantém a digitação livre pra quem não
-   está naquela lista. Modo (lista vs. livre) parte do valor já
-   salvo: se bate com uma função cadastrada, começa na lista; senão,
-   começa no campo livre — não perde o que já foi digitado antes
-   dessa mudança. */
+   de só digitar à mão (e cada um escrever a mesma coisa de um jeito
+   diferente), oferece ESCOLHER (clicar), com o código, direto do
+   Planejamento (Cadastros → Planejamento — a estrutura de custos da
+   UAU) — só os itens de nível Insumo, que é o nível que corresponde
+   a um cargo/atividade de verdade (Tipo/Etapa/Sub-etapa são
+   categorias grandes demais pra isso). "Outro" mantém a digitação
+   livre pra quem não está naquela lista. Modo (lista vs. livre) parte
+   do valor já salvo: se bate com um insumo cadastrado, começa na
+   lista; senão, começa no campo livre — não perde o que já foi
+   digitado antes dessa mudança. */
 function CampoServicoManual({ dados, valor, onChange }) {
   const opcoes = useMemo(() => {
-    const nomes = new Set()
-    ;(dados.estruturaPlanejada || []).forEach((x) => { if (x.ativo !== false) nomes.add(x.nome) })
-    return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  }, [dados.estruturaPlanejada])
+    return (dados.estruturaCustos || [])
+      .filter((x) => x.ativo !== false && x.nivel === 'insumo')
+      .map((x) => ({ valor: x.nome, rotulo: x.codigo ? `${x.codigo} · ${x.nome}` : x.nome }))
+      .sort((a, b) => a.valor.localeCompare(b.valor, 'pt-BR'))
+  }, [dados.estruturaCustos])
 
-  const bateComOpcao = valor && opcoes.includes(valor)
+  const bateComOpcao = valor && opcoes.some((o) => o.valor === valor)
   const [modoLivre, setModoLivre] = useState(Boolean(valor) && !bateComOpcao)
 
   if (opcoes.length === 0 || modoLivre) {
@@ -117,7 +120,7 @@ function CampoServicoManual({ dados, valor, onChange }) {
         />
         {opcoes.length > 0 && (
           <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setModoLivre(false)}>
-            Escolher do Planejamento UAU
+            Escolher do Planejamento
           </button>
         )}
       </div>
@@ -133,8 +136,8 @@ function CampoServicoManual({ dados, valor, onChange }) {
         onChange(e.target.value)
       }}
     >
-      <option value="">Serviço/frente (opcional)</option>
-      {opcoes.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+      <option value="">Vincular ao Planejamento</option>
+      {opcoes.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
       <option value="__outro__">Outro (digitar à mão)…</option>
     </select>
   )
