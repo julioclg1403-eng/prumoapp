@@ -50,6 +50,7 @@ const TABELA = {
   statusDisciplinaProjeto: 'project_discipline_statuses',
   tiposTreinamento: 'training_types',
   estruturaPlanejada: 'workforce_plan',
+  estruturaCustos: 'structure_items',
 }
 
 /* ATENÇÃO: isto é a lista de campos que o Supabase entende, não
@@ -188,7 +189,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
-      estruturaPlanejada,
+      estruturaPlanejada, estruturaCustos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -233,6 +234,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('planned_activity_delay_reasons').select('*')),
       buscarPaginado(() => supabase.from('prevision_metas_mensais').select('*')),
       buscarPaginado(() => supabase.from('workforce_plan').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('structure_items').select('*').order('nome')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -243,7 +245,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
-      previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada].find((r) => r.error)
+      previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -312,6 +314,7 @@ export function DadosProvider({ perfil, children }) {
       motivosNaoExecutado: motivosNaoExecutado.data || [],
       metasMensais: metasMensais.data || [],
       estruturaPlanejada: estruturaPlanejada.data || [],
+      estruturaCustos: estruturaCustos.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -412,6 +415,7 @@ export function DadosProvider({ perfil, children }) {
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
       metasMensais: filtrar(tudo.metasMensais),
       estruturaPlanejada: filtrar(tudo.estruturaPlanejada),
+      estruturaCustos: filtrar(tudo.estruturaCustos),
     }
   }, [tudo, obraId])
 
@@ -815,6 +819,38 @@ export function DadosProvider({ perfil, children }) {
       return true
     },
     [avisarErro],
+  )
+
+  /* Importação do PDF da estrutura (planejamento): a hierarquia
+     inteira chega pronta, com `id` e `parent_id` já calculados pela
+     leitura do PDF (lib/pdfEstrutura.js) — cada filho referencia o
+     pai que acabou de "nascer" na mesma leitura, então precisa ir
+     tudo numa gravação só. Se fosse linha a linha, um filho só
+     teria o pai salvo se a chamada anterior já tivesse voltado do
+     banco, e uma falha no meio deixaria a árvore pela metade sem
+     ninguém perceber qual metade. */
+  const salvarEstruturaCustosEmLote = useCallback(
+    async (itens) => {
+      if (!itens.length) return []
+      const { organization_id, worksite_id } = escopo()
+      const salvos = checar(
+        await supabase.from('structure_items')
+          .insert(itens.map((i) => ({
+            id: i.id,
+            organization_id, worksite_id,
+            nivel: i.nivel,
+            codigo: i.codigo || null,
+            nome: i.nome,
+            parent_id: i.parent_id || null,
+          })))
+          .select('*'),
+        'importar a estrutura de custos',
+      )
+      if (!salvos) return null
+      setTudo((t) => t && ({ ...t, estruturaCustos: [...t.estruturaCustos, ...salvos] }))
+      return salvos
+    },
+    [escopo, checar],
   )
 
   const salvarPendenciasEmLote = useCallback(
@@ -2935,7 +2971,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, mesclarColaborador,
-      salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
+      salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
@@ -2968,7 +3004,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador,
-      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
+      mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,

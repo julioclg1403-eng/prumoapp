@@ -11,7 +11,7 @@
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { normalizarParaCasar, moduloPermitido } from '../lib/dominio'
+import { normalizarParaCasar, moduloPermitido, plural } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle,
   Selecionavel,
@@ -113,16 +113,17 @@ const TIPOS = {
       ? `${item.sigla ? `${item.sigla} · ` : ''}validade de ${item.validade_meses} meses`
       : (item.sigla || 'Sem vencimento cadastrado')),
   },
-  /* Vínculo (planejamento) de cada atividade: qual empresa entra com
-     qual função, em qual regime (CLT ou terceirizado) e em que
-     quantidade, para executar um serviço/frente. É a estrutura da
-     obra — o mesmo que o relatório diário de efetivo por cargo
-     mostra, só que aqui vira dado cadastrado, e não um PDF solto.
-     `nome` guarda a própria função/cargo (mesmo papel que tem em
-     "Serviços" ou "Locais": o rótulo do item). */
+  /* Efetivo planejado por função: qual empresa entra com qual
+     função, em qual regime (CLT ou terceirizado) e em que
+     quantidade, para executar um serviço/frente — o mesmo que o
+     relatório diário de efetivo por cargo mostra, só que aqui vira
+     dado cadastrado, e não um PDF solto. `nome` guarda a própria
+     função/cargo (mesmo papel que tem em "Serviços" ou "Locais": o
+     rótulo do item). Não confundir com "Planejamento" (abaixo) —
+     aquela é a estrutura de custos/código da UAU; esta é efetivo. */
   estruturaPlanejada: {
-    rotulo: 'Estrutura / Planejamento',
-    singular: 'vínculo de estrutura',
+    rotulo: 'Efetivo planejado (função)',
+    singular: 'vínculo de efetivo',
     campos: [
       { nome: 'nome', rotulo: 'Função / cargo', obrigatorio: true, placeholder: 'Carpinteiro, armador, encanador…' },
       { nome: 'company_id', rotulo: 'Empresa', tipoCampo: 'ref', ref: 'empresas', obrigatorio: true },
@@ -138,6 +139,35 @@ const TIPOS = {
       dados.nomeDe(dados.empresas, item.company_id),
       item.service_id ? dados.nomeDe(dados.servicos, item.service_id) : 'Sem atividade vinculada',
       `qtd. ${item.quantidade ?? 0}`,
+    ].filter(Boolean).join(' · '),
+  },
+  /* Planejamento: a estrutura de custos/código da UAU (Tipo → Etapa
+     → Sub-etapa → Insumo), código + nome na frente — é o vínculo de
+     cada atividade que dá pra referenciar depois em materiais,
+     serviços e refeições. `parent_id` aponta pro item de nível
+     acima (self-reference no mesmo cadastro), reaproveitando o
+     campo "ref" genérico. Pesado demais pra digitar item a item —
+     por isso o botão "Importar PDF" abaixo, que lê a mesma estrutura
+     direto do relatório da UAU. */
+  estruturaCustos: {
+    rotulo: 'Planejamento',
+    singular: 'item da estrutura',
+    campos: [
+      {
+        nome: 'nivel', rotulo: 'Nível', tipoCampo: 'select',
+        opcoes: [
+          { valor: 'tipo', rotulo: 'Tipo' }, { valor: 'etapa', rotulo: 'Etapa' },
+          { valor: 'sub_etapa', rotulo: 'Sub-etapa' }, { valor: 'insumo', rotulo: 'Insumo' },
+        ],
+      },
+      { nome: 'codigo', rotulo: 'Código', placeholder: 'C00402 ou P00520' },
+      { nome: 'nome', rotulo: 'Descrição', obrigatorio: true, placeholder: 'Descrição do item' },
+      { nome: 'parent_id', rotulo: 'Pertence a', tipoCampo: 'ref', ref: 'estruturaCustos' },
+    ],
+    sub: (item, dados) => [
+      { tipo: 'Tipo', etapa: 'Etapa', sub_etapa: 'Sub-etapa', insumo: 'Insumo' }[item.nivel] || item.nivel,
+      item.codigo,
+      item.parent_id ? dados.nomeDe(dados.estruturaCustos, item.parent_id) : null,
     ].filter(Boolean).join(' · '),
   },
 }
@@ -158,6 +188,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const [salvando, setSalvando] = useState(false)
   const [mostrarArquivados, setMostrarArquivados] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [importandoPDF, setImportandoPDF] = useState(false)
   const [agrupamento, setAgrupamento] = useState('nome')
 
   /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
@@ -183,7 +214,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
      mesmo grupo, com o rótulo da primeira grafia encontrada. Por
      empresa e por atividade agrupam pelo vínculo de verdade
      (company_id / service_id), não pelo texto. */
-  const grupavel = tipo === 'colaboradores' || tipo === 'estruturaPlanejada'
+  const grupavel = tipo === 'colaboradores' || tipo === 'estruturaPlanejada' || tipo === 'estruturaCustos'
   const grupos = useMemo(() => {
     if (!grupavel || agrupamento === 'nome') return null
     const grupos = new Map()
@@ -198,6 +229,10 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
         chave = item.service_id || ''
         rotuloSemDado = 'Sem atividade vinculada'
         rotulo = item.service_id ? dados.nomeDe(dados.servicos, item.service_id) : rotuloSemDado
+      } else if (agrupamento === 'pai') {
+        chave = item.parent_id || ''
+        rotuloSemDado = 'Nível raiz'
+        rotulo = item.parent_id ? dados.nomeDe(dados.estruturaCustos, item.parent_id) : rotuloSemDado
       } else {
         chave = item.company_id || ''
         rotuloSemDado = 'Sem empresa'
@@ -294,6 +329,11 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           sub="Alimentam o diário, o efetivo e as pendências"
           acao={
             <div className="row-flex" style={{ flexWrap: 'wrap' }}>
+              {podeEditar && tipo === 'estruturaCustos' && (
+                <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
+                  <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar PDF
+                </button>
+              )}
               {podeEditar && dados.obras.length > 1 && (
                 <button className="btn btn-secondary" onClick={() => setImportando(true)}>
                   <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar de outra obra
@@ -338,15 +378,20 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             <Segmentos
               valor={agrupamento}
               onChange={setAgrupamento}
-              opcoes={tipo === 'estruturaPlanejada' ? [
-                { valor: 'nome', rotulo: 'Por função' },
-                { valor: 'servico', rotulo: 'Por atividade' },
-                { valor: 'empresa', rotulo: 'Por empresa' },
-              ] : [
-                { valor: 'nome', rotulo: 'Por nome' },
-                { valor: 'funcao', rotulo: 'Por função' },
-                { valor: 'empresa', rotulo: 'Por empresa' },
-              ]}
+              opcoes={
+                tipo === 'estruturaPlanejada' ? [
+                  { valor: 'nome', rotulo: 'Por função' },
+                  { valor: 'servico', rotulo: 'Por atividade' },
+                  { valor: 'empresa', rotulo: 'Por empresa' },
+                ] : tipo === 'estruturaCustos' ? [
+                  { valor: 'nome', rotulo: 'Lista' },
+                  { valor: 'pai', rotulo: 'Por grupo' },
+                ] : [
+                  { valor: 'nome', rotulo: 'Por nome' },
+                  { valor: 'funcao', rotulo: 'Por função' },
+                  { valor: 'empresa', rotulo: 'Por empresa' },
+                ]
+              }
             />
           )}
 
@@ -494,6 +539,12 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
         dados={dados}
         tipo={tipo}
         def={def}
+      />
+
+      <ImportarEstruturaPDF
+        aberto={importandoPDF}
+        onFechar={() => setImportandoPDF(false)}
+        dados={dados}
       />
     </>
   )
@@ -663,6 +714,155 @@ function ImportarDeOutraObra({ aberto, onFechar, dados, tipo, def }) {
       {resultado && (
         <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={fechar}>Fechar</button>
       )}
+    </Sheet>
+  )
+}
+
+/* ── Importar PDF da estrutura (Planejamento) ─────────────────
+   Lê a árvore Tipo/Etapa/Sub-etapa/Insumo direto do relatório da
+   UAU (lib/pdfEstrutura.js) e casa cada item com o que já existe
+   aqui: por código quando tem (P00520, C00402…), senão por
+   nível+nome+pai. O que já existe não duplica, só fica de fora do
+   lote — é o que permite reimportar depois que a estrutura for
+   atualizada sem duplicar o que não mudou. Item novo entra com o
+   parent_id já remapeado pro id de verdade (existente ou recém-
+   gerado no mesmo lote), senão a árvore quebraria no meio. */
+function ImportarEstruturaPDF({ aberto, onFechar, dados }) {
+  const [lendo, setLendo] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [nomeArquivo, setNomeArquivo] = useState('')
+  const [importando, setImportandoAgora] = useState(false)
+  const [feito, setFeito] = useState(null)
+
+  const fechar = () => {
+    setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
+  }
+
+  const onArquivo = async (e) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    e.target.value = ''
+    setNomeArquivo(arquivo.name)
+    setLendo(true)
+    setResultado(null)
+    setFeito(null)
+    try {
+      const { lerEstruturaDoPDF } = await import('../lib/pdfEstrutura')
+      setResultado(await lerEstruturaDoPDF(arquivo))
+    } catch (err) {
+      setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  const plano = useMemo(() => {
+    const itens = resultado?.itens || []
+    if (!itens.length) return { paraInserir: [], jaExistiam: [] }
+
+    const existentes = (dados.estruturaCustos || []).filter((x) => x.ativo !== false)
+    const porCodigo = new Map(existentes.filter((x) => x.codigo).map((x) => [x.codigo, x]))
+    const porNivelNomePai = new Map(
+      existentes.map((x) => [`${x.nivel}|${normalizarParaCasar(x.nome)}|${x.parent_id || ''}`, x]),
+    )
+
+    const idMap = new Map()
+    const paraInserir = []
+    const jaExistiam = []
+    for (const item of itens) {
+      const parentEfetivo = item.parent_id ? (idMap.get(item.parent_id) || item.parent_id) : null
+      const existente = (item.codigo && porCodigo.get(item.codigo))
+        || porNivelNomePai.get(`${item.nivel}|${normalizarParaCasar(item.nome)}|${parentEfetivo || ''}`)
+      if (existente) {
+        idMap.set(item.id, existente.id)
+        jaExistiam.push(item)
+      } else {
+        idMap.set(item.id, item.id)
+        paraInserir.push({ ...item, parent_id: parentEfetivo })
+      }
+    }
+    return { paraInserir, jaExistiam }
+  }, [resultado, dados.estruturaCustos])
+
+  const confirmar = async () => {
+    setImportandoAgora(true)
+    try {
+      const salvos = await dados.salvarEstruturaCustosEmLote(plano.paraInserir)
+      setFeito({ criados: salvos?.length || 0, jaExistiam: plano.jaExistiam.length })
+    } finally {
+      setImportandoAgora(false)
+    }
+  }
+
+  const ROTULO_NIVEL = { tipo: 'Tipo', etapa: 'Etapa', sub_etapa: 'Sub-etapa', insumo: 'Insumo' }
+
+  return (
+    <Sheet aberto={aberto} titulo="Importar PDF da estrutura" onFechar={fechar}>
+      <div className="stack-2">
+        {feito ? (
+          <>
+            <div className="alert success">
+              {plural(feito.criados, 'item novo cadastrado', 'itens novos cadastrados')}.
+              {feito.jaExistiam > 0 && ` ${plural(feito.jaExistiam, 'item já existia e foi mantido', 'itens já existiam e foram mantidos')}, sem duplicar.`}
+            </div>
+            <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
+          </>
+        ) : (
+          <>
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              A estrutura de custos/código, do jeito que a UAU exporta (Tipo → Etapa → Sub-etapa → Insumo,
+              com código e descrição). Reimportar depois que a estrutura mudar não duplica o que já está
+              cadastrado — só entra o que for novo.
+            </div>
+
+            <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
+              {lendo ? 'Lendo o PDF…' : nomeArquivo || 'Escolher arquivo .pdf'}
+              <input
+                type="file" accept=".pdf,application/pdf" onChange={onArquivo}
+                style={{ display: 'none' }} disabled={lendo}
+              />
+            </label>
+
+            {resultado?.erroGeral && <div className="alert danger">{resultado.erroGeral}</div>}
+
+            {resultado && !resultado.erroGeral && (
+              <>
+                <div className="alert info">
+                  {plural(plano.paraInserir.length, 'item novo', 'itens novos')}
+                  {plano.jaExistiam.length > 0 ? ` · ${plural(plano.jaExistiam.length, 'já cadastrado', 'já cadastrados')}` : ''}.
+                </div>
+
+                <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
+                  {plano.paraInserir.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        fontSize: 12, padding: 8, borderRadius: 8,
+                        border: '1px solid var(--border)', background: 'var(--surface)',
+                      }}
+                    >
+                      <strong>{ROTULO_NIVEL[item.nivel]}</strong>{item.codigo ? ` · ${item.codigo}` : ''} — {item.nome}
+                    </div>
+                  ))}
+                  {plano.paraInserir.length === 0 && (
+                    <div className="t-caption">Nada novo — a estrutura já está toda cadastrada.</div>
+                  )}
+                </div>
+
+                <div className="row-flex">
+                  <button className="btn btn-secondary grow" onClick={() => setResultado(null)}>Corrigir</button>
+                  <button
+                    className="btn btn-primary grow" onClick={confirmar}
+                    disabled={importando || plano.paraInserir.length === 0}
+                  >
+                    {importando ? 'Importando…' : `Importar ${plano.paraInserir.length || ''}`}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </Sheet>
   )
 }
