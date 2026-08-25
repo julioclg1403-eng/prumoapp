@@ -8,6 +8,8 @@
    ID, sem depender do texto da descrição bater igualzinho.
    ============================================================ */
 
+import { carregarXLSX } from './xlsxCodepage'
+
 const ALIASES = {
   codigo: ['id'],
   descricao: ['pacote de trabalho/tarefas', 'pacote de trabalho', 'tarefa', 'descricao', 'descrição'],
@@ -62,7 +64,7 @@ function celNumero(cell) {
 const LIMITE_LINHAS_VAZIAS = 100
 
 export async function lerCronogramaGlobal(arquivo) {
-  const XLSX = await import('xlsx')
+  const XLSX = await carregarXLSX()
   const buffer = await arquivo.arrayBuffer()
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
 

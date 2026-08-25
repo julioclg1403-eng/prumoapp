@@ -24,6 +24,8 @@
    com a data da última importação ao lado, pra não inventar um saldo
    que a planilha não confirma. */
 
+import { carregarXLSX } from './xlsxCodepage'
+
 const ALIASES = {
   chave: ['chavecontrato'],
   codContrato: ['cod cont'],
@@ -80,7 +82,7 @@ function celInteiro(cell) {
 }
 
 export async function lerPlanilhaContratos(arquivo) {
-  const XLSX = await import('xlsx')
+  const XLSX = await carregarXLSX()
   const buffer = await arquivo.arrayBuffer()
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
 

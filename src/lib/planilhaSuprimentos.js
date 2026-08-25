@@ -26,6 +26,8 @@
    mais nova) atualiza a linha existente em vez de duplicar.
    ============================================================ */
 
+import { carregarXLSX } from './xlsxCodepage'
+
 const ALIASES = {
   pedido: ['pedido'],
   cotacao: ['cotacao'],
@@ -113,7 +115,7 @@ function diferencaDias(dataInicioISO, dataFimISO) {
 }
 
 export async function lerPlanilhaSuprimentos(arquivo) {
-  const XLSX = await import('xlsx')
+  const XLSX = await carregarXLSX()
   const buffer = await arquivo.arrayBuffer()
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
 
