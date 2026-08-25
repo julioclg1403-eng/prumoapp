@@ -42,11 +42,22 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const semana = consolidarEfetivo(dados.diarios, { de, ate: hoje })
   const revisoes = pendentesDeRevisao(dados.colaboradores)
 
-  /* Sete colunas fixas, mesmo nos dias sem lançamento — um buraco
-     no gráfico é informação, não deve ser omitido. */
-  const barras = Array.from({ length: 7 }, (_, i) => {
-    const data = somarDias(de, i)
-    const dia = semana.dias.find((d) => d.data === data)
+  /* O gráfico "Efetivo por dia" mostra duas semanas (14 dias), não só
+     a atual — dá pra comparar com a semana passada sem precisar abrir
+     Efetivo. Os indicadores "Efetivo hoje"/"Média 7 dias" continuam
+     olhando só os últimos 7 (`semana`, acima) — o gráfico é o único
+     que precisa do período maior. */
+  const deGrafico = somarDias(hoje, -13)
+  const duasSemanas = consolidarEfetivo(dados.diarios, { de: deGrafico, ate: hoje })
+
+  /* 14 colunas fixas, mesmo nos dias sem lançamento — um buraco no
+     gráfico é informação, não deve ser omitido. Como "seg"/"ter" se
+     repete de uma semana pra outra, o rótulo embaixo da barra é o dia
+     do mês (sem ambiguidade); o dia da semana por extenso fica só no
+     título (hover), junto da data completa. */
+  const barras = Array.from({ length: 14 }, (_, i) => {
+    const data = somarDias(deGrafico, i)
+    const dia = duasSemanas.dias.find((d) => d.data === data)
     return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
   })
 
@@ -274,11 +285,14 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               <div className="card">
                 <div className="row-between" style={{ marginBottom: 14 }}>
                   <div className="t-micro">Efetivo por dia</div>
-                  <span className="t-caption">pico {semana.pico}</span>
+                  <span className="t-caption">últimas 2 semanas · pico {duasSemanas.pico}</span>
                 </div>
                 <GraficoColunas
                   itens={barras.map((b) => ({
-                    chave: b.data, rotulo: nomeDiaSemana(b.data), valor: b.total,
+                    chave: b.data,
+                    rotulo: String(Number(b.data.slice(-2))),
+                    titulo: `${nomeDiaSemana(b.data)} ${formatarData(b.data)}`,
+                    valor: b.total,
                     cor: b.data === hoje ? 'var(--primary)' : b.lancado ? 'var(--graphite)' : 'var(--border)',
                   }))}
                   formatarValor={(v) => v || '—'}

@@ -71,7 +71,7 @@ export function GraficoColunas({ itens, formatarValor, cor = 'var(--primary)', a
   return (
     <div className="col-chart" style={{ height: alturaMax + 40 }}>
       {itens.map((item, i) => (
-        <div key={item.chave ?? item.rotulo ?? i} className="col-chart-item" title={`${item.rotulo}: ${formatarValor(item.valor)}`}>
+        <div key={item.chave ?? item.rotulo ?? i} className="col-chart-item" title={`${item.titulo ?? item.rotulo}: ${formatarValor(item.valor)}`}>
           <span className="t-caption t-strong" style={{ fontSize: 11 }}>{formatarValor(item.valor)}</span>
           <div
             className="col-bar"
