@@ -503,6 +503,25 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           </div>
         )}
 
+        <div>
+          <div className="t-micro" style={{ marginBottom: 6 }}>O que entra na exportação</div>
+          <div className="row-wrap">
+            {TIPOS_RELATORIO.map((t) => (
+              <ChipToggle key={t.valor} ativo={tiposRelatorio.has(t.valor)} onClick={() => alternarTipoRelatorio(t.valor)}>
+                {t.rotulo}
+              </ChipToggle>
+            ))}
+          </div>
+        </div>
+
+        <button
+          className="btn btn-primary btn-block"
+          onClick={() => window.print()}
+          disabled={tiposRelatorio.size === 0}
+        >
+          <Icon name="relatorio" size={17} /> Imprimir / baixar PDF ({plural(diasDoRelatorio.length, 'dia', 'dias')})
+        </button>
+
         {resumoPeriodo.totalVinculado > 0 && (
           <div className="stack-2">
             <div>
@@ -637,25 +656,6 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             </div>
           </div>
         )}
-
-        <div style={{ marginTop: 10 }}>
-          <div className="t-micro" style={{ marginBottom: 6 }}>O que entra na exportação</div>
-          <div className="row-wrap">
-            {TIPOS_RELATORIO.map((t) => (
-              <ChipToggle key={t.valor} ativo={tiposRelatorio.has(t.valor)} onClick={() => alternarTipoRelatorio(t.valor)}>
-                {t.rotulo}
-              </ChipToggle>
-            ))}
-          </div>
-        </div>
-
-        <button
-          className="btn btn-primary btn-block" style={{ marginTop: 10 }}
-          onClick={() => window.print()}
-          disabled={tiposRelatorio.size === 0}
-        >
-          <Icon name="relatorio" size={17} /> Imprimir / baixar PDF ({plural(diasDoRelatorio.length, 'dia', 'dias')})
-        </button>
       </SecaoRecolhivel>
 
       <div className="row-between" style={{ flexWrap: 'wrap' }}>
