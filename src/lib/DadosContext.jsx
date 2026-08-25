@@ -49,6 +49,7 @@ const TABELA = {
   etapasProjeto: 'project_stages',
   statusDisciplinaProjeto: 'project_discipline_statuses',
   tiposTreinamento: 'training_types',
+  estruturaPlanejada: 'workforce_plan',
 }
 
 /* ATENÇÃO: isto é a lista de campos que o Supabase entende, não
@@ -187,6 +188,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
+      estruturaPlanejada,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -230,6 +232,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('prevision_project_links').select('*')),
       buscarPaginado(() => supabase.from('planned_activity_delay_reasons').select('*')),
       buscarPaginado(() => supabase.from('prevision_metas_mensais').select('*')),
+      buscarPaginado(() => supabase.from('workforce_plan').select('*').order('nome')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -240,7 +243,7 @@ export function DadosProvider({ perfil, children }) {
       planejamentoOverrides, cronogramaGlobal, semanasTaticas,
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
-      previsionProjectLinks, motivosNaoExecutado, metasMensais].find((r) => r.error)
+      previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -308,6 +311,7 @@ export function DadosProvider({ perfil, children }) {
       previsionProjectLinks: previsionProjectLinks.data || [],
       motivosNaoExecutado: motivosNaoExecutado.data || [],
       metasMensais: metasMensais.data || [],
+      estruturaPlanejada: estruturaPlanejada.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -407,6 +411,7 @@ export function DadosProvider({ perfil, children }) {
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
       metasMensais: filtrar(tudo.metasMensais),
+      estruturaPlanejada: filtrar(tudo.estruturaPlanejada),
     }
   }, [tudo, obraId])
 

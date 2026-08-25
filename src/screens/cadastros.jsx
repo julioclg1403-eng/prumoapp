@@ -113,6 +113,33 @@ const TIPOS = {
       ? `${item.sigla ? `${item.sigla} · ` : ''}validade de ${item.validade_meses} meses`
       : (item.sigla || 'Sem vencimento cadastrado')),
   },
+  /* Vínculo (planejamento) de cada atividade: qual empresa entra com
+     qual função, em qual regime (CLT ou terceirizado) e em que
+     quantidade, para executar um serviço/frente. É a estrutura da
+     obra — o mesmo que o relatório diário de efetivo por cargo
+     mostra, só que aqui vira dado cadastrado, e não um PDF solto.
+     `nome` guarda a própria função/cargo (mesmo papel que tem em
+     "Serviços" ou "Locais": o rótulo do item). */
+  estruturaPlanejada: {
+    rotulo: 'Estrutura / Planejamento',
+    singular: 'vínculo de estrutura',
+    campos: [
+      { nome: 'nome', rotulo: 'Função / cargo', obrigatorio: true, placeholder: 'Carpinteiro, armador, encanador…' },
+      { nome: 'company_id', rotulo: 'Empresa', tipoCampo: 'ref', ref: 'empresas', obrigatorio: true },
+      {
+        nome: 'vinculo', rotulo: 'Vínculo', tipoCampo: 'select',
+        opcoes: [{ valor: 'clt', rotulo: 'CLT' }, { valor: 'terceirizado', rotulo: 'Terceirizado' }],
+      },
+      { nome: 'service_id', rotulo: 'Atividade / serviço vinculado', tipoCampo: 'ref', ref: 'servicos' },
+      { nome: 'quantidade', rotulo: 'Quantidade', tipoCampo: 'numero', obrigatorio: true, placeholder: '0' },
+    ],
+    sub: (item, dados) => [
+      item.vinculo === 'terceirizado' ? 'Terceirizado' : 'CLT',
+      dados.nomeDe(dados.empresas, item.company_id),
+      item.service_id ? dados.nomeDe(dados.servicos, item.service_id) : 'Sem atividade vinculada',
+      `qtd. ${item.quantidade ?? 0}`,
+    ].filter(Boolean).join(' · '),
+  },
 }
 
 export default function Cadastros({ voltar, perfil, params = {} }) {
@@ -146,25 +173,31 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const arquivados = todos.filter((x) => x.ativo === false).length
   const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
 
-  /* Só faz sentido pra colaborador — os outros cadastros não têm
-     função nem empresa nessa tela. Colaborador sem o dado do grupo
-     (função em branco, ou um cadastro antigo sem empresa) vai pro
-     fim, num grupo à parte, em vez de sumir ou quebrar a ordenação.
-     Por função agrupa pelo texto normalizado (sem acento/caixa)
-     porque o cadastro real tem a mesma função digitada de jeitos
-     diferentes — "Pedreiro" e "PEDREIRO" são o mesmo grupo, com o
-     rótulo da primeira grafia encontrada. Por empresa agrupa pelo
-     vínculo de verdade (company_id), não pelo texto. */
+  /* Só faz sentido pra colaborador e pra estrutura/planejamento — os
+     outros cadastros não têm função, empresa nem atividade nessa
+     tela. Item sem o dado do grupo (função em branco, atividade não
+     vinculada) vai pro fim, num grupo à parte, em vez de sumir ou
+     quebrar a ordenação. Por função agrupa pelo texto normalizado
+     (sem acento/caixa) porque o cadastro real tem a mesma função
+     digitada de jeitos diferentes — "Pedreiro" e "PEDREIRO" são o
+     mesmo grupo, com o rótulo da primeira grafia encontrada. Por
+     empresa e por atividade agrupam pelo vínculo de verdade
+     (company_id / service_id), não pelo texto. */
+  const grupavel = tipo === 'colaboradores' || tipo === 'estruturaPlanejada'
   const grupos = useMemo(() => {
-    if (tipo !== 'colaboradores' || agrupamento === 'nome') return null
+    if (!grupavel || agrupamento === 'nome') return null
     const grupos = new Map()
     lista.forEach((item) => {
       let chave, rotuloSemDado, rotulo
       if (agrupamento === 'funcao') {
-        const funcao = (item.funcao || '').trim()
+        const funcao = (item.funcao || item.nome || '').trim()
         chave = funcao ? normalizarParaCasar(funcao) : ''
         rotuloSemDado = 'Sem função'
         rotulo = funcao || rotuloSemDado
+      } else if (agrupamento === 'servico') {
+        chave = item.service_id || ''
+        rotuloSemDado = 'Sem atividade vinculada'
+        rotulo = item.service_id ? dados.nomeDe(dados.servicos, item.service_id) : rotuloSemDado
       } else {
         chave = item.company_id || ''
         rotuloSemDado = 'Sem empresa'
@@ -178,7 +211,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
       if (b.rotulo === b.rotuloSemDado) return -1
       return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
     })
-  }, [tipo, agrupamento, lista, dados])
+  }, [grupavel, agrupamento, lista, dados])
 
   const abrirNovo = () => setEditando({})
 
@@ -283,7 +316,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
           <Segmentos
             valor={tipo}
-            onChange={(t) => { setTipo(t); setMostrarArquivados(false) }}
+            onChange={(t) => { setTipo(t); setMostrarArquivados(false); setAgrupamento('nome') }}
             opcoes={Object.entries(TIPOS_VISIVEIS).map(([chave, d]) => ({
               valor: chave, rotulo: d.rotulo,
               contador: (dados[chave] || []).filter((x) => x.ativo !== false).length,
@@ -301,11 +334,15 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             />
           )}
 
-          {tipo === 'colaboradores' && (
+          {grupavel && (
             <Segmentos
               valor={agrupamento}
               onChange={setAgrupamento}
-              opcoes={[
+              opcoes={tipo === 'estruturaPlanejada' ? [
+                { valor: 'nome', rotulo: 'Por função' },
+                { valor: 'servico', rotulo: 'Por atividade' },
+                { valor: 'empresa', rotulo: 'Por empresa' },
+              ] : [
                 { valor: 'nome', rotulo: 'Por nome' },
                 { valor: 'funcao', rotulo: 'Por função' },
                 { valor: 'empresa', rotulo: 'Por empresa' },

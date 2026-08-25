@@ -161,6 +161,28 @@ function resumoServicosPorPeriodo(dados, registros) {
     .sort((a, b) => b.total - a.total || a.servico.localeCompare(b.servico))
 }
 
+/* Por função/cargo do colaborador (não o serviço/frente do dia) —
+   é o mesmo dado que "Por colaborador" olha por outro corte: quantos
+   almoços cada função (pedreiro, carpinteiro…) consumiu no período,
+   e qual fatia isso é do total vinculado. Função vem do cadastro do
+   colaborador (Cadastros → Colaboradores), não do diário. */
+function resumoFuncoesPorPeriodo(dados, registros) {
+  const porFuncao = new Map()
+  let totalVinculado = 0
+  registros.forEach((r) => {
+    (r.worker_ids || []).forEach((workerId) => {
+      const colaborador = dados.colaboradorPorId(workerId)
+      const chave = (colaborador?.funcao || '').trim() || 'Sem função cadastrada'
+      porFuncao.set(chave, (porFuncao.get(chave) || 0) + 1)
+      totalVinculado += 1
+    })
+  })
+  const percentual = (total) => (totalVinculado ? Math.round((total / totalVinculado) * 1000) / 10 : 0)
+  return Array.from(porFuncao.entries())
+    .map(([funcao, total]) => ({ funcao, total, percentual: percentual(total) }))
+    .sort((a, b) => b.total - a.total || a.funcao.localeCompare(b.funcao))
+}
+
 /* Tabela de frequência: uma linha por colaborador (nome exatamente
    como está cadastrado), uma coluna por dia com lançamento no
    período — a célula já traz o serviço/frente vinculado naquele
@@ -264,6 +286,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   )
   const servicosDoPeriodo = useMemo(
     () => resumoServicosPorPeriodo(dados, registrosDoRelatorio),
+    [dados, registrosDoRelatorio],
+  )
+  const funcoesDoPeriodo = useMemo(
+    () => resumoFuncoesPorPeriodo(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
   const matrizFrequencia = useMemo(
@@ -504,6 +530,17 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                   <div key={s.servico} className="row-between" style={{ fontSize: 13 }}>
                     <span>{s.servico}</span>
                     <span className="t-caption">{s.total} · {s.percentual}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="t-micro" style={{ marginBottom: 6 }}>Por função</div>
+              <div className="stack-1">
+                {funcoesDoPeriodo.map((f) => (
+                  <div key={f.funcao} className="row-between" style={{ fontSize: 13 }}>
+                    <span>{f.funcao}</span>
+                    <span className="t-caption">{f.total} · {f.percentual}%</span>
                   </div>
                 ))}
               </div>
@@ -891,6 +928,12 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               <TabelaRelatorio
                 colunas={['Serviço / Frente', 'Refeições', '%']}
                 linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
+              />
+            </SecaoRelatorio>
+            <SecaoRelatorio titulo="Por função">
+              <TabelaRelatorio
+                colunas={['Função', 'Refeições', '%']}
+                linhas={funcoesDoPeriodo.map((f) => [f.funcao, f.total, `${f.percentual}%`])}
               />
             </SecaoRelatorio>
             <SecaoRelatorio titulo="Colaborador × serviço — % das refeições de cada um em cada frente">
