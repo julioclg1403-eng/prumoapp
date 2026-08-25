@@ -14,7 +14,7 @@ import { useDados } from '../lib/DadosContext'
 import { normalizarParaCasar, moduloPermitido, plural } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle,
-  Selecionavel,
+  Selecionavel, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 
 /* Um lugar só descrevendo cada cadastro. Acrescentar um cadastro
@@ -113,16 +113,19 @@ const TIPOS = {
       ? `${item.sigla ? `${item.sigla} · ` : ''}validade de ${item.validade_meses} meses`
       : (item.sigla || 'Sem vencimento cadastrado')),
   },
-  /* Efetivo planejado por função: qual empresa entra com qual
-     função, em qual regime (CLT ou terceirizado) e em que
-     quantidade, para executar um serviço/frente — o mesmo que o
-     relatório diário de efetivo por cargo mostra, só que aqui vira
-     dado cadastrado, e não um PDF solto. `nome` guarda a própria
-     função/cargo (mesmo papel que tem em "Serviços" ou "Locais": o
-     rótulo do item). Não confundir com "Planejamento" (abaixo) —
-     aquela é a estrutura de custos/código da UAU; esta é efetivo. */
+  /* Planejamento UAU: efetivo planejado por função — qual empresa
+     entra com qual função, em qual regime (CLT ou terceirizado) e em
+     que quantidade, para executar um serviço/frente. É o mesmo
+     formato do relatório diário de efetivo por cargo que a UAU
+     exporta (CLT numa tabela, Terceirizados noutra, cargo + empresa +
+     quantidade), só que aqui vira dado cadastrado — e exportável de
+     volta pro mesmo formato (ver ExportarEfetivoPlanejado abaixo).
+     `nome` guarda a própria função/cargo (mesmo papel que tem em
+     "Serviços" ou "Locais": o rótulo do item). Não confundir com
+     "Planejamento" (abaixo) — aquele é a estrutura de custos/código
+     da UAU (Tipo/Etapa/Sub-etapa/Insumo); este é efetivo por cargo. */
   estruturaPlanejada: {
-    rotulo: 'Efetivo planejado (função)',
+    rotulo: 'Planejamento UAU',
     singular: 'vínculo de efetivo',
     campos: [
       { nome: 'nome', rotulo: 'Função / cargo', obrigatorio: true, placeholder: 'Carpinteiro, armador, encanador…' },
@@ -203,6 +206,27 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const ativos = todos.filter((x) => x.ativo !== false).length
   const arquivados = todos.filter((x) => x.ativo === false).length
   const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
+
+  /* Exportação do Planejamento UAU no mesmo formato do relatório
+     diário de efetivo que a UAU manda: uma tabela de CLT, outra de
+     Terceirizados (cargo/empresa, já que um terceirizado só faz
+     sentido junto de quem executa), cada uma com total, mais o total
+     geral — espelhando a estrutura do PDF original. */
+  const resumoEfetivo = useMemo(() => {
+    if (tipo !== 'estruturaPlanejada') return null
+    const ativosEfetivo = (dados.estruturaPlanejada || []).filter((x) => x.ativo !== false)
+    const clt = ativosEfetivo
+      .filter((x) => x.vinculo !== 'terceirizado')
+      .map((x) => ({ rotulo: x.nome, qtd: Number(x.quantidade) || 0 }))
+      .sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'))
+    const terceirizados = ativosEfetivo
+      .filter((x) => x.vinculo === 'terceirizado')
+      .map((x) => ({ rotulo: `${x.nome}/${dados.nomeDe(dados.empresas, x.company_id)}`, qtd: Number(x.quantidade) || 0 }))
+      .sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'))
+    const totalClt = clt.reduce((s, i) => s + i.qtd, 0)
+    const totalTerceirizados = terceirizados.reduce((s, i) => s + i.qtd, 0)
+    return { clt, terceirizados, totalClt, totalTerceirizados, totalGeral: totalClt + totalTerceirizados }
+  }, [tipo, dados])
 
   /* Só faz sentido pra colaborador e pra estrutura/planejamento — os
      outros cadastros não têm função, empresa nem atividade nessa
@@ -329,6 +353,11 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           sub="Alimentam o diário, o efetivo e as pendências"
           acao={
             <div className="row-flex" style={{ flexWrap: 'wrap' }}>
+              {tipo === 'estruturaPlanejada' && resumoEfetivo.clt.length + resumoEfetivo.terceirizados.length > 0 && (
+                <button className="btn btn-secondary" onClick={() => window.print()}>
+                  <Icon name="relatorio" size={16} /> Imprimir / baixar PDF
+                </button>
+              )}
               {podeEditar && tipo === 'estruturaCustos' && (
                 <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
                   <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar PDF
@@ -546,6 +575,33 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
         onFechar={() => setImportandoPDF(false)}
         dados={dados}
       />
+
+      {resumoEfetivo && (
+        <RelatorioFolha titulo="Planejamento UAU" sub="Efetivo por função" obra={dados.obra.nome} org={dados.org.nome}>
+          {resumoEfetivo.clt.length > 0 && (
+            <SecaoRelatorio titulo="CLT">
+              <TabelaRelatorio
+                colunas={['Cargos', 'Qtde']}
+                linhas={[...resumoEfetivo.clt.map((i) => [i.rotulo, i.qtd]), ['TOTAL CLT', resumoEfetivo.totalClt]]}
+              />
+            </SecaoRelatorio>
+          )}
+          {resumoEfetivo.terceirizados.length > 0 && (
+            <SecaoRelatorio titulo="Terceirizados">
+              <TabelaRelatorio
+                colunas={['Cargos', 'Qtde']}
+                linhas={[
+                  ...resumoEfetivo.terceirizados.map((i) => [i.rotulo, i.qtd]),
+                  ['TOTAL TERCEIRIZADO', resumoEfetivo.totalTerceirizados],
+                ]}
+              />
+            </SecaoRelatorio>
+          )}
+          <SecaoRelatorio>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>TOTAL GERAL: {resumoEfetivo.totalGeral}</div>
+          </SecaoRelatorio>
+        </RelatorioFolha>
+      )}
     </>
   )
 }
