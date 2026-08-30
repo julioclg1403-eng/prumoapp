@@ -50,16 +50,21 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const deGrafico = somarDias(hoje, -13)
   const duasSemanas = consolidarEfetivo(dados.diarios, { de: deGrafico, ate: hoje })
 
-  /* 14 colunas fixas, mesmo nos dias sem lançamento — um buraco no
-     gráfico é informação, não deve ser omitido. Como "seg"/"ter" se
-     repete de uma semana pra outra, o rótulo embaixo da barra é o dia
-     do mês (sem ambiguidade); o dia da semana por extenso fica só no
-     título (hover), junto da data completa. */
-  const barras = Array.from({ length: 14 }, (_, i) => {
-    const data = somarDias(deGrafico, i)
-    const dia = duasSemanas.dias.find((d) => d.data === data)
-    return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
-  })
+  /* 14 dias corridos, menos domingo — a obra não trabalha nesse dia
+     (sempre "—" nas duas semanas), então só ocupava coluna à toa e
+     empurrava o gráfico pra mais largo que a tela no celular. Sábado
+     fica (tem meio expediente de verdade, ver o "5" de um sábado
+     comum). Um buraco num dia útil continua aparecendo — é
+     informação, não deve ser omitido. Como "seg"/"ter" se repete de
+     uma semana pra outra, o rótulo embaixo da barra é o dia do mês
+     (sem ambiguidade); o dia da semana por extenso fica só no título
+     (hover), junto da data completa. */
+  const barras = Array.from({ length: 14 }, (_, i) => somarDias(deGrafico, i))
+    .filter((data) => nomeDiaSemana(data) !== 'dom')
+    .map((data) => {
+      const dia = duasSemanas.dias.find((d) => d.data === data)
+      return { data, total: dia ? dia.total : 0, lancado: Boolean(dia) }
+    })
 
   /* ── Painel geral ── */
   const taticasDaObra = pendenciasTaticas(dados.pendencias)
@@ -235,7 +240,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                       </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', gap: 12 }}>
                       <div className="card-flat chart-panel stack-2">
                         <div className="t-micro">Curva S — Base × Previsto × Realizado</div>
                         <CurvaSPrevision scurve={linkPrevision.scurve} />
@@ -280,7 +285,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
               (Suprimentos) — a esquerda empilha pra acompanhar a altura
               do card de Suprimentos, que é mais alto por causa dos
               gráficos. ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, 1fr)' : '1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: desktop ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', gap: 12 }}>
             <div className="stack-3">
               <div className="card">
                 <div className="row-between" style={{ marginBottom: 14 }}>
