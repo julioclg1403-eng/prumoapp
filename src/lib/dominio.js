@@ -233,9 +233,9 @@ export function statusTreinamento(dataVencimento) {
 }
 
 export const ROTULO_STATUS_TREINAMENTO = {
-  valido: 'Válido', a_vencer: 'A vencer', vencido: 'Vencido', pendente: 'Pendente',
+  valido: 'Válido', a_vencer: 'A vencer', vencido: 'Vencido', pendente: 'Pendente', nao_aplicavel: 'Não se aplica',
 }
-export const TOM_STATUS_TREINAMENTO = { valido: 'success', a_vencer: 'info', vencido: 'danger', pendente: '' }
+export const TOM_STATUS_TREINAMENTO = { valido: 'success', a_vencer: 'info', vencido: 'danger', pendente: '', nao_aplicavel: '' }
 
 export const STATUS_APONTAMENTO = ['ativo', 'em_andamento', 'resolvido', 'reprovado']
 

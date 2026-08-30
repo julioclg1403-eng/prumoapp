@@ -189,7 +189,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
-      estruturaPlanejada, estruturaCustos, movimentosEstoque,
+      estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -236,6 +236,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('workforce_plan').select('*').order('nome')),
       buscarPaginado(() => supabase.from('structure_items').select('*').order('nome')),
       buscarPaginado(() => supabase.from('stock_movements').select('*').order('periodo_fim', { ascending: false })),
+      buscarPaginado(() => supabase.from('worker_training_exemptions').select('*')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -247,7 +248,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
-      movimentosEstoque].find((r) => r.error)
+      movimentosEstoque, isencoesTreinamento].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -318,6 +319,7 @@ export function DadosProvider({ perfil, children }) {
       estruturaPlanejada: estruturaPlanejada.data || [],
       estruturaCustos: estruturaCustos.data || [],
       movimentosEstoque: movimentosEstoque.data || [],
+      isencoesTreinamento: isencoesTreinamento.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -420,6 +422,7 @@ export function DadosProvider({ perfil, children }) {
       estruturaPlanejada: filtrar(tudo.estruturaPlanejada),
       estruturaCustos: filtrar(tudo.estruturaCustos),
       movimentosEstoque: filtrar(tudo.movimentosEstoque),
+      isencoesTreinamento: filtrar(tudo.isencoesTreinamento),
     }
   }, [tudo, obraId])
 
@@ -1875,6 +1878,50 @@ export function DadosProvider({ perfil, children }) {
     [checar, avisarErro],
   )
 
+  /* Isenção de treinamento: nem todo colaborador precisa de todo
+     tipo de NR (ex.: quem nunca sobe em andaime não precisa de
+     Trabalho em Altura) — sem isso, o par (colaborador, tipo) sem
+     nenhum registro sempre contava como "Pendente", mesmo quando o
+     treinamento simplesmente não se aplica a ele. Marcar isenção é
+     livre pra qualquer perfil (mesma regra de registrar/renovar);
+     desmarcar (a tela chama de "Reativar") é só da gestão, pra um
+     campo não conseguir esconder sozinho uma pendência de verdade. */
+  const definirIsencaoTreinamento = useCallback(
+    async (workerId, trainingTypeId, isento, motivo = null) => {
+      if (isento) {
+        const { organization_id, worksite_id } = escopo()
+        const salvo = checar(
+          await supabase.from('worker_training_exemptions')
+            .upsert(
+              { organization_id, worksite_id, worker_id: workerId, training_type_id: trainingTypeId, motivo, autor_id: perfil.id },
+              { onConflict: 'worker_id,training_type_id' },
+            )
+            .select('*').single(),
+          'marcar o treinamento como não aplicável',
+        )
+        if (!salvo) return false
+        setTudo((t) => t && ({
+          ...t,
+          isencoesTreinamento: t.isencoesTreinamento.some((x) => x.id === salvo.id)
+            ? t.isencoesTreinamento.map((x) => (x.id === salvo.id ? salvo : x))
+            : [...t.isencoesTreinamento, salvo],
+        }))
+        return true
+      }
+      const existente = tudo?.isencoesTreinamento?.find((x) => x.worker_id === workerId && x.training_type_id === trainingTypeId)
+      if (!existente) return true
+      const r = await supabase.from('worker_training_exemptions').delete().eq('id', existente.id).select('id')
+      if (r.error) { checar(r, 'reativar o treinamento'); return false }
+      if (!r.data || r.data.length === 0) {
+        avisarErro('Seu perfil não tem permissão para reativar. Isso é da gestão.')
+        return false
+      }
+      setTudo((t) => t && ({ ...t, isencoesTreinamento: t.isencoesTreinamento.filter((x) => x.id !== existente.id) }))
+      return true
+    },
+    [tudo, perfil.id, escopo, checar, avisarErro],
+  )
+
   // ── Suprimentos (pedidos de compra importados do sistema) ──
   /* Reimportar a mesma planilha (ou uma mais nova) atualiza a linha
      que já existe em vez de duplicar — a chave é (worksite, Pedido,
@@ -3044,7 +3091,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque, importarMovimentoEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
-      salvarTreinamentoColaborador, excluirTreinamentoColaborador,
+      salvarTreinamentoColaborador, excluirTreinamentoColaborador, definirIsencaoTreinamento,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
@@ -3077,7 +3124,7 @@ export function DadosProvider({ perfil, children }) {
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque, importarMovimentoEstoque,
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
-      salvarTreinamentoColaborador, excluirTreinamentoColaborador,
+      salvarTreinamentoColaborador, excluirTreinamentoColaborador, definirIsencaoTreinamento,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,

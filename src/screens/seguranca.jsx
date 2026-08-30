@@ -650,6 +650,10 @@ function ultimoTreinamento(treinamentos, workerId, tipoId) {
   return [...doPar].sort((a, b) => (a.data_realizacao < b.data_realizacao ? 1 : -1))[0]
 }
 
+function isentoDoTreinamento(isencoes, workerId, tipoId) {
+  return (isencoes || []).some((e) => e.worker_id === workerId && e.training_type_id === tipoId)
+}
+
 function Treinamentos({ dados, perfil }) {
   const [colaboradorAberto, setColaboradorAberto] = useState(null)
   const [registrandoTipo, setRegistrandoTipo] = useState(null)
@@ -728,18 +732,22 @@ function Treinamentos({ dados, perfil }) {
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [dados.colaboradores, idsComTreinamentoNoPeriodo, busca])
 
+  const isencoes = dados.isencoesTreinamento || []
+
   const resumoPorColaborador = useMemo(() => colaboradoresAtivos.map((c) => {
-    const linhas = tipos.map((t) => {
-      const ultimo = ultimoTreinamento(treinamentos, c.id, t.id)
-      return ultimo ? statusTreinamento(ultimo.data_vencimento) : 'pendente'
-    })
+    const linhas = tipos
+      .filter((t) => !isentoDoTreinamento(isencoes, c.id, t.id))
+      .map((t) => {
+        const ultimo = ultimoTreinamento(treinamentos, c.id, t.id)
+        return ultimo ? statusTreinamento(ultimo.data_vencimento) : 'pendente'
+      })
     const pior = linhas.reduce((acc, s) => (PRIORIDADE_STATUS_TREINAMENTO[s] < PRIORIDADE_STATUS_TREINAMENTO[acc] ? s : acc), 'valido')
     return {
       colaborador: c, pior,
       vencidos: linhas.filter((s) => s === 'vencido').length,
       aVencer: linhas.filter((s) => s === 'a_vencer').length,
     }
-  }), [colaboradoresAtivos, tipos, treinamentos])
+  }), [colaboradoresAtivos, tipos, treinamentos, isencoes])
 
   const totais = useMemo(() => resumoPorColaborador.reduce((acc, r) => ({
     vencidos: acc.vencidos + r.vencidos, aVencer: acc.aVencer + r.aVencer,
@@ -962,13 +970,16 @@ function Treinamentos({ dados, perfil }) {
             <div className="stack-1">
               {tipos.map((t) => {
                 const ultimo = ultimoTreinamento(treinamentos, colaboradorAberto.id, t.id)
-                const status = ultimo ? statusTreinamento(ultimo.data_vencimento) : 'pendente'
+                const isento = isentoDoTreinamento(isencoes, colaboradorAberto.id, t.id)
+                const status = isento ? 'nao_aplicavel' : (ultimo ? statusTreinamento(ultimo.data_vencimento) : 'pendente')
                 return (
                   <div key={t.id} className="card-flat" style={{ padding: 10 }}>
                     <div className="row-between" style={{ alignItems: 'flex-start', gap: 10 }}>
                       <div className="grow" style={{ minWidth: 0 }}>
                         <div className="t-strong" style={{ fontSize: 14 }}>{t.sigla ? `${t.sigla} — ${t.nome}` : t.nome}</div>
-                        {ultimo ? (
+                        {isento ? (
+                          <div className="t-caption" style={{ marginTop: 4 }}>Marcado como não aplicável a este colaborador</div>
+                        ) : ultimo ? (
                           <div className="t-caption" style={{ marginTop: 4 }}>
                             Realizado em {formatarData(ultimo.data_realizacao)}
                             {ultimo.data_vencimento && ` · vence em ${formatarData(ultimo.data_vencimento)}`}
@@ -980,12 +991,30 @@ function Treinamentos({ dados, perfil }) {
                       <Chip tom={TOM_STATUS_TREINAMENTO[status]}>{ROTULO_STATUS_TREINAMENTO[status]}</Chip>
                     </div>
                     <div className="row-flex" style={{ marginTop: 8, gap: 6 }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => abrirRegistro(t)}>
-                        {ultimo ? 'Renovar' : 'Registrar'}
-                      </button>
+                      {!isento && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => abrirRegistro(t)}>
+                          {ultimo ? 'Renovar' : 'Registrar'}
+                        </button>
+                      )}
                       {ultimo && podeExcluir && (
                         <button className="btn btn-ghost btn-sm" onClick={() => pedirExcluirRegistro(ultimo, t)}>
                           Excluir último registro
+                        </button>
+                      )}
+                      {!ultimo && !isento && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => dados.definirIsencaoTreinamento(colaboradorAberto.id, t.id, true)}
+                        >
+                          Não se aplica
+                        </button>
+                      )}
+                      {isento && podeExcluir && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => dados.definirIsencaoTreinamento(colaboradorAberto.id, t.id, false)}
+                        >
+                          Reativar
                         </button>
                       )}
                     </div>
