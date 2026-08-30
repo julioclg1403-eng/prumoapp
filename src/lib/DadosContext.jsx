@@ -30,7 +30,7 @@ import {
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
   enviarFotoEquipamento, apagarFotoEquipamento,
 } from './fotos'
-import { enviarAnexoApontamento, apagarAnexoApontamento } from './anexos'
+import { enviarAnexoApontamento, apagarAnexoApontamento, enviarAnexoPendencia, apagarAnexoPendencia } from './anexos'
 
 const Ctx = createContext(null)
 
@@ -201,7 +201,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('occurrence_types').select('*').order('ordem')),
       buscarPaginado(() => supabase.from('planned_activities').select('*').order('data', { ascending: false })),
       buscarPaginado(() => supabase.from('daily_reports').select(SELECT_DIARIO).order('data', { ascending: false })),
-      buscarPaginado(() => supabase.from('issues').select('*, fotos:issue_photos(*)').order('prazo', { nullsFirst: false })),
+      buscarPaginado(() => supabase.from('issues').select('*, fotos:issue_photos(*), anexos:issue_attachments(*)').order('prazo', { nullsFirst: false })),
       buscarPaginado(() => supabase.from('materials').select('*').order('usos', { ascending: false })),
       buscarPaginado(() => supabase.from('schedule_items').select('*').order('data_inicio')),
       buscarPaginado(() => supabase.from('reminders').select('*').order('disparar_em')),
@@ -282,7 +282,7 @@ export function DadosProvider({ perfil, children }) {
       tiposOcorrencia: tiposOcorrencia.data || [],
       planejamento: planejamento.data || [],
       diarios: (diarios.data || []).map(normalizarDiario),
-      pendencias: (pendencias.data || []).map((p) => ({ ...p, fotos: p.fotos || [] })),
+      pendencias: (pendencias.data || []).map((p) => ({ ...p, fotos: p.fotos || [], anexos: p.anexos || [] })),
       /* O catálogo de materiais é da organização, não da obra —
          por isso não passa pelo filtro de obra mais abaixo. */
       materiais: materiais.data || [],
@@ -821,6 +821,46 @@ export function DadosProvider({ perfil, children }) {
         pendencias: t.pendencias.map((p) =>
           p.id === foto.issue_id
             ? { ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }
+            : p),
+      }))
+      return true
+    },
+    [avisarErro],
+  )
+
+  /* ── Anexos de pendência (PDF ou imagem, sem compressão) ─────
+     Mesmo bucket/mecanismo dos anexos de Projetos, só que preso à
+     pendência em vez de ao apontamento — é a "resposta" documental
+     (laudo, ficha técnica) que uma foto de canteiro não substitui. */
+  const adicionarAnexoPendencia = useCallback(
+    async (issueId, arquivo) => {
+      const { anexo, erro } = await enviarAnexoPendencia({
+        arquivo,
+        organizationId: perfil.organization_id,
+        obraId,
+        issueId,
+        autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      setTudo((t) => t && ({
+        ...t,
+        pendencias: t.pendencias.map((p) =>
+          p.id === issueId ? { ...p, anexos: [...(p.anexos || []), anexo] } : p),
+      }))
+      return anexo
+    },
+    [perfil, obraId, avisarErro],
+  )
+
+  const removerAnexoPendencia = useCallback(
+    async (anexo) => {
+      const { erro } = await apagarAnexoPendencia(anexo)
+      if (erro) { avisarErro(erro); return false }
+      setTudo((t) => t && ({
+        ...t,
+        pendencias: t.pendencias.map((p) =>
+          p.id === anexo.issue_id
+            ? { ...p, anexos: (p.anexos || []).filter((a) => a.id !== anexo.id) }
             : p),
       }))
       return true
@@ -3078,7 +3118,7 @@ export function DadosProvider({ perfil, children }) {
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, mesclarColaborador,
       salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
-      adicionarFotoPendencia, removerFotoPendencia,
+      adicionarFotoPendencia, removerFotoPendencia, adicionarAnexoPendencia, removerAnexoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,
@@ -3111,7 +3151,7 @@ export function DadosProvider({ perfil, children }) {
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
-      adicionarFotoPendencia, removerFotoPendencia,
+      adicionarFotoPendencia, removerFotoPendencia, adicionarAnexoPendencia, removerAnexoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
       adicionarFotoOcorrencia, removerFotoOcorrencia,
       salvarAdvertencia, excluirAdvertencia,

@@ -18,7 +18,7 @@ import {
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, ItemLista,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
-  CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio,
+  CampoFotos, VisorFoto, useLinksDeFotos, TextareaComAudio, CampoAnexos, useLinksDeAnexos,
   FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 import { RankingBarras, GraficoDonut, GraficoColunas } from '../components/charts'
@@ -41,6 +41,7 @@ export default function Pendencias({ perfil, params = {} }) {
   const [destaque, setDestaque] = useState(params.destacar || null)
   const [importandoPDF, setImportandoPDF] = useState(false)
   const [enviandoFoto, setEnviandoFoto] = useState(0)
+  const [enviandoAnexo, setEnviandoAnexo] = useState(0)
   const [fotoAberta, setFotoAberta] = useState(null)
   const [inicio, setInicio] = useState(() => inicioDaSemana(hoje))
   const [verFechamentoTatico, setVerFechamentoTatico] = useState(false)
@@ -53,6 +54,7 @@ export default function Pendencias({ perfil, params = {} }) {
   const [periodoFim, setPeriodoFim] = useState(hoje)
 
   const links = useLinksDeFotos(editando?.fotos)
+  const linksAnexos = useLinksDeAnexos(editando?.anexos)
 
   /* Tático (vem do PDF de restrições, reimportado semana a semana)
      é uma categoria à parte do dia a dia (manual ou vindo do diário)
@@ -175,6 +177,30 @@ export default function Pendencias({ perfil, params = {} }) {
     if (ok) setEditando((p) => ({ ...p, fotos: (p.fotos || []).filter((f) => f.id !== foto.id) }))
   }
 
+  /* Anexo (PDF ou imagem sem compressão) — a "resposta" documental da
+     pendência, mesmo mecanismo das fotos: garante salvo primeiro se
+     ainda for uma pendência nova. */
+  const enviarAnexosPendencia = async (arquivos) => {
+    setEnviandoAnexo((n) => n + arquivos.length)
+    try {
+      const base = await garantirSalvo()
+      if (!base) return
+      const novos = []
+      for (const arquivo of arquivos) {
+        const a = await dados.adicionarAnexoPendencia(base.id, arquivo)
+        if (a) novos.push(a)
+      }
+      if (novos.length) setEditando((p) => ({ ...p, anexos: [...(p.anexos || []), ...novos] }))
+    } finally {
+      setEnviandoAnexo((n) => Math.max(0, n - arquivos.length))
+    }
+  }
+
+  const removerAnexoPendencia = async (anexo) => {
+    const ok = await dados.removerAnexoPendencia(anexo)
+    if (ok) setEditando((p) => ({ ...p, anexos: (p.anexos || []).filter((a) => a.id !== anexo.id) }))
+  }
+
   const pedirAlternar = (p) => {
     if (p.status === 'resolvida') {
       setConfirmar({
@@ -191,7 +217,7 @@ export default function Pendencias({ perfil, params = {} }) {
   const pedirExcluir = (p) => {
     setConfirmar({
       titulo: 'Excluir pendência?',
-      texto: `«${p.titulo}» sai da lista pra sempre, junto com fotos e resolução registradas. Isso não tem volta.`,
+      texto: `«${p.titulo}» sai da lista pra sempre, junto com fotos, anexos e resolução registradas. Isso não tem volta.`,
       rotuloOk: 'Excluir', perigo: true,
       onOk: async () => { setConfirmar(null); await dados.excluirPendencia(p.id) },
     })
@@ -457,10 +483,20 @@ export default function Pendencias({ perfil, params = {} }) {
                         <strong>Resolução:</strong> {p.resolucao}
                       </div>
                     )}
-                    {p.fotos?.length > 0 && (
-                      <div className="t-caption" style={{ marginTop: 6, paddingLeft: 32, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name="camera" size={13} />
-                        {plural(p.fotos.length, 'foto', 'fotos')}
+                    {(p.fotos?.length > 0 || p.anexos?.length > 0) && (
+                      <div className="t-caption" style={{ marginTop: 6, paddingLeft: 32, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {p.fotos?.length > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="camera" size={13} />
+                            {plural(p.fotos.length, 'foto', 'fotos')}
+                          </span>
+                        )}
+                        {p.anexos?.length > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="anexo" size={13} />
+                            {plural(p.anexos.length, 'anexo', 'anexos')}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -548,6 +584,16 @@ export default function Pendencias({ perfil, params = {} }) {
               onAdicionar={enviarFotosPendencia}
               onRemover={removerFotoPendencia}
               onAbrir={setFotoAberta}
+            />
+          </Campo>
+          <Campo label="Anexos" dica="PDF ou imagem, sem compressão — laudo, ficha técnica, nota assinada…">
+            <CampoAnexos
+              anexos={editando?.anexos || []}
+              links={linksAnexos}
+              enviando={enviandoAnexo}
+              onAdicionar={enviarAnexosPendencia}
+              onRemover={removerAnexoPendencia}
+              rotulo="Adicionar PDF ou imagem"
             />
           </Campo>
         </div>
@@ -780,9 +826,18 @@ function QuadroPendencias({ itens, dados, destaque, onAbrir, onMover }) {
                     <div className="t-caption" style={{ marginTop: 6 }}>
                       {dados.perfilPorId(p.responsavel_id)?.nome || 'Sem responsável'}
                     </div>
-                    {p.fotos?.length > 0 && (
-                      <div className="t-caption" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name="camera" size={13} />{p.fotos.length}
+                    {(p.fotos?.length > 0 || p.anexos?.length > 0) && (
+                      <div className="t-caption" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {p.fotos?.length > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="camera" size={13} />{p.fotos.length}
+                          </span>
+                        )}
+                        {p.anexos?.length > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="anexo" size={13} />{p.anexos.length}
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className="row-between" style={{ marginTop: 8 }}>

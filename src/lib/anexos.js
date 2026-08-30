@@ -70,6 +70,58 @@ export async function apagarAnexoApontamento(anexo) {
   return {}
 }
 
+/* Anexo de pendência: mesmo bucket/tipos aceitos do anexo de
+   apontamento (Projetos) — PDF ou imagem, sem compressão, é prova
+   documental (laudo, ficha técnica), não foto de canteiro (que já
+   tem seu próprio campo, comprimido, em fotos.js). */
+export async function enviarAnexoPendencia({ arquivo, organizationId, obraId, issueId, autorId = null }) {
+  if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
+    return { erro: 'Este arquivo passa de 20 MB.' }
+  }
+  if (!TIPOS_ACEITOS.includes(arquivo.type)) {
+    return { erro: 'Envie um PDF ou uma imagem (JPEG, PNG ou WEBP).' }
+  }
+
+  const id = globalThis.crypto?.randomUUID?.() || String(Date.now() + Math.random())
+  const caminho = `${obraId}/pendencias/${issueId}/${id}.${extensaoDe(arquivo)}`
+
+  const envio = await supabase.storage
+    .from('anexos')
+    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false })
+  if (envio.error) {
+    return { erro: `Não consegui enviar o anexo. ${envio.error.message}` }
+  }
+
+  const registro = await supabase
+    .from('issue_attachments')
+    .insert({
+      organization_id: organizationId,
+      worksite_id: obraId,
+      issue_id: issueId,
+      caminho,
+      nome_arquivo: arquivo.name,
+      tipo_mime: arquivo.type,
+      tamanho_bytes: arquivo.size,
+      autor_id: autorId,
+    })
+    .select('*')
+    .single()
+
+  if (registro.error) {
+    await supabase.storage.from('anexos').remove([caminho])
+    return { erro: `Não consegui registrar o anexo. ${registro.error.message}` }
+  }
+
+  return { anexo: registro.data }
+}
+
+export async function apagarAnexoPendencia(anexo) {
+  const doBanco = await supabase.from('issue_attachments').delete().eq('id', anexo.id)
+  if (doBanco.error) return { erro: `Não consegui apagar o anexo. ${doBanco.error.message}` }
+  await supabase.storage.from('anexos').remove([anexo.caminho])
+  return {}
+}
+
 /* Anexo de comentário: mesmo bucket, um arquivo por chamada — a tela
    chama isto em loop pra mandar vários de uma vez (mesmo padrão das
    fotos de equipamento/diário). O registro em si (a linha na tabela
