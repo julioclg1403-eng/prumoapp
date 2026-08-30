@@ -243,7 +243,7 @@ export default function Pendencias({ perfil, params = {} }) {
           sub={`${plural(lista.length, 'item', 'itens')} neste filtro`}
           acao={
             <div className="row-flex">
-              {lista.length > 0 && <BotaoRelatorio />}
+              {lista.length > 0 && <BotaoRelatorio rotulo={categoria === 'reuniao' ? 'Imprimir pauta' : 'Relatório'} />}
               {categoria === 'tatico' ? (
                 <>
                   <button
@@ -629,24 +629,58 @@ export default function Pendencias({ perfil, params = {} }) {
         inicio={inicio}
       />
 
-      <RelatorioFolha
-        titulo="Pendências"
-        sub={`${categoria === 'tatico' ? 'Tático' : categoria === 'reuniao' ? 'Reunião gerencial' : 'Dia a dia'} · ${ROTULO_FILTRO[filtro]}`}
-        obra={dados.obra.nome} org={dados.org.nome}
-      >
-        <SecaoRelatorio>
-          <TabelaRelatorio
-            colunas={['Título', 'Responsável', 'Prioridade', 'Prazo', 'Situação']}
-            linhas={lista.map(({ p, s }) => [
-              p.titulo,
-              dados.perfilPorId(p.responsavel_id)?.nome || '—',
-              ROTULO_PRIORIDADE[p.prioridade] || p.prioridade,
-              p.prazo ? formatarData(p.prazo) : '—',
-              s.rotulo,
-            ])}
-          />
-        </SecaoRelatorio>
-      </RelatorioFolha>
+      {categoria === 'reuniao' ? (
+        <RelatorioFolha
+          titulo="Pauta de Reunião Gerencial"
+          sub={`${formatarData(hoje)} · ${ROTULO_FILTRO[filtro]}`}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          {lista.length === 0 ? (
+            <SecaoRelatorio>
+              <div style={{ fontSize: 12, color: '#71717A' }}>Nenhum item nesse filtro.</div>
+            </SecaoRelatorio>
+          ) : (
+            lista.map(({ p, s }, i) => (
+              <SecaoRelatorio key={p.id}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  {i + 1}. {p.titulo}
+                </div>
+                <div style={{ fontSize: 11, color: '#52525B', marginTop: 2 }}>
+                  Responsável: {dados.perfilPorId(p.responsavel_id)?.nome || '—'}
+                  {' · '}Prioridade: {ROTULO_PRIORIDADE[p.prioridade] || p.prioridade}
+                  {' · '}Prazo: {p.prazo ? formatarData(p.prazo) : '—'}
+                  {' · '}Situação: {s.rotulo}
+                </div>
+                {p.descricao && (
+                  <div style={{ fontSize: 12, marginTop: 6 }}>{p.descricao}</div>
+                )}
+                <div style={{ fontSize: 11, color: '#71717A', marginTop: 10 }}>Decisão / observações da reunião:</div>
+                <div style={{ borderBottom: '1px solid #D4D4D8', height: 20, marginTop: 4 }} />
+                <div style={{ borderBottom: '1px solid #D4D4D8', height: 20, marginTop: 8 }} />
+              </SecaoRelatorio>
+            ))
+          )}
+        </RelatorioFolha>
+      ) : (
+        <RelatorioFolha
+          titulo="Pendências"
+          sub={`${categoria === 'tatico' ? 'Tático' : 'Dia a dia'} · ${ROTULO_FILTRO[filtro]}`}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio>
+            <TabelaRelatorio
+              colunas={['Título', 'Responsável', 'Prioridade', 'Prazo', 'Situação']}
+              linhas={lista.map(({ p, s }) => [
+                p.titulo,
+                dados.perfilPorId(p.responsavel_id)?.nome || '—',
+                ROTULO_PRIORIDADE[p.prioridade] || p.prioridade,
+                p.prazo ? formatarData(p.prazo) : '—',
+                s.rotulo,
+              ])}
+            />
+          </SecaoRelatorio>
+        </RelatorioFolha>
+      )}
     </>
   )
 }
