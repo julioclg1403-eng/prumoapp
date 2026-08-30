@@ -1011,7 +1011,10 @@ function AbaDashboard({ pedidos, dados, podeEditar }) {
         </>
       )}
 
-      <SheetPedidosDoGrupo grupo={grupoSelecionado} onFechar={() => setGrupoSelecionado(null)} />
+      <SheetPedidosDoGrupo
+        grupo={grupoSelecionado} onFechar={() => setGrupoSelecionado(null)}
+        dados={dados} podeEditar={podeEditar}
+      />
       <ExcluirPedidoSheet pedido={excluindo} onFechar={() => setExcluindo(null)} dados={dados} />
     </div>
   )
@@ -1078,8 +1081,9 @@ function ExcluirPedidoSheet({ pedido, onFechar, dados }) {
    pedido, com o que muda de um pra outro (nº do pedido, cotação,
    estágio, previsão) — o resto (o que agrupou, tipo o insumo ou o
    estágio) já está no título. */
-function SheetPedidosDoGrupo({ grupo, onFechar }) {
+function SheetPedidosDoGrupo({ grupo, onFechar, dados, podeEditar }) {
   const hoje = hojeISO()
+  const [excluindo, setExcluindo] = useState(null)
   const itensOrdenados = grupo
     ? [...grupo.itens].sort((a, b) => (b.data_pedido || '').localeCompare(a.data_pedido || ''))
     : []
@@ -1101,7 +1105,10 @@ function SheetPedidosDoGrupo({ grupo, onFechar }) {
               <div key={p.id} className="card-flat stack-1">
                 <div className="row-between" style={{ alignItems: 'center' }}>
                   <span className="t-strong">Pedido {p.pedido} · Cotação {p.cotacao ?? '—'}</span>
-                  <Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || 'Sem estágio'}</Chip>
+                  <div className="row-flex" style={{ gap: 6 }}>
+                    {p.excluido_pelo_app && <Chip tom="danger">Excluído pelo app</Chip>}
+                    <Chip tom={TOM_ESTAGIO[p.estagio] || ''}>{p.estagio || 'Sem estágio'}</Chip>
+                  </div>
                 </div>
                 <div className="row-wrap" style={{ gap: 16 }}>
                   <span className="t-caption">Qtde <span className="t-strong">{p.quantidade ?? '—'}</span></span>
@@ -1132,11 +1139,29 @@ function SheetPedidosDoGrupo({ grupo, onFechar }) {
                   <div className="t-caption" style={{ color: 'var(--text-3)' }}>Compras ainda não deu previsão de entrega.</div>
                 )}
                 {p.destino && <div><Chip tom="info">{ROTULO_DESTINO[p.destino]}</Chip></div>}
+                {p.excluido_pelo_app ? (
+                  <div className="t-caption" style={{ color: 'var(--text-3)' }}>
+                    {p.motivo_exclusao_app || 'Sem motivo registrado.'}
+                    {podeEditar && (
+                      <button
+                        className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }}
+                        onClick={() => dados.reativarPedidoSuprimento(p.id)}
+                      >
+                        Reativar
+                      </button>
+                    )}
+                  </div>
+                ) : podeEditar && (
+                  <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setExcluindo(p)}>
+                    Excluir — não vai chegar
+                  </button>
+                )}
               </div>
             )
           })}
         </div>
       )}
+      <ExcluirPedidoSheet pedido={excluindo} onFechar={() => setExcluindo(null)} dados={dados} />
     </Sheet>
   )
 }
