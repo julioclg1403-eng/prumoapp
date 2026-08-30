@@ -70,6 +70,10 @@ export default function Suprimentos({ voltar, perfil, params = {} }) {
   const [importando, setImportando] = useState(false)
 
   const pedidos = dados.suprimentos || []
+  /* Pedido excluído "pelo app" (ver DetalhePedido) some de qualquer
+     relatório/indicador do Dashboard — continua visível e editável
+     em "Todos os dados", só não conta mais como pendência real. */
+  const pedidosAtivos = useMemo(() => pedidos.filter((p) => !p.excluido_pelo_app), [pedidos])
 
   const materiaisPorId = useMemo(() => new Map(dados.materiaisEstoque.map((m) => [m.id, m.nome])), [dados.materiaisEstoque])
   const episPorId = useMemo(() => new Map(dados.materiaisEpi.map((m) => [m.id, m.nome])), [dados.materiaisEpi])
@@ -154,7 +158,7 @@ export default function Suprimentos({ voltar, perfil, params = {} }) {
           ) : (
             <>
               {aba === 'dados' && <AbaDados pedidos={pedidos} dados={dados} podeEditar={podeEditar} />}
-              {aba === 'dashboard' && <AbaDashboard pedidos={pedidos} />}
+              {aba === 'dashboard' && <AbaDashboard pedidos={pedidosAtivos} dados={dados} podeEditar={podeEditar} />}
               {aba === 'vinculos' && (
                 <AbaVinculos
                   dados={dados} podeEditar={podeEditar}
@@ -277,6 +281,14 @@ function AbaDados({ pedidos, dados, podeEditar }) {
    Compra → Entrega), não só o resumo que cabe na tabela. */
 function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
   const [salvando, setSalvando] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
+
+  const reativar = async () => {
+    if (!pedido) return
+    setSalvando(true)
+    await dados.reativarPedidoSuprimento(pedido.id)
+    setSalvando(false)
+  }
 
   const escolherDestino = async (destino) => {
     if (!pedido) return
@@ -299,8 +311,28 @@ function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
 
           <div className="row-wrap" style={{ gap: 8 }}>
             <Chip tom={TOM_ESTAGIO[pedido.estagio] || ''}>{pedido.estagio || 'Sem estágio'}</Chip>
-            {pedido.excluido && pedido.excluido !== '0 - Não' && <Chip tom="danger">Excluído</Chip>}
+            {pedido.excluido && pedido.excluido !== '0 - Não' && <Chip tom="danger">Excluído na origem</Chip>}
+            {pedido.excluido_pelo_app && <Chip tom="danger">Excluído pelo app</Chip>}
           </div>
+
+          {pedido.excluido_pelo_app ? (
+            <div className="card-flat stack-1">
+              <div className="t-micro">Excluído pelo app</div>
+              <div className="t-caption" style={{ lineHeight: 1.4 }}>
+                {pedido.motivo_exclusao_app || 'Sem motivo registrado.'}
+                {pedido.excluido_em && ` — em ${formatarDataCurta(pedido.excluido_em.slice(0, 10))}`}
+              </div>
+              {podeEditar && (
+                <button className="btn btn-secondary btn-sm" onClick={reativar} disabled={salvando} style={{ alignSelf: 'flex-start' }}>
+                  {salvando ? 'Salvando…' : 'Reativar — volta a contar nos relatórios'}
+                </button>
+              )}
+            </div>
+          ) : podeEditar && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setExcluindo(true)} style={{ alignSelf: 'flex-start' }}>
+              Excluir — não vai chegar
+            </button>
+          )}
 
           <div className="card-flat stack-1">
             <div className="t-micro">Destino</div>
@@ -412,14 +444,20 @@ function DetalhePedido({ pedido, onFechar, dados, podeEditar }) {
           </div>
         </div>
       )}
+      <ExcluirPedidoSheet
+        pedido={excluindo ? pedido : null}
+        onFechar={() => setExcluindo(false)}
+        dados={dados}
+      />
     </Sheet>
   )
 }
 
 /* ── Dashboard ──────────────────────────────────────────────── */
 
-function AbaDashboard({ pedidos }) {
+function AbaDashboard({ pedidos, dados, podeEditar }) {
   const hoje = hojeISO()
+  const [excluindo, setExcluindo] = useState(null)
   const [periodoModo, setPeriodoModo] = useState('tudo')
   const [periodoDia, setPeriodoDia] = useState(hoje)
   const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
@@ -614,6 +652,18 @@ function AbaDashboard({ pedidos }) {
       .slice(0, 20)
   }, [pedidosFiltrados])
   const totalNaoChegaram = pedidosFiltrados.filter((p) => !p.data_entrega).length
+
+  /* Pedidos antigos: mesmo recorte de "não chegou ainda", mas PEDIDO a
+     PEDIDO (não agrupado por insumo, como materiaisNaoChegaram acima)
+     — é o que dá pra agir em cima: achar o pedido específico que não
+     vai chegar de verdade e excluir. Mais antigo primeiro. */
+  const pedidosAntigos = useMemo(() => {
+    return pedidosFiltrados
+      .filter((p) => !p.data_entrega && p.data_pedido)
+      .map((p) => ({ ...p, diasEsperando: diferencaDiasSimples(p.data_pedido, hoje) }))
+      .sort((a, b) => b.diasEsperando - a.diasEsperando)
+      .slice(0, 30)
+  }, [pedidosFiltrados, hoje])
 
   /* Busca por um material específico — pega todos os pedidos que
      batem (não só os do top 15) e resume tudo dele: quantidade,
@@ -842,6 +892,40 @@ function AbaDashboard({ pedidos }) {
           </PainelColapsavel>
 
           <PainelColapsavel
+            key="pedidos-antigos"
+            titulo="Pedidos mais antigos em aberto"
+            contador={`top 30 de ${plural(totalNaoChegaram, 'pedido', 'pedidos')} sem Data Entrega`}
+          >
+            {pedidosAntigos.length === 0 ? (
+              <div className="t-caption">Nada pendente — todo pedido nesse filtro já tem Data Entrega.</div>
+            ) : (
+              <div className="stack-1">
+                {pedidosAntigos.map((p) => (
+                  <div key={p.id} className="card-flat" style={{ padding: 10 }}>
+                    <div className="row-between" style={{ alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="t-strong" style={{ fontSize: 13 }}>{p.insumo}</div>
+                        <div className="t-caption" style={{ marginTop: 2 }}>
+                          Pedido {p.pedido} · Cód. {p.codigo_insumo || '—'} · pedido em {formatarDataCurta(p.data_pedido)}
+                        </div>
+                      </div>
+                      <Chip tom="danger">{p.diasEsperando} dia{p.diasEsperando === 1 ? '' : 's'}</Chip>
+                    </div>
+                    {podeEditar && (
+                      <button
+                        className="btn btn-ghost btn-sm" style={{ marginTop: 6 }}
+                        onClick={() => setExcluindo(p)}
+                      >
+                        Excluir — não vai chegar
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </PainelColapsavel>
+
+          <PainelColapsavel
             key="pontualidade"
             titulo="Pontualidade da entrega (previsão do Compras)"
             contador={`${pontualidade.noPrazo.length + pontualidade.atrasado.length} avaliados`}
@@ -928,7 +1012,62 @@ function AbaDashboard({ pedidos }) {
       )}
 
       <SheetPedidosDoGrupo grupo={grupoSelecionado} onFechar={() => setGrupoSelecionado(null)} />
+      <ExcluirPedidoSheet pedido={excluindo} onFechar={() => setExcluindo(null)} dados={dados} />
     </div>
+  )
+}
+
+/* ── Sheet: excluir pedido "pelo app" ──────────────────────────
+   Não some da tela (fica em "Todos os dados", marcado) — só some dos
+   relatórios/indicadores, e não volta a contar quando a planilha for
+   reimportada (ver excluirPedidoSuprimento em DadosContext). Usado
+   tanto daqui (Pedidos mais antigos) quanto de dentro do detalhe do
+   pedido em "Todos os dados". */
+function ExcluirPedidoSheet({ pedido, onFechar, dados }) {
+  const [motivo, setMotivo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => { if (pedido) setMotivo('') }, [pedido])
+
+  const confirmar = async () => {
+    if (!pedido) return
+    setSalvando(true)
+    const ok = await dados.excluirPedidoSuprimento(pedido.id, motivo)
+    setSalvando(false)
+    if (ok) onFechar()
+  }
+
+  return (
+    <Sheet
+      aberto={Boolean(pedido)}
+      titulo="Excluir pedido pelo app"
+      onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={confirmar} disabled={salvando}>
+            {salvando ? 'Salvando…' : 'Excluir'}
+          </button>
+        </div>
+      }
+    >
+      {pedido && (
+        <div className="stack-2">
+          <div className="t-caption" style={{ lineHeight: 1.5 }}>
+            «{pedido.insumo}» (pedido {pedido.pedido}) continua no sistema, mas some dos relatórios e
+            indicadores daqui — inclusive se você reimportar a planilha de novo, ele continua marcado como
+            excluído. Não é apagar de verdade: dá pra reativar depois, em "Todos os dados".
+          </div>
+          <Campo label="Motivo" dica="Opcional — por que não vai chegar (cancelado, pedido em duplicidade…).">
+            <textarea
+              className="ipt" style={{ minHeight: 70 }}
+              value={motivo} onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ex.: cancelado com o fornecedor, não vamos mais precisar."
+            />
+          </Campo>
+        </div>
+      )}
+    </Sheet>
   )
 }
 
@@ -1228,6 +1367,12 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
               <div className="alert danger">
                 {plural(feito.removidos, 'pedido em aberto sumiu', 'pedidos em aberto sumiram')} desta planilha e{' '}
                 {plural(feito.removidos, 'foi removido', 'foram removidos')} — provavelmente cancelado ou excluído na origem.
+              </div>
+            )}
+            {feito.aindaExcluidos > 0 && (
+              <div className="alert info">
+                {plural(feito.aindaExcluidos, 'pedido continua', 'pedidos continuam')} marcado{feito.aindaExcluidos === 1 ? '' : 's'} como
+                {' '}"excluído pelo app" — não voltou a contar em nenhum relatório.
               </div>
             )}
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>

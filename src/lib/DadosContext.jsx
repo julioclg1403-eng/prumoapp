@@ -2012,13 +2012,19 @@ export function DadosProvider({ perfil, children }) {
          numa planilha bem maior no futuro. */
       const TAMANHO_LOTE = 500
       let total = 0
+      let aindaExcluidos = 0
       for (let i = 0; i < linhas.length; i += TAMANHO_LOTE) {
         const lote = linhas.slice(i, i + TAMANHO_LOTE)
         const r = await supabase.from('supply_orders')
           .upsert(lote, { onConflict: 'worksite_id,pedido,codigo_insumo' })
-          .select('id')
+          /* excluido_pelo_app não está no payload do upsert (de propósito —
+             ver excluirPedidoSuprimento), então o valor devolvido aqui é o
+             que já estava gravado antes desta importação: dá pra avisar
+             quantos continuam marcados sem precisar de uma consulta à parte. */
+          .select('id, excluido_pelo_app')
         if (r.error) { checar(r, 'importar os pedidos de suprimentos'); return null }
         total += (r.data || []).length
+        aindaExcluidos += (r.data || []).filter((x) => x.excluido_pelo_app).length
       }
 
       /* Limpeza: pedido que estava em aberto (sem entrega) no banco e
@@ -2056,7 +2062,7 @@ export function DadosProvider({ perfil, children }) {
       }
 
       await recarregar()
-      return { importados: total, removidos }
+      return { importados: total, removidos, aindaExcluidos }
     },
     [escopo, perfil.id, checar, recarregar],
   )
@@ -2235,6 +2241,44 @@ export function DadosProvider({ perfil, children }) {
       return { atualizados: (r.data || []).length }
     },
     [escopo, checar, recarregar],
+  )
+
+  /* Excluir pedido "pelo app": o sistema (UAU) às vezes mantém um
+     pedido que na prática foi cancelado e nunca vai chegar — sem
+     isso, ele empacava pra sempre no ranking de "mais antigo em
+     aberto" e nos indicadores de tempo médio. Não é um DELETE de
+     verdade (arquivar, não apagar, mesma regra de sempre): marca
+     `excluido_pelo_app`, com motivo opcional. Como o upsert de
+     `importarSuprimentos` só grava as colunas que ele conhece, essa
+     marca sobrevive a qualquer reimportação — reativar é a única
+     forma de tirar. */
+  const excluirPedidoSuprimento = useCallback(
+    async (id, motivo) => {
+      const r = await supabase.from('supply_orders')
+        .update({
+          excluido_pelo_app: true,
+          motivo_exclusao_app: motivo?.trim() || null,
+          excluido_em: new Date().toISOString(),
+          excluido_por: perfil.id,
+        })
+        .eq('id', id).select('*').single()
+      if (r.error) { checar(r, 'excluir o pedido'); return null }
+      setTudo((t) => t && ({ ...t, suprimentos: t.suprimentos.map((p) => (p.id === id ? r.data : p)) }))
+      return r.data
+    },
+    [perfil.id, checar],
+  )
+
+  const reativarPedidoSuprimento = useCallback(
+    async (id) => {
+      const r = await supabase.from('supply_orders')
+        .update({ excluido_pelo_app: false, motivo_exclusao_app: null, excluido_em: null, excluido_por: null })
+        .eq('id', id).select('*').single()
+      if (r.error) { checar(r, 'reativar o pedido'); return null }
+      setTudo((t) => t && ({ ...t, suprimentos: t.suprimentos.map((p) => (p.id === id ? r.data : p)) }))
+      return r.data
+    },
+    [checar],
   )
 
   // ── Contratos (itens de contrato importados do sistema) ────
@@ -3133,6 +3177,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador, definirIsencaoTreinamento,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
+      excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
@@ -3166,6 +3211,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntradaEpi, excluirEntradaEpi, salvarSaidaEpi, excluirSaidaEpi,
       salvarTreinamentoColaborador, excluirTreinamentoColaborador, definirIsencaoTreinamento,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
+      excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
