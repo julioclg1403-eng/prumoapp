@@ -294,19 +294,21 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
   const pedirArquivar = (item) => {
     const arquivando = item.ativo !== false
-    /* Arquivar empresa leva o time dela junto (ver arquivarCadastro em
-       DadosContext) — avisa antes, já que é um efeito que não fica
-       óbvio só olhando o botão. */
-    const colaboradoresDaEmpresa = tipo === 'empresas'
-      ? (dados.colaboradores || []).filter((c) => c.company_id === item.id && c.ativo !== false)
+    /* Empresa e colaboradores dela andam juntos, nos dois sentidos
+       (ver arquivarCadastro em DadosContext) — avisa antes, já que é
+       um efeito que não fica óbvio só olhando o botão. */
+    const colaboradoresParaMexer = tipo === 'empresas'
+      ? (dados.colaboradores || []).filter((c) => c.company_id === item.id && (c.ativo !== false) === arquivando)
       : []
     setConfirmar({
       titulo: arquivando ? `${rotuloArquivar} ${def.singular}?` : `${rotuloReativar} ${def.singular}?`,
       texto: arquivando
-        ? (colaboradoresDaEmpresa.length
-          ? `«${item.nome}» deixa de aparecer nas listas de escolha, e ${plural(colaboradoresDaEmpresa.length, 'colaborador dela fica inativo junto', 'colaboradores dela ficam inativos junto')} — os dois somem do Diário. Nada é apagado, e reativar a empresa depois não traz os colaboradores de volta sozinho.`
+        ? (colaboradoresParaMexer.length
+          ? `«${item.nome}» deixa de aparecer nas listas de escolha, e ${plural(colaboradoresParaMexer.length, 'colaborador dela fica inativo junto', 'colaboradores dela ficam inativos junto')} — os dois somem do Diário. Nada é apagado; se precisar tirar só alguém específico da equipe depois, é manual, na tela de Colaboradores.`
           : `«${item.nome}» deixa de aparecer nas listas de escolha, mas continua nos registros antigos. Nada é apagado.`)
-        : `«${item.nome}» volta a aparecer nas listas de escolha.`,
+        : (colaboradoresParaMexer.length
+          ? `«${item.nome}» volta a aparecer nas listas de escolha, e ${plural(colaboradoresParaMexer.length, 'colaborador dela volta ativo junto', 'colaboradores dela voltam ativos junto')}. Se algum não devia voltar, é só inativar ele na mão depois.`
+          : `«${item.nome}» volta a aparecer nas listas de escolha.`),
       rotuloOk: arquivando ? rotuloArquivar : rotuloReativar,
       perigo: arquivando,
       onOk: async () => { setConfirmar(null); await dados.arquivarCadastro(tipo, item.id) },

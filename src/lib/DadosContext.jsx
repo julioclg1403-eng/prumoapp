@@ -1622,29 +1622,30 @@ export function DadosProvider({ perfil, children }) {
         return
       }
 
-      /* Inativar uma empresa leva os colaboradores dela junto — sem
-         isso, o time de uma empreiteira que saiu da obra continuava
-         aparecendo pra escolher no Diário mesmo com a empresa já
-         arquivada. Só na hora de ARQUIVAR (não no reativar): reativar
-         a empresa não deve trazer de volta sozinho um colaborador que
-         foi desligado por outro motivo enquanto ela estava inativa —
-         isso continua sendo um por um, na mão. */
-      let colaboradoresInativados = []
-      if (tipo === 'empresas' && novoValor === false) {
-        const daEmpresa = (tudo.colaboradores || []).filter((c) => c.company_id === id && c.ativo !== false)
-        if (daEmpresa.length) {
-          const idsColaboradores = daEmpresa.map((c) => c.id)
-          const rc = await supabase.from('workers').update({ ativo: false }).in('id', idsColaboradores).select('id')
-          if (rc.error) checar(rc, 'inativar os colaboradores desta empresa')
-          else colaboradoresInativados = idsColaboradores
-        }
+      /* Empresa e colaboradores dela andam juntos — arquivar inativa
+         todo mundo (sem isso, o time de uma empreiteira que saiu da
+         obra continuava aparecendo pra escolher no Diário mesmo com
+         a empresa já arquivada); reativar traz todo mundo de volta.
+         Quem não deve voltar (foi desligado por outro motivo enquanto
+         a empresa estava inativa) é o um-a-um manual depois, na mão —
+         decisão do Julio: mais fácil tirar quem não devia do que ficar
+         recadastrando quem devia. */
+      const daEmpresa = tipo === 'empresas'
+        ? (tudo.colaboradores || []).filter((c) => c.company_id === id && (c.ativo !== false) !== novoValor)
+        : []
+      let colaboradoresMexidos = []
+      if (daEmpresa.length) {
+        const idsColaboradores = daEmpresa.map((c) => c.id)
+        const rc = await supabase.from('workers').update({ ativo: novoValor }).in('id', idsColaboradores).select('id')
+        if (rc.error) checar(rc, `${novoValor ? 'reativar' : 'inativar'} os colaboradores desta empresa`)
+        else colaboradoresMexidos = idsColaboradores
       }
 
       setTudo((t) => t && ({
         ...t,
         [tipo]: t[tipo].map((x) => (x.id === id ? { ...x, ativo: novoValor } : x)),
-        colaboradores: colaboradoresInativados.length
-          ? t.colaboradores.map((c) => (colaboradoresInativados.includes(c.id) ? { ...c, ativo: false } : c))
+        colaboradores: colaboradoresMexidos.length
+          ? t.colaboradores.map((c) => (colaboradoresMexidos.includes(c.id) ? { ...c, ativo: novoValor } : c))
           : t.colaboradores,
       }))
     },
