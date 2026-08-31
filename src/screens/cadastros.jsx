@@ -24,6 +24,12 @@ const TIPOS = {
     rotulo: 'Empresas',
     singular: 'empresa',
     feminino: true,
+    /* Mesmo vocabulário de colaboradores (ver comentário lá embaixo):
+       "ativo/inativo", não "arquivado" — e pelo mesmo motivo, agora
+       ligado: inativar a empresa leva o time dela junto (ver
+       arquivarCadastro em DadosContext), então faz sentido pensar
+       nos dois com a mesma palavra. */
+    statusPessoa: true,
     campos: [
       { nome: 'nome', rotulo: 'Nome', obrigatorio: true, placeholder: 'Empresa ou equipe' },
       {
