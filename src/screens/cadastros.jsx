@@ -294,10 +294,18 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
   const pedirArquivar = (item) => {
     const arquivando = item.ativo !== false
+    /* Arquivar empresa leva o time dela junto (ver arquivarCadastro em
+       DadosContext) — avisa antes, já que é um efeito que não fica
+       óbvio só olhando o botão. */
+    const colaboradoresDaEmpresa = tipo === 'empresas'
+      ? (dados.colaboradores || []).filter((c) => c.company_id === item.id && c.ativo !== false)
+      : []
     setConfirmar({
       titulo: arquivando ? `${rotuloArquivar} ${def.singular}?` : `${rotuloReativar} ${def.singular}?`,
       texto: arquivando
-        ? `«${item.nome}» deixa de aparecer nas listas de escolha, mas continua nos registros antigos. Nada é apagado.`
+        ? (colaboradoresDaEmpresa.length
+          ? `«${item.nome}» deixa de aparecer nas listas de escolha, e ${plural(colaboradoresDaEmpresa.length, 'colaborador dela fica inativo junto', 'colaboradores dela ficam inativos junto')} — os dois somem do Diário. Nada é apagado, e reativar a empresa depois não traz os colaboradores de volta sozinho.`
+          : `«${item.nome}» deixa de aparecer nas listas de escolha, mas continua nos registros antigos. Nada é apagado.`)
         : `«${item.nome}» volta a aparecer nas listas de escolha.`,
       rotuloOk: arquivando ? rotuloArquivar : rotuloReativar,
       perigo: arquivando,
