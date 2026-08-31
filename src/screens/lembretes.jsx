@@ -49,7 +49,7 @@ export default function Lembretes({ perfil }) {
     total: meus.length,
   }), [meus]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrirNovo = () => setEditando({ texto: '', disparar_em: '', local: '' })
+  const abrirNovo = () => setEditando({ texto: '', disparar_em: '', local: '', observacoes: '' })
 
   const salvar = async () => {
     if (!editando?.texto?.trim() || !editando?.disparar_em) return
@@ -59,6 +59,7 @@ export default function Lembretes({ perfil }) {
       texto: editando.texto,
       disparar_em: new Date(editando.disparar_em).toISOString(),
       local: editando.local,
+      observacoes: editando.observacoes,
     })
     setSalvando(false)
     if (ok) setEditando(null)
@@ -125,6 +126,11 @@ export default function Lembretes({ perfil }) {
                     <div className="row-between" style={{ alignItems: 'flex-start', gap: 10 }}>
                       <div className="grow">
                         <div className="t-strong" style={{ fontSize: 15 }}>{l.texto}</div>
+                        {l.observacoes && (
+                          <div className="t-caption" style={{ marginTop: 4, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+                            {l.observacoes}
+                          </div>
+                        )}
                         <div className="row-wrap" style={{ marginTop: 8, gap: 6, alignItems: 'center' }}>
                           <Chip tom={s.tom}>{s.rotulo}</Chip>
                           <span className="t-caption">{formatarDataHora(l.disparar_em)}</span>
@@ -211,6 +217,14 @@ export default function Lembretes({ perfil }) {
             <input
               className="ipt" value={editando?.local || ''}
               onChange={(e) => setEditando((p) => ({ ...p, local: e.target.value }))}
+            />
+          </Campo>
+          <Campo label="Observações" dica="Opcional — detalhe mais o que precisa lembrar.">
+            <textarea
+              className="ipt" style={{ minHeight: 80 }}
+              value={editando?.observacoes || ''}
+              onChange={(e) => setEditando((p) => ({ ...p, observacoes: e.target.value }))}
+              placeholder="Ex.: falar com o João, ramal 42, sobre a cotação do cimento."
             />
           </Campo>
         </div>

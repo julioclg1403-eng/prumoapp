@@ -3007,6 +3007,7 @@ export function DadosProvider({ perfil, children }) {
         texto: l.texto.trim(),
         disparar_em: l.disparar_em,
         local: (l.local || '').trim() || null,
+        observacoes: (l.observacoes || '').trim() || null,
         criado_por: perfil.id,
         destinatario_id: perfil.id,
         origem: 'app',
