@@ -31,8 +31,12 @@ export default function Lembretes({ perfil }) {
   const [removendo, setRemovendo] = useState(null)
   const [salvando, setSalvando] = useState(false)
 
+  /* "Meus" agora inclui tanto o que a pessoa criou pra si (jeito de
+     sempre) quanto o que outra pessoa criou marcando ela como
+     responsável — ver campo Responsáveis no formulário. */
   const meus = useMemo(
-    () => dados.lembretes.filter((l) => l.destinatario_id === perfil.id),
+    () => dados.lembretes.filter((l) =>
+      l.destinatario_id === perfil.id || (l.responsaveis_ids || []).includes(perfil.id)),
     [dados.lembretes, perfil.id],
   )
 
@@ -49,7 +53,13 @@ export default function Lembretes({ perfil }) {
     total: meus.length,
   }), [meus]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrirNovo = () => setEditando({ texto: '', disparar_em: '', local: '', observacoes: '' })
+  const abrirNovo = () => setEditando({ texto: '', disparar_em: '', local: '', observacoes: '', responsaveis_ids: [] })
+
+  const alternarResponsavel = (id) => setEditando((p) => {
+    const atual = p.responsaveis_ids || []
+    const novo = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]
+    return { ...p, responsaveis_ids: novo }
+  })
 
   const salvar = async () => {
     if (!editando?.texto?.trim() || !editando?.disparar_em) return
@@ -60,6 +70,7 @@ export default function Lembretes({ perfil }) {
       disparar_em: new Date(editando.disparar_em).toISOString(),
       local: editando.local,
       observacoes: editando.observacoes,
+      responsaveis_ids: editando.responsaveis_ids || [],
     })
     setSalvando(false)
     if (ok) setEditando(null)
@@ -136,6 +147,11 @@ export default function Lembretes({ perfil }) {
                           <span className="t-caption">{formatarDataHora(l.disparar_em)}</span>
                           {l.local && <span className="t-caption">· {l.local}</span>}
                         </div>
+                        {l.responsaveis_ids?.length > 0 && (
+                          <div className="t-caption" style={{ marginTop: 4 }}>
+                            Responsáveis: {l.responsaveis_ids.map((id) => dados.perfilPorId(id)?.nome || '—').join(', ')}
+                          </div>
+                        )}
                       </div>
                       <div className="row-flex" style={{ gap: 2 }}>
                         {l.status !== 'enviado' && (
@@ -226,6 +242,24 @@ export default function Lembretes({ perfil }) {
               onChange={(e) => setEditando((p) => ({ ...p, observacoes: e.target.value }))}
               placeholder="Ex.: falar com o João, ramal 42, sobre a cotação do cimento."
             />
+          </Campo>
+          <Campo label="Responsáveis" dica="Opcional — marque quem mais precisa ficar de olho nisso, além de você. Aparece na lista de lembretes de cada um marcado.">
+            <div className="stack-1" style={{ maxHeight: 220, overflowY: 'auto' }}>
+              {dados.perfis.filter((p) => p.id !== perfil.id).map((p) => {
+                const marcado = (editando?.responsaveis_ids || []).includes(p.id)
+                return (
+                  <label key={p.id} className="pick" data-on={marcado ? '1' : '0'} style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox" style={{ display: 'none' }}
+                      checked={marcado}
+                      onChange={() => alternarResponsavel(p.id)}
+                    />
+                    <span className="box"><Icon name="check" size={14} /></span>
+                    <span className="grow">{p.nome}</span>
+                  </label>
+                )
+              })}
+            </div>
           </Campo>
         </div>
       </Sheet>
