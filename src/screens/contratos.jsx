@@ -56,7 +56,7 @@ export default function Contratos({ voltar, perfil, params = {} }) {
           status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
           total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
           valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
-          destino: i.destino,
+          destino: i.destino, company_id: i.company_id,
         })
       }
     }
@@ -151,7 +151,7 @@ function AbaDados({ itens, dados, podeEditar }) {
           status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
           total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
           valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
-          destino: i.destino,
+          destino: i.destino, company_id: i.company_id,
           itens: [],
         })
       }
@@ -228,6 +228,7 @@ function AbaDados({ itens, dados, podeEditar }) {
                         <span className="t-strong" style={{ fontSize: 14 }}>Contrato {c.cod_contrato}</span>
                         <Chip tom={TOM_STATUS[c.status_contrato] || ''}>{c.status_contrato || '—'}</Chip>
                         {c.destino && <Chip tom="info">{ROTULO_DESTINO[c.destino]}</Chip>}
+                        {c.company_id && <Chip tom="success">{dados.nomeDe(dados.empresas, c.company_id)}</Chip>}
                       </div>
                       <div className="t-caption" style={{ marginTop: 2 }}>{c.fornecedor || 'Fornecedor não informado'}</div>
                       <div className="t-caption" style={{ color: 'var(--text-2)' }}>{c.objeto_contrato}</div>
@@ -272,6 +273,25 @@ function AbaDados({ itens, dados, podeEditar }) {
                             Limpar
                           </button>
                         )}
+                      </div>
+                    )}
+                    {podeEditar && (
+                      <div className="row-flex" style={{ gap: 6, marginBottom: 10, alignItems: 'center' }}>
+                        <span className="t-caption" style={{ marginRight: 2, flex: 'none' }}>Empresa vinculada:</span>
+                        <select
+                          className="sel" disabled={salvandoDestino}
+                          value={c.company_id || ''}
+                          onChange={async (e) => {
+                            setSalvandoDestino(true)
+                            await dados.definirEmpresaContrato(c.cod_contrato, e.target.value || null)
+                            setSalvandoDestino(false)
+                          }}
+                        >
+                          <option value="">Sem vínculo — fornecedor: {c.fornecedor || '—'}</option>
+                          {(dados.empresas || []).filter((emp) => emp.ativo !== false).map((emp) => (
+                            <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                          ))}
+                        </select>
                       </div>
                     )}
                     <div className="row-wrap" style={{ gap: 10, marginBottom: 10 }}>

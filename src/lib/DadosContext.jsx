@@ -2417,6 +2417,26 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, recarregar],
   )
 
+  /* Mesma ideia do destino acima: vincula a empresa cadastrada
+     (Cadastros → Empresas) ao contrato inteiro, por cod_contrato — é
+     o que deixa Contratos, Efetivo (workers.company_id) e
+     Produtividade linkados pela mesma empresa, em vez de só um nome
+     de fornecedor solto vindo da planilha. companyId null desvincula.
+     Também nunca é tocado por reimportarContratos. */
+  const definirEmpresaContrato = useCallback(
+    async (codContrato, companyId) => {
+      const worksite_id = escopo().worksite_id
+      const r = await supabase.from('contract_items')
+        .update({ company_id: companyId })
+        .eq('worksite_id', worksite_id).eq('cod_contrato', codContrato)
+        .select('id')
+      if (r.error) { checar(r, 'vincular a empresa deste contrato'); return false }
+      await recarregar()
+      return { atualizados: (r.data || []).length }
+    },
+    [escopo, checar, recarregar],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -3482,7 +3502,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTreinamentoColaborador, excluirTreinamentoColaborador, definirIsencaoTreinamento,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
-      importarContratos, definirDestinoContrato,
+      importarContratos, definirDestinoContrato, definirEmpresaContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal,
@@ -3519,7 +3539,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTreinamentoColaborador, excluirTreinamentoColaborador, definirIsencaoTreinamento,
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
-      importarContratos, definirDestinoContrato,
+      importarContratos, definirDestinoContrato, definirEmpresaContrato,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal, definirPapel,
