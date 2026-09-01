@@ -1,5 +1,6 @@
 /* ============================================================
-   NOTIFICAÇÕES
+   NOTIFICAÇÕES — vive dentro da aba Cadastros (um tipo selecionável
+   ali, igual Empresas/Colaboradores/etc.), não é mais tela própria.
 
    Quem recebe push assim que algo acontece em cada módulo, nesta
    obra — diferente de Lembretes (que é por horário marcado): aqui
@@ -19,8 +20,7 @@
    ============================================================ */
 
 import { useMemo, useState } from 'react'
-import { useDados } from '../lib/DadosContext'
-import { Icon, Chip, PageHeader } from '../components'
+import { Icon, Chip } from '../components'
 
 const GRUPOS = [
   {
@@ -52,53 +52,33 @@ const GRUPOS = [
   },
 ]
 
-export default function Notificacoes({ voltar }) {
-  const dados = useDados()
-
+export default function NotificacoesConteudo({ dados }) {
   return (
-    <>
-      <div className="topbar">
-        {voltar && (
-          <button onClick={voltar} aria-label="Voltar">
-            <Icon name="voltar" size={20} />
-          </button>
-        )}
-        <div className="grow">
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Notificações</div>
-          <div className="sub">Quem é avisado em cada módulo, nesta obra</div>
-        </div>
+    <div className="stack-2">
+      <div className="alert info">
+        Isto só cadastra quem deve ser avisado. Cada pessoa também precisa ativar as
+        notificações no aparelho dela — em Lembretes, o botão "Ativar" — para receber de
+        verdade.
       </div>
 
-      <div className="page">
-        <PageHeader titulo="Notificações" sub="Escolha quem recebe push quando algo acontece em cada módulo" />
-
-        <div className="stack-2">
-          <div className="alert info">
-            Isto só cadastra quem deve ser avisado. Cada pessoa também precisa ativar as
-            notificações no aparelho dela — em Lembretes, o botão "Ativar" — para receber de
-            verdade.
+      {GRUPOS.map((g) => (
+        <div key={g.rotulo} className="card-flat">
+          <div className="t-strong" style={{ fontSize: 16 }}>{g.rotulo}</div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 12,
+              marginTop: 10,
+            }}
+          >
+            {g.eventos.map((evento) => (
+              <RegraEvento key={evento.chave} evento={evento} dados={dados} />
+            ))}
           </div>
-
-          {GRUPOS.map((g) => (
-            <div key={g.rotulo} className="card-flat">
-              <div className="t-strong" style={{ fontSize: 16 }}>{g.rotulo}</div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: 12,
-                  marginTop: 10,
-                }}
-              >
-                {g.eventos.map((evento) => (
-                  <RegraEvento key={evento.chave} evento={evento} dados={dados} />
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
-      </div>
-    </>
+      ))}
+    </div>
   )
 }
 

@@ -16,6 +16,7 @@ import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle,
   Selecionavel, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
+import NotificacoesConteudo from './notificacoes'
 
 /* Um lugar só descrevendo cada cadastro. Acrescentar um cadastro
    novo é acrescentar uma entrada aqui, não uma tela nova. */
@@ -189,8 +190,21 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const TIPOS_VISIVEIS = Object.fromEntries(
     Object.entries(TIPOS).filter(([, d]) => !d.soAdmin || moduloPermitido(perfil, 'projetos')),
   )
+  /* Notificações não é um cadastro de verdade (não tem `dados[tipo]`
+     nem formulário genérico) — é uma pseudo-aba só pra caber no
+     mesmo seletor, admin-only igual Usuários. */
+  const ehAdmin = perfil?.role === 'admin'
+  const opcoesTipo = [
+    ...Object.entries(TIPOS_VISIVEIS).map(([chave, d]) => ({
+      valor: chave, rotulo: d.rotulo,
+      contador: (dados[chave] || []).filter((x) => x.ativo !== false).length,
+    })),
+    ...(ehAdmin ? [{ valor: 'notificacoes', rotulo: 'Notificações' }] : []),
+  ]
   const [tipo, setTipo] = useState(
-    params.tipo && TIPOS_VISIVEIS[params.tipo] ? params.tipo : 'empresas',
+    params.tipo === 'notificacoes' && ehAdmin
+      ? 'notificacoes'
+      : (params.tipo && TIPOS_VISIVEIS[params.tipo] ? params.tipo : 'empresas'),
   )
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
@@ -207,7 +221,11 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
      provisório, que a gestão confere depois. */
   const podeEditar = perfil?.role !== 'campo'
 
-  const def = TIPOS[tipo]
+  /* Notificações (tipo pseudo, fora de TIPOS) nunca chega a usar
+     `def` de verdade — o corpo inteiro é substituído mais abaixo
+     antes de qualquer JSX que dependa dele. O fallback aqui é só
+     pra não quebrar os cálculos deste bloco, que rodam sempre. */
+  const def = TIPOS[tipo] || TIPOS.empresas
   const todos = dados[tipo] || []
   const ativos = todos.filter((x) => x.ativo !== false).length
   const arquivados = todos.filter((x) => x.ativo === false).length
@@ -360,14 +378,16 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           <div style={{ fontSize: 17, fontWeight: 700 }}>Cadastros</div>
           <div className="sub">{dados.obra.nome}</div>
         </div>
-        <button onClick={abrirNovo} aria-label={`Nov${def.feminino ? 'a' : 'o'} ${def.singular}`}><Icon name="mais_sinal" size={22} /></button>
+        {tipo !== 'notificacoes' && (
+          <button onClick={abrirNovo} aria-label={`Nov${def.feminino ? 'a' : 'o'} ${def.singular}`}><Icon name="mais_sinal" size={22} /></button>
+        )}
       </div>
 
       <div className="page">
         <PageHeader
           titulo="Cadastros"
-          sub="Alimentam o diário, o efetivo e as pendências"
-          acao={
+          sub={tipo === 'notificacoes' ? 'Quem é avisado por push em cada módulo, nesta obra' : 'Alimentam o diário, o efetivo e as pendências'}
+          acao={tipo === 'notificacoes' ? null : (
             <div className="row-flex" style={{ flexWrap: 'wrap' }}>
               {tipo === 'estruturaPlanejada' && resumoEfetivo.clt.length + resumoEfetivo.terceirizados.length > 0 && (
                 <button className="btn btn-secondary" onClick={() => window.print()}>
@@ -388,11 +408,11 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
                 <Icon name="mais_sinal" size={18} /> Novo
               </button>
             </div>
-          }
+          )}
         />
 
         <div className="stack-2">
-          {!podeEditar && (
+          {!podeEditar && tipo !== 'notificacoes' && (
             <div className="alert info">
               Você pode <strong>cadastrar</strong> aqui, e o que criar entra como provisório para a
               gestão conferir. Editar e arquivar cadastro existente é com ela.
@@ -402,12 +422,13 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           <Segmentos
             valor={tipo}
             onChange={(t) => { setTipo(t); setMostrarArquivados(false); setAgrupamento('nome') }}
-            opcoes={Object.entries(TIPOS_VISIVEIS).map(([chave, d]) => ({
-              valor: chave, rotulo: d.rotulo,
-              contador: (dados[chave] || []).filter((x) => x.ativo !== false).length,
-            }))}
+            opcoes={opcoesTipo}
           />
 
+          {tipo === 'notificacoes' ? (
+            <NotificacoesConteudo dados={dados} />
+          ) : (
+            <>
           {arquivados > 0 && (
             <Segmentos
               valor={mostrarArquivados ? 'arquivados' : 'ativos'}
@@ -467,6 +488,8 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             <div className="stack-1">
               {lista.map((item) => <ItemDoCadastro key={item.id} item={item} />)}
             </div>
+          )}
+            </>
           )}
         </div>
       </div>

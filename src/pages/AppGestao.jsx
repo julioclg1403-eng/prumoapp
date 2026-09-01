@@ -30,7 +30,6 @@ import Projetos from '../screens/projetos'
 import Suprimentos from '../screens/suprimentos'
 import Contratos from '../screens/contratos'
 import Usuarios from '../screens/usuarios'
-import Notificacoes from '../screens/notificacoes'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
 export default function AppGestao({ perfil, onSair }) {
@@ -88,17 +87,16 @@ export default function AppGestao({ perfil, onSair }) {
        restringíveis que todo o resto (banco, RLS `tem_modulo`,
        concorda). */
     ...(perfil.role === 'admin'
-      ? [
-          { chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' },
-          { chave: 'notificacoes', rotulo: 'Notificações', icone: 'lembrete', desc: 'Quem é avisado por push em cada módulo' },
-        ]
+      ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' }]
       : []),
   ].filter((i) => (
-    /* "Início", "Usuários" e "Notificações" nunca são restringíveis
-       por essa lista — Início porque sem ele não sobra pra onde cair,
-       os outros dois porque já são admin-only por papel. Admin também
-       nunca é restringido: é quem restringe os outros, em Usuários. */
-    i.chave === 'inicio' || i.chave === 'usuarios' || i.chave === 'notificacoes' || perfil.role === 'admin'
+    /* "Início" e "Usuários" nunca são restringíveis por essa lista —
+       Início porque sem ele não sobra pra onde cair, Usuários porque
+       já é admin-only por papel. Admin também nunca é restringido:
+       é quem restringe os outros, em Usuários. Notificações não tem
+       item de menu próprio: mora dentro de Cadastros, como mais um
+       tipo selecionável ali, só visível pra admin. */
+    i.chave === 'inicio' || i.chave === 'usuarios' || perfil.role === 'admin'
       || !perfil.modulos_permitidos || perfil.modulos_permitidos.includes(i.chave)
   ))
 
@@ -125,7 +123,7 @@ export default function AppGestao({ perfil, onSair }) {
      módulos restringíveis, vira "sim" só pra quem é admin. Projetos
      não está mais aqui: segue a mesma regra dos outros módulos
      (bloco de baixo). */
-  const ADMIN_ONLY = ['usuarios', 'notificacoes']
+  const ADMIN_ONLY = ['usuarios']
   const semRestricao = perfil.role === 'admin' || !perfil.modulos_permitidos
   const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || (
     ADMIN_ONLY.includes(chaveDoModulo)
@@ -161,7 +159,6 @@ export default function AppGestao({ perfil, onSair }) {
     case 'contratos':  corpo = <Contratos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
-    case 'notificacoes': corpo = <Notificacoes voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={pilha.length > 1 ? voltar : null} params={rota.params} />; break
     case 'mais':       corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break
     default:           corpo = <InicioGestao goto={goto} irParaAba={irParaAba} perfil={perfil} />
