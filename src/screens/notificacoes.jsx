@@ -21,6 +21,7 @@ const MODULOS = [
   { chave: 'diario_finalizado', rotulo: 'Diário — finalizado', desc: 'Quando alguém finaliza o diário do dia' },
   { chave: 'diario_pendente', rotulo: 'Diário — ainda não feito', desc: 'Aviso automático de segunda a sábado, por volta das 14h, se o diário do dia ainda não foi finalizado' },
   { chave: 'refeicoes', rotulo: 'Refeições', desc: 'Quando um lançamento de refeição é salvo' },
+  { chave: 'refeicoes_pendente', rotulo: 'Refeições — ainda não preenchida', desc: 'Aviso automático de segunda a sábado, por volta das 14h, se nenhuma refeição foi lançada hoje' },
   { chave: 'pendencias', rotulo: 'Pendências', desc: 'Quando uma pendência nova é aberta' },
   { chave: 'planejamento', rotulo: 'Planejamento', desc: 'Quando o planejamento é atualizado' },
   { chave: 'projetos', rotulo: 'Projetos', desc: 'Quando um apontamento novo é publicado' },
