@@ -17,7 +17,9 @@ import { useDados } from '../lib/DadosContext'
 import { Icon, Chip, PageHeader } from '../components'
 
 const MODULOS = [
-  { chave: 'diario', rotulo: 'Diário', desc: 'Quando alguém finaliza o diário do dia' },
+  { chave: 'diario_rascunho', rotulo: 'Diário — rascunho salvo', desc: 'Quando alguém salva o diário sem finalizar' },
+  { chave: 'diario_finalizado', rotulo: 'Diário — finalizado', desc: 'Quando alguém finaliza o diário do dia' },
+  { chave: 'diario_pendente', rotulo: 'Diário — ainda não feito', desc: 'Aviso automático de segunda a sábado, por volta das 14h, se o diário do dia ainda não foi finalizado' },
   { chave: 'refeicoes', rotulo: 'Refeições', desc: 'Quando um lançamento de refeição é salvo' },
   { chave: 'pendencias', rotulo: 'Pendências', desc: 'Quando uma pendência nova é aberta' },
   { chave: 'planejamento', rotulo: 'Planejamento', desc: 'Quando o planejamento é atualizado' },

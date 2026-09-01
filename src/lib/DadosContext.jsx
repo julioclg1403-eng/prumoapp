@@ -622,10 +622,16 @@ export function DadosProvider({ perfil, children }) {
               })
             : t.planejamento,
         }))
+        const diaFormatado = diario.data.split('-').reverse().join('/')
         if (normalizado.status === 'finalizado') {
-          notificarRegra('diario', {
-            titulo: 'Diário lançado',
-            corpo: `${perfil.nome} finalizou o diário do dia ${diario.data.split('-').reverse().join('/')}`,
+          notificarRegra('diario_finalizado', {
+            titulo: 'Diário finalizado',
+            corpo: `${perfil.nome} finalizou o diário do dia ${diaFormatado}`,
+          })
+        } else if (normalizado.status === 'rascunho') {
+          notificarRegra('diario_rascunho', {
+            titulo: 'Rascunho do diário salvo',
+            corpo: `${perfil.nome} salvou um rascunho do diário do dia ${diaFormatado}`,
           })
         }
         return normalizado

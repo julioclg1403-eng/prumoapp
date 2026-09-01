@@ -38,6 +38,7 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import webpush from 'npm:web-push@3.6.7'
 
 const PREVISION_URL = 'https://api.prevision.com.br/graphql'
 
@@ -45,6 +46,43 @@ const admin = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
 )
+
+const VAPID_PUBLIC_KEY = Deno.env.get('VAPID_PUBLIC_KEY') || ''
+const VAPID_PRIVATE_KEY = Deno.env.get('VAPID_PRIVATE_KEY') || ''
+const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') || 'mailto:contato@prumoapp.com'
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
+
+/* Avisa quem está cadastrado em Notificações (módulo "planejamento")
+   quando a sincronização traz alguma mudança de verdade — mesmo
+   evento que salvarPlanejado/salvarPlanejadosEmLote dispara quando
+   é a pessoa mexendo na mão (ver notificarRegra em DadosContext.jsx).
+   Silenciosa em erro: notificação nunca pode derrubar a sincronização. */
+async function notificarPlanejamentoAtualizado(worksiteId: string, criados: number, atualizados: number) {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || (criados + atualizados) === 0) return
+  try {
+    const regra = await admin.from('notification_rules').select('destinatarios_ids')
+      .eq('worksite_id', worksiteId).eq('modulo', 'planejamento').maybeSingle()
+    const destinatarios = regra.data?.destinatarios_ids || []
+    if (!destinatarios.length) return
+
+    const subs = await admin.from('push_subscriptions').select('id, endpoint, p256dh, auth')
+      .eq('ativo', true).in('profile_id', destinatarios)
+    const corpo = `Prevision atualizou o cronograma: ${criados} nova(s), ${atualizados} atualizada(s).`
+    for (const sub of subs.data || []) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          JSON.stringify({ title: 'Planejamento atualizado', body: corpo, url: '/', tag: `prevision-${worksiteId}` }),
+        )
+      } catch (erro) {
+        const status = (erro as { statusCode?: number })?.statusCode
+        if (status === 404 || status === 410) await admin.from('push_subscriptions').delete().eq('id', sub.id)
+      }
+    }
+  } catch (e) {
+    console.error('[prevision-sync] notificar planejamento', e instanceof Error ? e.message : String(e))
+  }
+}
 
 const QUERY_ACTIVIDADES = `
   query($projectId: ID!, $after: String) {
@@ -75,7 +113,7 @@ Deno.serve(async (req: Request) => {
   if (config.error || !config.data) return json({ erro: 'Sem configuração da Prevision.' }, 500)
 
   const segredo = req.headers.get('x-cron-secret')
-  if (!segredo || segredo !== config.data.cron_secret) return json({ erro: 'Não autorizado.' }, 401)
+  if (!segredo || !compararConstante(segredo, config.data.cron_secret)) return json({ erro: 'Não autorizado.' }, 401)
 
   const links = await admin.from('prevision_project_links').select('*')
   if (links.error) return json({ erro: links.error.message }, 500)
@@ -91,6 +129,7 @@ Deno.serve(async (req: Request) => {
       })
       if (r.error) throw new Error(r.error.message)
       const { criados, atualizados } = r.data?.[0] || { criados: 0, atualizados: 0 }
+      await notificarPlanejamentoAtualizado(link.worksite_id, criados, atualizados)
 
       /* A curva S é opcional — projeto sem baseline ativa (ver Fama
          Yacht) não tem, e isso não pode derrubar a sincronização do
@@ -217,4 +256,13 @@ async function buscarAtividades(apiKey: string, projectId: string) {
 
 function json(corpo: unknown, status = 200) {
   return new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
+// Comparação em tempo constante -- evita que diferenças no tempo de
+// resposta revelem, byte a byte, qual é o segredo esperado.
+function compararConstante(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
 }
