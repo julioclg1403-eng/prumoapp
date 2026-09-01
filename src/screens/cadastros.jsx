@@ -16,6 +16,7 @@ import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, ChipToggle, Selecionavel,
 } from '../components'
 import NotificacoesConteudo from './notificacoes'
+import CatalogoServicosConteudo from './catalogoServicos'
 
 /* Um lugar só descrevendo cada cadastro. Acrescentar um cadastro
    novo é acrescentar uma entrada aqui, não uma tela nova. */
@@ -158,22 +159,32 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const TIPOS_VISIVEIS = Object.fromEntries(
     Object.entries(TIPOS).filter(([, d]) => !d.soAdmin || moduloPermitido(perfil, 'projetos')),
   )
-  /* Notificações não é um cadastro de verdade (não tem `dados[tipo]`
-     nem formulário genérico) — é uma pseudo-aba só pra caber no
-     mesmo seletor, admin-only igual Usuários. */
+  /* Notificações e Catálogo de Serviços não são cadastros de verdade
+     (não têm `dados[tipo]` nem formulário genérico) — são pseudo-abas
+     só pra caber no mesmo seletor. Notificações é admin-only igual
+     Usuários; Catálogo de Serviços (base do módulo Produtividade e
+     Medição) é gestão+admin, mesmo corte de quem edita o resto dos
+     cadastros — campo não configura fórmula/estágio. */
   const ehAdmin = perfil?.role === 'admin'
+  const naoCampo = perfil?.role !== 'campo'
+  const PSEUDO_ABAS = [
+    ...(naoCampo ? [{ valor: 'catalogoServicos', rotulo: 'Catálogo de Serviços' }] : []),
+    ...(ehAdmin ? [{ valor: 'notificacoes', rotulo: 'Notificações (admin)' }] : []),
+  ]
   const opcoesTipo = [
     ...Object.entries(TIPOS_VISIVEIS).map(([chave, d]) => ({
       valor: chave, rotulo: d.rotulo,
       contador: (dados[chave] || []).filter((x) => x.ativo !== false).length,
     })),
-    ...(ehAdmin ? [{ valor: 'notificacoes', rotulo: 'Notificações (admin)' }] : []),
+    ...PSEUDO_ABAS,
   ]
+  const CHAVES_PSEUDO_ABAS = PSEUDO_ABAS.map((p) => p.valor)
   const [tipo, setTipo] = useState(
-    params.tipo === 'notificacoes' && ehAdmin
-      ? 'notificacoes'
+    params.tipo && CHAVES_PSEUDO_ABAS.includes(params.tipo)
+      ? params.tipo
       : (params.tipo && TIPOS_VISIVEIS[params.tipo] ? params.tipo : 'empresas'),
   )
+  const ehPseudoAba = CHAVES_PSEUDO_ABAS.includes(tipo)
   const [editando, setEditando] = useState(null)
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
@@ -321,7 +332,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           <div style={{ fontSize: 17, fontWeight: 700 }}>Cadastros</div>
           <div className="sub">{dados.obra.nome}</div>
         </div>
-        {tipo !== 'notificacoes' && (
+        {!ehPseudoAba && (
           <button onClick={abrirNovo} aria-label={`Nov${def.feminino ? 'a' : 'o'} ${def.singular}`}><Icon name="mais_sinal" size={22} /></button>
         )}
       </div>
@@ -329,8 +340,12 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
       <div className="page">
         <PageHeader
           titulo="Cadastros"
-          sub={tipo === 'notificacoes' ? 'Quem é avisado por push em cada módulo, nesta obra' : 'Alimentam o diário, o efetivo e as pendências'}
-          acao={tipo === 'notificacoes' ? null : (
+          sub={
+            tipo === 'notificacoes' ? 'Quem é avisado por push em cada módulo, nesta obra'
+              : tipo === 'catalogoServicos' ? 'Base do módulo Produtividade e Medição'
+              : 'Alimentam o diário, o efetivo e as pendências'
+          }
+          acao={ehPseudoAba ? null : (
             <div className="row-flex" style={{ flexWrap: 'wrap' }}>
               {podeEditar && tipo === 'estruturaCustos' && (
                 <button className="btn btn-secondary" onClick={() => setImportandoPDF(true)}>
@@ -350,7 +365,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
         />
 
         <div className="stack-2">
-          {!podeEditar && tipo !== 'notificacoes' && (
+          {!podeEditar && !ehPseudoAba && (
             <div className="alert info">
               Você pode <strong>cadastrar</strong> aqui, e o que criar entra como provisório para a
               gestão conferir. Editar e arquivar cadastro existente é com ela.
@@ -365,6 +380,8 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
           {tipo === 'notificacoes' ? (
             <NotificacoesConteudo dados={dados} />
+          ) : tipo === 'catalogoServicos' ? (
+            <CatalogoServicosConteudo dados={dados} />
           ) : (
             <>
           {arquivados > 0 && (

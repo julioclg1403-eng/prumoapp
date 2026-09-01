@@ -190,6 +190,7 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
       estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
+      tiposServico, plantasProducao, marcadoresProducao, eventosProducao,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -238,6 +239,10 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('stock_movements').select('*').order('periodo_fim', { ascending: false })),
       buscarPaginado(() => supabase.from('worker_training_exemptions').select('*')),
       buscarPaginado(() => supabase.from('notification_rules').select('*')),
+      buscarPaginado(() => supabase.from('service_types').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('production_plans').select('*').order('created_at', { ascending: false })),
+      buscarPaginado(() => supabase.from('production_markers').select('*')),
+      buscarPaginado(() => supabase.from('production_marker_events').select('*').order('data_execucao', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -249,7 +254,8 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
-      movimentosEstoque, isencoesTreinamento, regrasNotificacao].find((r) => r.error)
+      movimentosEstoque, isencoesTreinamento, regrasNotificacao,
+      tiposServico, plantasProducao, marcadoresProducao, eventosProducao].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -322,6 +328,13 @@ export function DadosProvider({ perfil, children }) {
       movimentosEstoque: movimentosEstoque.data || [],
       isencoesTreinamento: isencoesTreinamento.data || [],
       regrasNotificacao: regrasNotificacao.data || [],
+      /* Catálogo de tipos de serviço (Produtividade e Medição) é da
+         organização, mesmo motivo do catálogo de materiais acima —
+         reutilizável entre obras, não passa pelo filtro de obra. */
+      tiposServico: tiposServico.data || [],
+      plantasProducao: plantasProducao.data || [],
+      marcadoresProducao: marcadoresProducao.data || [],
+      eventosProducao: eventosProducao.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -441,6 +454,9 @@ export function DadosProvider({ perfil, children }) {
       movimentosEstoque: filtrar(tudo.movimentosEstoque),
       isencoesTreinamento: filtrar(tudo.isencoesTreinamento),
       regrasNotificacao: filtrar(tudo.regrasNotificacao),
+      plantasProducao: filtrar(tudo.plantasProducao),
+      marcadoresProducao: filtrar(tudo.marcadoresProducao),
+      eventosProducao: filtrar(tudo.eventosProducao),
     }
   }, [tudo, obraId])
 
@@ -3159,6 +3175,52 @@ export function DadosProvider({ perfil, children }) {
     [tudo, perfil.organization_id, checar],
   )
 
+  // ── Catálogo de tipos de serviço (Produtividade e Medição) ──
+  /* Mesmo princípio do catálogo de materiais acima: nível
+     organização, reutilizável entre obras — por isso não recebe
+     worksite_id. */
+  const salvarTipoServico = useCallback(
+    async (item) => {
+      const linha = {
+        organization_id: perfil.organization_id,
+        nome: item.nome,
+        unidade_resultado: item.unidade_resultado,
+        campos_dimensao: item.campos_dimensao || [],
+        formula: item.formula,
+        etapas: item.etapas || [],
+      }
+      if (item.id) linha.id = item.id
+      const salvo = checar(
+        await supabase.from('service_types').upsert(linha).select('*').single(),
+        'salvar o tipo de serviço',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        tiposServico: t.tiposServico.some((x) => x.id === salvo.id)
+          ? t.tiposServico.map((x) => (x.id === salvo.id ? salvo : x))
+          : [...t.tiposServico, salvo],
+      }))
+      return salvo
+    },
+    [perfil.organization_id, checar],
+  )
+
+  const arquivarTipoServico = useCallback(
+    async (id) => {
+      const atual = tudo?.tiposServico.find((x) => x.id === id)
+      if (!atual) return
+      const novoValor = atual.ativo === false ? true : false
+      const r = await supabase.from('service_types').update({ ativo: novoValor }).eq('id', id)
+      if (r.error) { checar(r, `${novoValor ? 'reativar' : 'arquivar'} o tipo de serviço`); return }
+      setTudo((t) => t && ({
+        ...t,
+        tiposServico: t.tiposServico.map((x) => (x.id === id ? { ...x, ativo: novoValor } : x)),
+      }))
+    },
+    [tudo, checar],
+  )
+
   // ── Usuários (só o admin chega aqui) ──────────────────────
   const definirPapel = useCallback(
     async (usuarioId, papel) => {
@@ -3256,6 +3318,14 @@ export function DadosProvider({ perfil, children }) {
       perfis: tudo.perfis,
       materiais: tudo.materiais,
       contatosWhatsapp: tudo.contatosWhatsapp,
+      tiposServico: tudo.tiposServico,
+      /* Rendimento (Produtividade) cruza obras — o catálogo de
+         serviços é da organização, então "colaborador X vs. média do
+         serviço" precisa olhar eventos de TODAS as obras, não só a
+         atual (ver `...daObra` logo abaixo, que sobrescreveria com a
+         versão filtrada se viesse depois). */
+      eventosProducaoTodasObras: tudo.eventosProducao,
+      marcadoresProducaoTodasObras: tudo.marcadoresProducao,
       ...daObra,
       salvarMaterial,
       trocarObra,
@@ -3293,6 +3363,7 @@ export function DadosProvider({ perfil, children }) {
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
+      salvarTipoServico, arquivarTipoServico,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -3329,6 +3400,7 @@ export function DadosProvider({ perfil, children }) {
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
+      salvarTipoServico, arquivarTipoServico,
     ],
   )
 
