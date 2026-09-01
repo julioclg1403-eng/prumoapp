@@ -7,6 +7,12 @@
    lançada, pendência aberta, planejamento atualizado). Ver
    notificarRegra em DadosContext.jsx, que lê esta tabela.
 
+   Agrupado por módulo, com os eventos de cada um lado a lado (uma
+   grade que colapsa pra uma coluna só no celular) — Diário e
+   Refeições têm mais de um evento (rascunho/finalizado/pendente),
+   e ficar rolando um card cheio por evento tornava isso cansativo
+   de configurar.
+
    Sem botão "Salvar": cada clique (adicionar/remover pessoa) já
    grava na hora — é mais simples e evita a tela ficar com um
    rascunho "esquecido" sem salvar.
@@ -16,15 +22,34 @@ import { useMemo, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { Icon, Chip, PageHeader } from '../components'
 
-const MODULOS = [
-  { chave: 'diario_rascunho', rotulo: 'Diário — rascunho salvo', desc: 'Quando alguém salva o diário sem finalizar' },
-  { chave: 'diario_finalizado', rotulo: 'Diário — finalizado', desc: 'Quando alguém finaliza o diário do dia' },
-  { chave: 'diario_pendente', rotulo: 'Diário — ainda não feito', desc: 'Aviso automático de segunda a sábado, por volta das 14h, se o diário do dia ainda não foi finalizado' },
-  { chave: 'refeicoes', rotulo: 'Refeições', desc: 'Quando um lançamento de refeição é salvo' },
-  { chave: 'refeicoes_pendente', rotulo: 'Refeições — ainda não preenchida', desc: 'Aviso automático de segunda a sábado, por volta das 14h, se nenhuma refeição foi lançada hoje' },
-  { chave: 'pendencias', rotulo: 'Pendências', desc: 'Quando uma pendência nova é aberta' },
-  { chave: 'planejamento', rotulo: 'Planejamento', desc: 'Quando o planejamento é atualizado' },
-  { chave: 'projetos', rotulo: 'Projetos', desc: 'Quando um apontamento novo é publicado' },
+const GRUPOS = [
+  {
+    rotulo: 'Diário',
+    eventos: [
+      { chave: 'diario_rascunho', rotulo: 'Rascunho salvo', desc: 'Salvou sem finalizar' },
+      { chave: 'diario_finalizado', rotulo: 'Finalizado', desc: 'Diário do dia concluído' },
+      { chave: 'diario_pendente', rotulo: 'Ainda não feito', desc: 'Aviso automático, seg-sáb ~14h' },
+    ],
+  },
+  {
+    rotulo: 'Refeições',
+    eventos: [
+      { chave: 'refeicoes', rotulo: 'Lançamento salvo', desc: 'Um lançamento foi feito' },
+      { chave: 'refeicoes_pendente', rotulo: 'Ainda não preenchida', desc: 'Aviso automático, seg-sáb ~14h' },
+    ],
+  },
+  {
+    rotulo: 'Pendências',
+    eventos: [{ chave: 'pendencias', rotulo: 'Pendência nova', desc: 'Quando uma pendência é aberta' }],
+  },
+  {
+    rotulo: 'Planejamento',
+    eventos: [{ chave: 'planejamento', rotulo: 'Atualizado', desc: 'Editado na mão ou pela sincronização com a Prevision' }],
+  },
+  {
+    rotulo: 'Projetos',
+    eventos: [{ chave: 'projetos', rotulo: 'Apontamento publicado', desc: 'Um apontamento novo fica visível' }],
+  },
 ]
 
 export default function Notificacoes({ voltar }) {
@@ -54,8 +79,22 @@ export default function Notificacoes({ voltar }) {
             verdade.
           </div>
 
-          {MODULOS.map((m) => (
-            <RegraModulo key={m.chave} modulo={m} dados={dados} />
+          {GRUPOS.map((g) => (
+            <div key={g.rotulo} className="card-flat">
+              <div className="t-strong" style={{ fontSize: 16 }}>{g.rotulo}</div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 12,
+                  marginTop: 10,
+                }}
+              >
+                {g.eventos.map((evento) => (
+                  <RegraEvento key={evento.chave} evento={evento} dados={dados} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>
@@ -63,9 +102,9 @@ export default function Notificacoes({ voltar }) {
   )
 }
 
-function RegraModulo({ modulo, dados }) {
+function RegraEvento({ evento, dados }) {
   const [busca, setBusca] = useState('')
-  const regra = dados.regrasNotificacao.find((r) => r.modulo === modulo.chave)
+  const regra = dados.regrasNotificacao.find((r) => r.modulo === evento.chave)
   const destinatariosIds = regra?.destinatarios_ids || []
 
   const resultados = useMemo(() => {
@@ -73,23 +112,23 @@ function RegraModulo({ modulo, dados }) {
     if (!termo) return []
     return dados.perfis
       .filter((p) => !destinatariosIds.includes(p.id) && p.nome.toLowerCase().includes(termo))
-      .slice(0, 8)
+      .slice(0, 6)
   }, [busca, dados.perfis, destinatariosIds])
 
   const adicionar = (id) => {
     setBusca('')
-    dados.salvarRegraNotificacao(modulo.chave, [...destinatariosIds, id])
+    dados.salvarRegraNotificacao(evento.chave, [...destinatariosIds, id])
   }
   const remover = (id) => {
-    dados.salvarRegraNotificacao(modulo.chave, destinatariosIds.filter((x) => x !== id))
+    dados.salvarRegraNotificacao(evento.chave, destinatariosIds.filter((x) => x !== id))
   }
 
   return (
-    <div className="card-flat">
-      <div className="t-strong" style={{ fontSize: 15 }}>{modulo.rotulo}</div>
-      <div className="t-caption" style={{ marginTop: 2 }}>{modulo.desc}</div>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
+      <div className="t-strong" style={{ fontSize: 13.5 }}>{evento.rotulo}</div>
+      <div className="t-caption" style={{ marginTop: 2 }}>{evento.desc}</div>
 
-      <div className="stack-1" style={{ marginTop: 10 }}>
+      <div className="stack-1" style={{ marginTop: 8 }}>
         {destinatariosIds.length > 0 && (
           <div className="row-wrap" style={{ gap: 6 }}>
             {destinatariosIds.map((id) => (
@@ -108,7 +147,8 @@ function RegraModulo({ modulo, dados }) {
         <input
           className="ipt" value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar pessoa pelo nome…"
+          placeholder="Buscar pessoa…"
+          style={{ fontSize: 13.5 }}
         />
         {resultados.length > 0 && (
           <div className="stack-1">
