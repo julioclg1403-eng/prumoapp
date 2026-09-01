@@ -190,9 +190,13 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
   )
 
   /* Histórico de movimentação de UM material (dentro de Editar
-     material) — entrada e saída juntas, mais recente primeiro, pra
-     ver de relance quando entrou e quando saiu, sem precisar caçar
-     em duas abas separadas. */
+     material) — entrada e saída lançadas no app, MAIS cada período já
+     importado da planilha da UAU (dados.movimentosEstoque), tudo
+     junto, mais recente primeiro. Antes só mostrava entrada/saída
+     manual: reimportar a planilha (que é como "dar baixa" funciona
+     na prática hoje, ver dominio.saldoEstoqueImportado) não aparecia
+     aqui — a pessoa importava e não via nada mudar na história do
+     material. */
   const historicoMaterial = useMemo(() => {
     if (!editandoMaterial?.id) return []
     const ents = entradas
@@ -201,8 +205,16 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     const sais = saidas
       .filter((s) => s.material_id === editandoMaterial.id)
       .map((s) => ({ tipo: 'saida', data: s.data, quantidade: s.quantidade, detalhe: s.destino || '' }))
-    return [...ents, ...sais].sort((a, b) => (a.data < b.data ? 1 : -1))
-  }, [editandoMaterial, entradas, saidas])
+    const importacoes = (dados.movimentosEstoque || [])
+      .filter((mov) => mov.material_id === editandoMaterial.id)
+      .map((mov) => ({
+        tipo: 'importacao',
+        data: mov.periodo_fim,
+        quantidade: Number(mov.saldo),
+        detalhe: `período ${formatarDataCurta(mov.periodo_inicio)}–${formatarDataCurta(mov.periodo_fim)} · entrada ${mov.qtde_entrada} · baixa ${mov.qtde_baixa}`,
+      }))
+    return [...ents, ...sais, ...importacoes].sort((a, b) => (a.data < b.data ? 1 : -1))
+  }, [editandoMaterial, entradas, saidas, dados.movimentosEstoque])
 
   /* Todo pedido de Suprimentos (Almoxarifado ou EPI, qualquer Destino
      — inclusive sem Destino ainda) cujo nome bate com este material,
@@ -1138,15 +1150,15 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
               />
               {historicoFiltrado.length === 0 ? (
                 <div className="t-caption">
-                  {historicoMaterial.length === 0 ? 'Nenhuma entrada ou saída lançada ainda pra este material.' : 'Nada nesse período.'}
+                  {historicoMaterial.length === 0 ? 'Nenhuma movimentação (lançada no app ou importada da planilha) ainda pra este material.' : 'Nada nesse período.'}
                 </div>
               ) : (
                 <div className="stack-1">
                   {historicoFiltrado.map((h, i) => (
                     <div key={i} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
                       <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
-                        <Chip tom={h.tipo === 'entrada' ? 'success' : 'danger'}>
-                          {h.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                        <Chip tom={h.tipo === 'entrada' ? 'success' : h.tipo === 'saida' ? 'danger' : 'info'}>
+                          {h.tipo === 'entrada' ? 'Entrada' : h.tipo === 'saida' ? 'Saída' : 'Importação'}
                         </Chip>
                         <div>
                           <div className="t-caption">{formatarDataCurta(h.data)}</div>
@@ -1154,7 +1166,7 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                         </div>
                       </div>
                       <span className="t-strong" style={{ fontSize: 14 }}>
-                        {h.tipo === 'entrada' ? '+' : '−'}{h.quantidade} {editandoMaterial.unidade}
+                        {h.tipo === 'entrada' ? `+${h.quantidade}` : h.tipo === 'saida' ? `−${h.quantidade}` : `saldo ${h.quantidade}`} {editandoMaterial.unidade}
                       </span>
                     </div>
                   ))}
