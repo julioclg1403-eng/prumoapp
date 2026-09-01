@@ -56,9 +56,9 @@ export default function NotificacoesConteudo({ dados }) {
   return (
     <div className="stack-2">
       <div className="alert info">
-        Isto só cadastra quem deve ser avisado. Cada pessoa também precisa ativar as
-        notificações no aparelho dela — em Lembretes, o botão "Ativar" — para receber de
-        verdade.
+        Só admin vê e mexe nesta aba. Isto só cadastra quem deve ser avisado — cada pessoa
+        também precisa ativar as notificações no aparelho dela — em Lembretes, o botão
+        "Ativar" — para receber de verdade.
       </div>
 
       {GRUPOS.map((g) => (
