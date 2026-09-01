@@ -162,6 +162,12 @@ export default function Lembretes({ perfil }) {
                 {push.carregando ? '...' : push.inscrito ? 'Desativar' : 'Ativar'}
               </button>
             </div>
+          ) : push.precisaInstalarNoIphone ? (
+            <div className="alert info">
+              No iPhone, notificação só funciona depois de instalar o Prumo na tela de início:
+              toque em Compartilhar (o quadrado com a seta pra cima) e depois em "Adicionar à
+              Tela de Início". Abra o Prumo por esse ícone (não pelo Safari) e ative aqui.
+            </div>
           ) : (
             <div className="alert info">
               Este navegador não aceita notificações push. Isto guarda a data marcada, mas

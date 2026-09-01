@@ -15,6 +15,21 @@ function suportado() {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window
 }
 
+/* No iPhone (iOS 16.4+), Notification/PushManager só existem dentro
+   do app instalado (Compartilhar → Adicionar à Tela de Início) --
+   numa aba do Safari normal, `suportado()` acima já dá falso, sem
+   explicar por quê. Esta checagem é o que diferencia "seu aparelho
+   não aceita" (Android antigo, navegador exótico) de "aceita, mas
+   você abriu pelo Safari em vez de pelo ícone instalado". */
+function precisaInstalarNoIphone() {
+  if (typeof navigator === 'undefined') return false
+  const ehIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream
+  if (!ehIOS) return false
+  const instalado = window.navigator.standalone === true
+    || window.matchMedia?.('(display-mode: standalone)').matches
+  return !instalado
+}
+
 function base64ParaUint8Array(base64) {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4)
   const base64Seguro = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -106,5 +121,9 @@ export function usePushNotifications() {
     }
   }, [])
 
-  return { suportado: suportado(), permissao, inscrito, carregando, erro, ativar, desativar }
+  return {
+    suportado: suportado(),
+    precisaInstalarNoIphone: !suportado() && precisaInstalarNoIphone(),
+    permissao, inscrito, carregando, erro, ativar, desativar,
+  }
 }
