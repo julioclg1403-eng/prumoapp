@@ -7,6 +7,16 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // injectManifest (não generateSW): o service worker próprio em
+      // src/sw.js precisa de código customizado (listeners de push e
+      // notificationclick para as notificações do módulo Lembretes),
+      // que o generateSW não permite dentro do SW gerado.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
+      },
       includeAssets: ['favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Prumo',
@@ -22,13 +32,6 @@ export default defineConfig({
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
           { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
-      },
-      // App de dado ao vivo (obra, diário do dia) -- cachear a resposta da
-      // API do Supabase renderia a tela com dado velho sem avisar. Só o
-      // "esqueleto" do app (JS/CSS/ícones) fica offline-ready; os dados
-      // sempre pedem rede.
-      workbox: {
-        navigateFallbackDenylist: [/^\/functions\//],
       },
     }),
   ],
