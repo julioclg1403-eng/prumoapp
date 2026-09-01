@@ -14,10 +14,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, diarioDaData } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo } from '../lib/dominio'
 import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio } from '../components'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
@@ -50,12 +50,8 @@ export default function Producao({ voltar, perfil }) {
           />
 
           {aba === 'plantas' && <AbaPlantas dados={dados} perfil={perfil} podeEditar={podeEditar} />}
-          {aba === 'medicao' && (
-            <div className="card-flat"><Vazio titulo="Em construção" texto="A aba Medição chega na próxima etapa do módulo." /></div>
-          )}
-          {aba === 'rendimento' && (
-            <div className="card-flat"><Vazio titulo="Em construção" texto="A aba Rendimento chega na próxima etapa do módulo." /></div>
-          )}
+          {aba === 'medicao' && <AbaMedicao dados={dados} />}
+          {aba === 'rendimento' && <AbaRendimento dados={dados} />}
         </div>
       </div>
     </>
@@ -716,5 +712,278 @@ function NovoEventoSheet({ marcador, tipo, dados, onFechar }) {
         </Campo>
       </div>
     </Sheet>
+  )
+}
+
+/* ── Medição ────────────────────────────────────────────────── */
+
+function AbaMedicao({ dados }) {
+  const hoje = hojeISO()
+  const [periodoModo, setPeriodoModo] = useState('mes')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
+
+  /* Só evento com item de contrato vinculado vira medição — o
+     "caso a caso" da conversa: nem todo evento precisa medir contra
+     um contrato (ver MarcadorSheet/NovoEventoSheet, campo opcional). */
+  const eventosComContrato = useMemo(
+    () => (dados.eventosProducao || []).filter((e) => e.contract_item_id),
+    [dados.eventosProducao],
+  )
+  const eventosDoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      eventosComContrato, periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (e) => e.data_execucao,
+    ),
+    [eventosComContrato, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+
+  const porItem = useMemo(() => {
+    const noPeriodo = new Map()
+    for (const ev of eventosDoPeriodo) {
+      noPeriodo.set(ev.contract_item_id, (noPeriodo.get(ev.contract_item_id) || 0) + (Number(ev.quantidade) || 0))
+    }
+    /* Saldo é sempre o histórico completo — mesma regra do saldo de
+       Almoxarifado: o período é só um recorte de exibição, nunca do
+       que define quanto ainda resta do contrato. */
+    const totalHistorico = new Map()
+    for (const ev of eventosComContrato) {
+      totalHistorico.set(ev.contract_item_id, (totalHistorico.get(ev.contract_item_id) || 0) + (Number(ev.quantidade) || 0))
+    }
+    return [...noPeriodo.entries()]
+      .map(([itemId, quantidadePeriodo]) => {
+        const item = (dados.contratos || []).find((i) => i.id === itemId)
+        if (!item) return null
+        const saldo = Number(item.qtde_item || 0) - (totalHistorico.get(itemId) || 0)
+        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.valorPeriodo - a.valorPeriodo)
+  }, [eventosDoPeriodo, eventosComContrato, dados.contratos])
+
+  const totalValorPeriodo = porItem.reduce((s, x) => s + x.valorPeriodo, 0)
+
+  return (
+    <div className="stack-2">
+      <SecaoRecolhivel
+        titulo="Período"
+        resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+      >
+        <FiltroPeriodo
+          modo={periodoModo} onModo={setPeriodoModo}
+          dia={periodoDia} onDia={setPeriodoDia}
+          mes={periodoMes} onMes={setPeriodoMes}
+          inicio={periodoInicio} onInicio={setPeriodoInicio}
+          fim={periodoFim} onFim={setPeriodoFim}
+        />
+      </SecaoRecolhivel>
+
+      <div className="row-wrap" style={{ gap: 10 }}>
+        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Valor medido no período" valor={formatarDinheiro(totalValorPeriodo)} /></div>
+        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato medidos" valor={String(porItem.length)} /></div>
+      </div>
+
+      {porItem.length === 0 ? (
+        <div className="card-flat">
+          <Vazio titulo="Nada medido nesse período" texto="Eventos com item de contrato vinculado aparecem aqui — ver o detalhe de cada marcação, na aba Plantas." />
+        </div>
+      ) : (
+        <div className="stack-1">
+          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo }) => (
+            <div key={item.id} className="card-flat" style={{ padding: 10 }}>
+              <div className="row-between" style={{ alignItems: 'flex-start' }}>
+                <div style={{ maxWidth: '65%' }}>
+                  <div className="t-strong" style={{ fontSize: 14 }}>{item.descricao_item}</div>
+                  <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div className="t-strong" style={{ fontSize: 14 }}>{formatarDinheiro(valorPeriodo)}</div>
+                  <div className="t-caption">{quantidadePeriodo.toLocaleString('pt-BR')} {item.unidade}</div>
+                </div>
+              </div>
+              <div className="t-caption" style={{ marginTop: 6, color: saldo < 0 ? 'var(--danger)' : 'var(--text-2)' }}>
+                Saldo do contrato: {saldo.toLocaleString('pt-BR')} {item.unidade}{saldo < 0 ? ' (estourado)' : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Rendimento ─────────────────────────────────────────────── */
+
+function AbaRendimento({ dados }) {
+  const hoje = hojeISO()
+  const [modo, setModo] = useState('colaborador')
+  const [periodoModo, setPeriodoModo] = useState('mes')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
+  const [tipoId, setTipoId] = useState('')
+
+  /* Rendimento cruza obras (dados.eventosProducaoTodasObras, exposto
+     em DadosContext) — o catálogo de serviço é da organização, então
+     dá pra comparar o mesmo serviço entre obras diferentes, e a
+     "base de dias trabalhados" é só o que foi lançado neste módulo
+     (não cruza com presença do diário — ver seção 6 do .md). */
+  const marcadorPorId = useMemo(
+    () => new Map((dados.marcadoresProducaoTodasObras || []).map((m) => [m.id, m])),
+    [dados.marcadoresProducaoTodasObras],
+  )
+  const eventosDoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      dados.eventosProducaoTodasObras || [], periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (e) => e.data_execucao,
+    ),
+    [dados.eventosProducaoTodasObras, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+  /* Cada evento vira "de que tipo de serviço" via o marcador que ele
+     pertence — precisa disso pra saber a unidade certa e pra agrupar
+     por serviço (o evento em si não guarda o tipo). */
+  const eventosComTipo = useMemo(
+    () => eventosDoPeriodo
+      .map((e) => ({ ...e, service_type_id: marcadorPorId.get(e.marker_id)?.service_type_id || null }))
+      .filter((e) => e.service_type_id),
+    [eventosDoPeriodo, marcadorPorId],
+  )
+
+  const tiposAtivos = (dados.tiposServico || []).filter((t) => t.ativo !== false)
+  const tipoSelecionado = tiposAtivos.find((t) => t.id === tipoId)
+  const unidadeDe = (t) => ROTULO_UNIDADE[t?.unidade_resultado] || t?.unidade_resultado || ''
+
+  const eventosDoTipo = useMemo(
+    () => eventosComTipo.filter((e) => e.service_type_id === tipoId),
+    [eventosComTipo, tipoId],
+  )
+  const porColaborador = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of eventosDoTipo) {
+      if (!ev.worker_id) continue
+      const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
+      atual.quantidade += Number(ev.quantidade) || 0
+      atual.dias.add(ev.data_execucao)
+      mapa.set(ev.worker_id, atual)
+    }
+    return [...mapa.entries()]
+      .map(([workerId, info]) => ({
+        colaborador: dados.colaboradorPorId(workerId),
+        workerId,
+        quantidade: info.quantidade,
+        dias: info.dias.size,
+        rendimento: info.dias.size > 0 ? info.quantidade / info.dias.size : 0,
+      }))
+      .filter((r) => r.colaborador)
+      .sort((a, b) => b.rendimento - a.rendimento)
+  }, [eventosDoTipo, dados])
+
+  const mediaDoTipo = useMemo(() => {
+    if (!eventosDoTipo.length) return null
+    const quantidade = eventosDoTipo.reduce((s, e) => s + (Number(e.quantidade) || 0), 0)
+    const dias = new Set(eventosDoTipo.map((e) => e.data_execucao)).size
+    return dias > 0 ? quantidade / dias : 0
+  }, [eventosDoTipo])
+
+  const porServico = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of eventosComTipo) {
+      const atual = mapa.get(ev.service_type_id) || { quantidade: 0, dias: new Set() }
+      atual.quantidade += Number(ev.quantidade) || 0
+      atual.dias.add(ev.data_execucao)
+      mapa.set(ev.service_type_id, atual)
+    }
+    return [...mapa.entries()]
+      .map(([tid, info]) => {
+        const tipo = (dados.tiposServico || []).find((t) => t.id === tid)
+        if (!tipo) return null
+        return { tipo, quantidade: info.quantidade, dias: info.dias.size, ritmo: info.dias.size > 0 ? info.quantidade / info.dias.size : 0 }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.ritmo - a.ritmo)
+  }, [eventosComTipo, dados.tiposServico])
+
+  return (
+    <div className="stack-2">
+      <SecaoRecolhivel
+        titulo="Período"
+        resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+      >
+        <FiltroPeriodo
+          modo={periodoModo} onModo={setPeriodoModo}
+          dia={periodoDia} onDia={setPeriodoDia}
+          mes={periodoMes} onMes={setPeriodoMes}
+          inicio={periodoInicio} onInicio={setPeriodoInicio}
+          fim={periodoFim} onFim={setPeriodoFim}
+        />
+      </SecaoRecolhivel>
+
+      <Segmentos
+        valor={modo} onChange={setModo}
+        opcoes={[{ valor: 'colaborador', rotulo: 'Por colaborador' }, { valor: 'servico', rotulo: 'Por serviço' }]}
+      />
+
+      {modo === 'colaborador' ? (
+        <div className="stack-2">
+          <Campo label="Tipo de serviço" dica="Rendimento só compara dentro do mesmo tipo — cada um tem sua própria unidade.">
+            <select className="sel" value={tipoId} onChange={(e) => setTipoId(e.target.value)}>
+              <option value="">Escolha</option>
+              {tiposAtivos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </Campo>
+
+          {!tipoId ? (
+            <div className="card-flat"><Vazio titulo="Escolha um tipo de serviço" texto="Pra comparar colaboradores na mesma unidade." /></div>
+          ) : porColaborador.length === 0 ? (
+            <div className="card-flat"><Vazio titulo="Nada lançado nesse período" texto="Nenhum evento desse tipo, com colaborador vinculado, nesse período." /></div>
+          ) : (
+            <>
+              {mediaDoTipo != null && (
+                <div className="card-flat">
+                  <div className="t-caption">Média do serviço (todos os colaboradores, nesse período)</div>
+                  <div className="t-strong" style={{ fontSize: 16 }}>
+                    {mediaDoTipo.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(tipoSelecionado)}/dia
+                  </div>
+                </div>
+              )}
+              <div className="stack-1">
+                {porColaborador.map((r) => (
+                  <div key={r.workerId} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
+                    <div>
+                      <div className="t-strong" style={{ fontSize: 14 }}>{r.colaborador.nome}</div>
+                      <div className="t-caption">{r.quantidade.toLocaleString('pt-BR')} {unidadeDe(tipoSelecionado)} em {r.dias} dia{r.dias === 1 ? '' : 's'}</div>
+                    </div>
+                    <div className="t-strong" style={{ fontSize: 15 }}>
+                      {r.rendimento.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(tipoSelecionado)}/dia
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ) : porServico.length === 0 ? (
+        <div className="card-flat"><Vazio titulo="Nada lançado nesse período" texto="" /></div>
+      ) : (
+        <div className="stack-1">
+          {porServico.map((r) => (
+            <div key={r.tipo.id} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
+              <div>
+                <div className="t-strong" style={{ fontSize: 14 }}>{r.tipo.nome}</div>
+                <div className="t-caption">{r.quantidade.toLocaleString('pt-BR')} {unidadeDe(r.tipo)} em {r.dias} dia{r.dias === 1 ? '' : 's'} · todas as obras</div>
+              </div>
+              <div className="t-strong" style={{ fontSize: 15 }}>
+                {r.ritmo.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(r.tipo)}/dia
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
