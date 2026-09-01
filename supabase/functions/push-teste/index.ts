@@ -26,7 +26,7 @@ Deno.serve(async (req: Request) => {
   if (!segredo || segredo !== Deno.env.get('CRON_SECRET')) return json({ erro: 'Não autorizado.' }, 401)
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return json({ erro: 'VAPID não configurado.' }, 500)
 
-  let corpo: { profile_id?: string; mensagem?: string }
+  let corpo: { profile_id?: string; mensagem?: string; titulo?: string }
   try { corpo = await req.json() } catch { return json({ erro: 'Pedido inválido.' }, 400) }
   if (!corpo.profile_id) return json({ erro: 'Falta profile_id.' }, 400)
 
@@ -40,7 +40,7 @@ Deno.serve(async (req: Request) => {
     try {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify({ title: 'Prumo — teste', body: corpo.mensagem || 'Notificação de teste.', url: '/', tag: 'push-teste' }),
+        JSON.stringify({ title: corpo.titulo || 'Prumo — teste', body: corpo.mensagem || 'Notificação de teste.', url: '/', tag: 'push-teste' }),
       )
       enviados++
     } catch (erro) {
