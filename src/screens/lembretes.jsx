@@ -11,8 +11,10 @@
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarDataHora, situacaoLembrete, filtrarLembretes, plural } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio } from '../components'
+import {
+  hojeISO, formatarDataHora, situacaoLembrete, filtrarLembretes, plural, filtrarPorPeriodo, rotuloPeriodo,
+} from '../lib/dominio'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, FiltroPeriodo, SecaoRecolhivel } from '../components'
 
 /* O input datetime-local trabalha em hora LOCAL, sem fuso — igual ao
    que new Date(valor).toISOString() espera receber de volta. */
@@ -31,6 +33,12 @@ export default function Lembretes({ perfil }) {
   const [removendo, setRemovendo] = useState(null)
   const [salvando, setSalvando] = useState(false)
   const [buscaResponsavel, setBuscaResponsavel] = useState('')
+  const hoje = hojeISO()
+  const [periodoModo, setPeriodoModo] = useState('tudo')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
 
   /* "Meus" agora inclui tanto o que a pessoa criou pra si (jeito de
      sempre) quanto o que outra pessoa criou marcando ela como
@@ -41,18 +49,31 @@ export default function Lembretes({ perfil }) {
     [dados.lembretes, perfil.id],
   )
 
+  /* Período olha a data marcada pra disparar (disparar_em), não a
+     data de criação — é "o que cai nesse recorte", não "o que foi
+     anotado nesse recorte". Mesmo padrão (Tudo/Dia/Mês/Período) do
+     resto do app. */
+  const meusDoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      meus, periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (l) => l.disparar_em.slice(0, 10),
+    ),
+    [meus, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+
   const lista = useMemo(
-    () => filtrarLembretes(meus, filtro, agora).slice().sort((a, b) => (a.disparar_em < b.disparar_em ? -1 : 1)),
-    [meus, filtro], // eslint-disable-line react-hooks/exhaustive-deps
+    () => filtrarLembretes(meusDoPeriodo, filtro, agora).slice().sort((a, b) => (a.disparar_em < b.disparar_em ? -1 : 1)),
+    [meusDoPeriodo, filtro], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const cont = useMemo(() => ({
-    pendentes: meus.filter((l) => l.status === 'pendente').length,
-    atrasados: meus.filter((l) => situacaoLembrete(l, agora).chave === 'atrasado').length,
-    concluidos: meus.filter((l) => l.status === 'concluido').length,
-    cancelados: meus.filter((l) => l.status === 'cancelado').length,
-    total: meus.length,
-  }), [meus]) // eslint-disable-line react-hooks/exhaustive-deps
+    pendentes: meusDoPeriodo.filter((l) => l.status === 'pendente').length,
+    atrasados: meusDoPeriodo.filter((l) => situacaoLembrete(l, agora).chave === 'atrasado').length,
+    concluidos: meusDoPeriodo.filter((l) => l.status === 'concluido').length,
+    cancelados: meusDoPeriodo.filter((l) => l.status === 'cancelado').length,
+    total: meusDoPeriodo.length,
+  }), [meusDoPeriodo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const abrirNovo = () => {
     setBuscaResponsavel('')
@@ -135,6 +156,19 @@ export default function Lembretes({ perfil }) {
               { valor: 'todos', rotulo: 'Todos', contador: cont.total },
             ]}
           />
+
+          <SecaoRecolhivel
+            titulo="Período"
+            resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+          >
+            <FiltroPeriodo
+              modo={periodoModo} onModo={setPeriodoModo}
+              dia={periodoDia} onDia={setPeriodoDia}
+              mes={periodoMes} onMes={setPeriodoMes}
+              inicio={periodoInicio} onInicio={setPeriodoInicio}
+              fim={periodoFim} onFim={setPeriodoFim}
+            />
+          </SecaoRecolhivel>
 
           {lista.length === 0 ? (
             <div className="card-flat">
