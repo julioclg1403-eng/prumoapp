@@ -30,6 +30,7 @@ export default function Lembretes({ perfil }) {
   const [editando, setEditando] = useState(null)
   const [removendo, setRemovendo] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [buscaResponsavel, setBuscaResponsavel] = useState('')
 
   /* "Meus" agora inclui tanto o que a pessoa criou pra si (jeito de
      sempre) quanto o que outra pessoa criou marcando ela como
@@ -53,13 +54,31 @@ export default function Lembretes({ perfil }) {
     total: meus.length,
   }), [meus]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrirNovo = () => setEditando({ texto: '', disparar_em: '', local: '', observacoes: '', responsaveis_ids: [] })
+  const abrirNovo = () => {
+    setBuscaResponsavel('')
+    setEditando({ texto: '', disparar_em: '', local: '', observacoes: '', responsaveis_ids: [] })
+  }
 
-  const alternarResponsavel = (id) => setEditando((p) => {
-    const atual = p.responsaveis_ids || []
-    const novo = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]
-    return { ...p, responsaveis_ids: novo }
-  })
+  const adicionarResponsavel = (id) => {
+    setBuscaResponsavel('')
+    setEditando((p) => {
+      const atual = p.responsaveis_ids || []
+      return atual.includes(id) ? p : { ...p, responsaveis_ids: [...atual, id] }
+    })
+  }
+
+  const removerResponsavel = (id) => setEditando((p) => ({
+    ...p, responsaveis_ids: (p.responsaveis_ids || []).filter((x) => x !== id),
+  }))
+
+  const resultadosResponsavel = useMemo(() => {
+    const termo = buscaResponsavel.trim().toLowerCase()
+    if (!termo) return []
+    const jaMarcados = new Set(editando?.responsaveis_ids || [])
+    return dados.perfis
+      .filter((p) => p.id !== perfil.id && !jaMarcados.has(p.id) && p.nome.toLowerCase().includes(termo))
+      .slice(0, 8)
+  }, [buscaResponsavel, dados.perfis, editando?.responsaveis_ids, perfil.id])
 
   const salvar = async () => {
     if (!editando?.texto?.trim() || !editando?.disparar_em) return
@@ -157,7 +176,7 @@ export default function Lembretes({ perfil }) {
                         {l.status !== 'enviado' && (
                           <button
                             className="btn btn-ghost btn-sm" aria-label="Editar"
-                            onClick={() => setEditando({ ...l, disparar_em: paraDatetimeLocal(l.disparar_em) })}
+                            onClick={() => { setBuscaResponsavel(''); setEditando({ ...l, disparar_em: paraDatetimeLocal(l.disparar_em) }) }}
                           >
                             <Icon name="editar" size={16} />
                           </button>
@@ -243,22 +262,44 @@ export default function Lembretes({ perfil }) {
               placeholder="Ex.: falar com o João, ramal 42, sobre a cotação do cimento."
             />
           </Campo>
-          <Campo label="Responsáveis" dica="Opcional — marque quem mais precisa ficar de olho nisso, além de você. Aparece na lista de lembretes de cada um marcado.">
-            <div className="stack-1" style={{ maxHeight: 220, overflowY: 'auto' }}>
-              {dados.perfis.filter((p) => p.id !== perfil.id).map((p) => {
-                const marcado = (editando?.responsaveis_ids || []).includes(p.id)
-                return (
-                  <label key={p.id} className="pick" data-on={marcado ? '1' : '0'} style={{ cursor: 'pointer' }}>
-                    <input
-                      type="checkbox" style={{ display: 'none' }}
-                      checked={marcado}
-                      onChange={() => alternarResponsavel(p.id)}
-                    />
-                    <span className="box"><Icon name="check" size={14} /></span>
-                    <span className="grow">{p.nome}</span>
-                  </label>
-                )
-              })}
+          <Campo label="Responsáveis" dica="Opcional — quem mais precisa ficar de olho nisso, além de você. Aparece na lista de lembretes de cada um.">
+            <div className="stack-1">
+              {(editando?.responsaveis_ids || []).length > 0 && (
+                <div className="row-wrap" style={{ gap: 6 }}>
+                  {editando.responsaveis_ids.map((id) => (
+                    <Chip key={id}>
+                      {dados.perfilPorId(id)?.nome || '—'}
+                      <button
+                        onClick={() => removerResponsavel(id)} aria-label="Remover responsável"
+                        style={{ border: 0, background: 'none', cursor: 'pointer', marginLeft: 4, padding: 0, display: 'inline-flex' }}
+                      >
+                        <Icon name="x" size={12} />
+                      </button>
+                    </Chip>
+                  ))}
+                </div>
+              )}
+              <input
+                className="ipt" value={buscaResponsavel}
+                onChange={(e) => setBuscaResponsavel(e.target.value)}
+                placeholder="Digite o nome…"
+              />
+              {resultadosResponsavel.length > 0 && (
+                <div className="stack-1">
+                  {resultadosResponsavel.map((p) => (
+                    <button
+                      key={p.id} type="button" className="btn btn-secondary btn-sm"
+                      style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                      onClick={() => adicionarResponsavel(p.id)}
+                    >
+                      {p.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {buscaResponsavel.trim() && resultadosResponsavel.length === 0 && (
+                <div className="t-caption">Ninguém com esse nome.</div>
+              )}
             </div>
           </Campo>
         </div>
