@@ -23,7 +23,7 @@ import {
   hojeISO, servicoCorrespondeEtapa, nomeBaseDaEtapa, normalizarParaCasar,
   cronogramaGlobalCorrespondeEtapa, agruparPlanejamento, etapaCorrespondenteAoGrupo,
   descreverEdicaoApontamento, ROTULO_STATUS_APONTAMENTO, calcularVencimentoTreinamento,
-  insumoCorrespondeMaterial,
+  insumoCorrespondeMaterial, diarioDaData,
 } from './dominio'
 import {
   enviarFoto, apagarFoto, enviarFotoPendencia, apagarFotoPendencia,
@@ -31,6 +31,7 @@ import {
   enviarFotoEquipamento, apagarFotoEquipamento,
 } from './fotos'
 import { enviarAnexoApontamento, apagarAnexoApontamento, enviarAnexoPendencia, apagarAnexoPendencia } from './anexos'
+import { enviarPlantaProducao } from './plantasProducao'
 
 const Ctx = createContext(null)
 
@@ -3221,6 +3222,136 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  // ── Plantas, marcadores e eventos (Produtividade e Medição) ─
+  const enviarPlanta = useCallback(
+    async ({ arquivo, nome }) => {
+      const { erro, planta } = await enviarPlantaProducao({
+        arquivo, organizationId: perfil.organization_id, obraId, nome, autorId: perfil.id,
+      })
+      if (erro) { avisarErro(erro); return null }
+      setTudo((t) => t && ({ ...t, plantasProducao: [planta, ...t.plantasProducao] }))
+      return planta
+    },
+    [perfil.organization_id, perfil.id, obraId, avisarErro],
+  )
+
+  const arquivarPlanta = useCallback(
+    async (id) => {
+      const r = await supabase.from('production_plans').update({ ativo: false }).eq('id', id)
+      if (r.error) { checar(r, 'arquivar a planta'); return }
+      setTudo((t) => t && ({
+        ...t,
+        plantasProducao: t.plantasProducao.map((p) => (p.id === id ? { ...p, ativo: false } : p)),
+      }))
+    },
+    [checar],
+  )
+
+  /* Marca um elemento na planta pela primeira vez: nasce o pino
+     (production_markers) E o primeiro evento (production_marker_events)
+     juntos, numa tacada só — o formulário de marcação já pede tudo
+     isso de uma vez (ver produtividade-medicao.md, seção 4). */
+  const salvarMarcador = useCallback(
+    async ({ plan_id, service_type_id, elemento, x, y, pagina, dimensoes, quantidade_calculada, evento }) => {
+      const { organization_id, worksite_id } = escopo()
+      const marcador = checar(
+        await supabase.from('production_markers').insert({
+          organization_id, worksite_id, plan_id, service_type_id, elemento,
+          x, y, pagina: pagina || 1, dimensoes: dimensoes || {}, quantidade_calculada,
+          etapa_atual: evento.etapa, criado_por: perfil.id,
+        }).select('*').single(),
+        'salvar a marcação',
+      )
+      if (!marcador) return null
+
+      /* "A posteriori": ou não existe diário nenhum ainda pra essa
+         data, ou o diário já estava finalizado quando o evento foi
+         registrado — nos dois casos, o lançamento chegou depois do
+         fechamento normal do dia. */
+      const diario = evento.data_execucao ? diarioDaData(tudo?.diarios || [], evento.data_execucao, worksite_id) : null
+      const aPosteriori = !diario || diario.status === 'finalizado'
+
+      const eventoSalvo = checar(
+        await supabase.from('production_marker_events').insert({
+          organization_id, worksite_id, marker_id: marcador.id,
+          etapa: evento.etapa, worker_id: evento.worker_id || null,
+          data_execucao: evento.data_execucao, diario_id: diario?.id || null,
+          a_posteriori: aPosteriori, contract_item_id: evento.contract_item_id || null,
+          quantidade: evento.quantidade ?? quantidade_calculada, observacao: evento.observacao || null,
+          autor_id: perfil.id,
+        }).select('*').single(),
+        'salvar o evento da marcação',
+      )
+      if (!eventoSalvo) {
+        // Sem evento, o pino não deveria existir sozinho — desfaz.
+        await supabase.from('production_markers').delete().eq('id', marcador.id)
+        return null
+      }
+
+      setTudo((t) => t && ({
+        ...t,
+        marcadoresProducao: [...t.marcadoresProducao, marcador],
+        eventosProducao: [eventoSalvo, ...t.eventosProducao],
+      }))
+      return marcador
+    },
+    [escopo, checar, perfil.id, tudo],
+  )
+
+  /* Muda o estágio de um pino já existente: acrescenta um evento
+     novo (mantendo o histórico do que já passou) e atualiza só o
+     `etapa_atual` do marcador, que é o que define a cor na planta. */
+  const registrarEventoMarcador = useCallback(
+    async (markerId, evento) => {
+      const { organization_id, worksite_id } = escopo()
+      const marcadorAtual = tudo?.marcadoresProducao.find((m) => m.id === markerId)
+      if (!marcadorAtual) return null
+
+      const diario = evento.data_execucao ? diarioDaData(tudo?.diarios || [], evento.data_execucao, worksite_id) : null
+      const aPosteriori = !diario || diario.status === 'finalizado'
+
+      const eventoSalvo = checar(
+        await supabase.from('production_marker_events').insert({
+          organization_id, worksite_id, marker_id: markerId,
+          etapa: evento.etapa, worker_id: evento.worker_id || null,
+          data_execucao: evento.data_execucao, diario_id: diario?.id || null,
+          a_posteriori: aPosteriori, contract_item_id: evento.contract_item_id || null,
+          quantidade: evento.quantidade ?? marcadorAtual.quantidade_calculada, observacao: evento.observacao || null,
+          autor_id: perfil.id,
+        }).select('*').single(),
+        'registrar o novo estágio',
+      )
+      if (!eventoSalvo) return null
+
+      const marcadorAtualizado = checar(
+        await supabase.from('production_markers').update({ etapa_atual: evento.etapa }).eq('id', markerId).select('*').single(),
+        'atualizar o estágio da marcação',
+      )
+
+      setTudo((t) => t && ({
+        ...t,
+        eventosProducao: [eventoSalvo, ...t.eventosProducao],
+        marcadoresProducao: marcadorAtualizado
+          ? t.marcadoresProducao.map((m) => (m.id === markerId ? marcadorAtualizado : m))
+          : t.marcadoresProducao,
+      }))
+      return eventoSalvo
+    },
+    [escopo, checar, perfil.id, tudo],
+  )
+
+  const arquivarMarcador = useCallback(
+    async (id) => {
+      const r = await supabase.from('production_markers').update({ ativo: false }).eq('id', id)
+      if (r.error) { checar(r, 'arquivar a marcação'); return }
+      setTudo((t) => t && ({
+        ...t,
+        marcadoresProducao: t.marcadoresProducao.map((m) => (m.id === id ? { ...m, ativo: false } : m)),
+      }))
+    },
+    [checar],
+  )
+
   // ── Usuários (só o admin chega aqui) ──────────────────────
   const definirPapel = useCallback(
     async (usuarioId, papel) => {
@@ -3364,6 +3495,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
+      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -3401,6 +3533,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
+      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador,
     ],
   )
 
