@@ -1371,9 +1371,12 @@ export function DadosProvider({ perfil, children }) {
 
       const fresco = await relerApontamento(salvo.id)
       atualizarApontamentoLocal(fresco)
+      if (ehNovo && linha.visibilidade === 'publicado') {
+        notificarRegra('projetos', { titulo: 'Novo apontamento', corpo: `${perfil.nome}: ${linha.titulo}` })
+      }
       return fresco
     },
-    [tudo, escopo, checar, perfil.id, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
+    [tudo, escopo, checar, perfil.id, perfil.nome, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento, notificarRegra],
   )
 
   /* Ativo → Resolvido/Reprovado, ou reaberto de volta a Ativo. Cada
@@ -1425,9 +1428,10 @@ export function DadosProvider({ perfil, children }) {
       await registrarHistoricoApontamento(id, { tipo: 'abertura', descricao: 'abriu o apontamento (publicou)' })
       const fresco = await relerApontamento(id)
       atualizarApontamentoLocal(fresco)
+      notificarRegra('projetos', { titulo: 'Novo apontamento', corpo: `${perfil.nome}: ${fresco.titulo}` })
       return fresco
     },
-    [checar, avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
+    [checar, avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento, notificarRegra, perfil.nome],
   )
 
   const salvarDisciplinaApontamento = useCallback(

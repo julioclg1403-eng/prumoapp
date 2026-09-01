@@ -21,6 +21,7 @@ const MODULOS = [
   { chave: 'refeicoes', rotulo: 'Refeições', desc: 'Quando um lançamento de refeição é salvo' },
   { chave: 'pendencias', rotulo: 'Pendências', desc: 'Quando uma pendência nova é aberta' },
   { chave: 'planejamento', rotulo: 'Planejamento', desc: 'Quando o planejamento é atualizado' },
+  { chave: 'projetos', rotulo: 'Projetos', desc: 'Quando um apontamento novo é publicado' },
 ]
 
 export default function Notificacoes({ voltar }) {
