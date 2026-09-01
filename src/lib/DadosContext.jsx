@@ -189,7 +189,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
-      estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento,
+      estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -237,6 +237,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('structure_items').select('*').order('nome')),
       buscarPaginado(() => supabase.from('stock_movements').select('*').order('periodo_fim', { ascending: false })),
       buscarPaginado(() => supabase.from('worker_training_exemptions').select('*')),
+      buscarPaginado(() => supabase.from('notification_rules').select('*')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -248,7 +249,7 @@ export function DadosProvider({ perfil, children }) {
       materiaisEpi, entradasEpi, saidasEpi,
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
-      movimentosEstoque, isencoesTreinamento].find((r) => r.error)
+      movimentosEstoque, isencoesTreinamento, regrasNotificacao].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -320,6 +321,7 @@ export function DadosProvider({ perfil, children }) {
       estruturaCustos: estruturaCustos.data || [],
       movimentosEstoque: movimentosEstoque.data || [],
       isencoesTreinamento: isencoesTreinamento.data || [],
+      regrasNotificacao: regrasNotificacao.data || [],
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -370,6 +372,21 @@ export function DadosProvider({ perfil, children }) {
     () => ({ organization_id: perfil.organization_id, worksite_id: obraId }),
     [perfil.organization_id, obraId],
   )
+
+  /* Notificação push por módulo (Notificações, em Cadastros) — bem
+     diferente da de Lembretes (que é por horário, via cron): esta
+     dispara na hora que a ação acontece, para quem foi cadastrado
+     como destinatário daquele módulo naquela obra. Silenciosa em
+     erro de propósito — notificar é um "a mais" que nunca pode
+     travar o salvamento em si. */
+  const notificarRegra = useCallback((modulo, { titulo, corpo }) => {
+    const regra = tudo?.regrasNotificacao?.find((r) => r.worksite_id === obraId && r.modulo === modulo)
+    const alvos = (regra?.destinatarios_ids || []).filter((id) => id !== perfil.id)
+    if (!alvos.length) return
+    supabase.functions.invoke('send-push', {
+      body: { profile_ids: alvos, title: titulo, body: corpo, url: '/' },
+    }).catch(() => {})
+  }, [tudo, obraId, perfil.id])
 
   /* ── A obra escolhida filtra TUDO ────────────────────────────
      O recorte acontece aqui, num lugar só, e não em cada tela.
@@ -423,6 +440,7 @@ export function DadosProvider({ perfil, children }) {
       estruturaCustos: filtrar(tudo.estruturaCustos),
       movimentosEstoque: filtrar(tudo.movimentosEstoque),
       isencoesTreinamento: filtrar(tudo.isencoesTreinamento),
+      regrasNotificacao: filtrar(tudo.regrasNotificacao),
     }
   }, [tudo, obraId])
 
@@ -604,12 +622,18 @@ export function DadosProvider({ perfil, children }) {
               })
             : t.planejamento,
         }))
+        if (normalizado.status === 'finalizado') {
+          notificarRegra('diario', {
+            titulo: 'Diário lançado',
+            corpo: `${perfil.nome} finalizou o diário do dia ${diario.data.split('-').reverse().join('/')}`,
+          })
+        }
         return normalizado
       } finally {
         if (vivo.current) setSalvando(false)
       }
     },
-    [perfil.id, escopo, checar],
+    [perfil.id, perfil.nome, escopo, checar, notificarRegra],
   )
 
   const reabrirDiario = useCallback(
@@ -786,9 +810,12 @@ export function DadosProvider({ perfil, children }) {
           ? t.pendencias.map((x) => (x.id === comFotos.id ? comFotos : x))
           : [...t.pendencias, comFotos],
       }))
+      if (!p.id) {
+        notificarRegra('pendencias', { titulo: 'Nova pendência', corpo: `${perfil.nome}: ${linha.titulo}` })
+      }
       return comFotos
     },
-    [perfil.id, escopo, checar, tudo],
+    [perfil.id, perfil.nome, escopo, checar, tudo, notificarRegra],
   )
 
   /* ── Fotos de pendência ──────────────────────────────────── */
@@ -2389,9 +2416,15 @@ export function DadosProvider({ perfil, children }) {
           ? t.refeicoes.map((r) => (r.id === salvo.id ? salvo : r))
           : [salvo, ...t.refeicoes],
       }))
+      if (!item.id) {
+        notificarRegra('refeicoes', {
+          titulo: 'Refeição lançada',
+          corpo: `${perfil.nome} lançou ${linha.quantidade} refeições em ${linha.data.split('-').reverse().join('/')}`,
+        })
+      }
       return salvo
     },
-    [perfil.id, escopo, checar],
+    [perfil.id, perfil.nome, escopo, checar, notificarRegra],
   )
 
   const excluirRefeicao = useCallback(
@@ -2425,9 +2458,10 @@ export function DadosProvider({ perfil, children }) {
           ? t.planejamento.map((p) => (p.id === salvo.id ? salvo : p))
           : [...t.planejamento, salvo],
       }))
+      notificarRegra('planejamento', { titulo: 'Planejamento atualizado', corpo: `${perfil.nome} atualizou o planejamento` })
       return salvo
     },
-    [escopo, checar],
+    [escopo, checar, notificarRegra, perfil.nome],
   )
 
   /* Planejar a semana inteira de uma vez. Vai numa chamada só, e
@@ -2445,9 +2479,13 @@ export function DadosProvider({ perfil, children }) {
       )
       if (!salvos) return null
       setTudo((t) => t && ({ ...t, planejamento: [...t.planejamento, ...salvos] }))
+      notificarRegra('planejamento', {
+        titulo: 'Planejamento atualizado',
+        corpo: `${perfil.nome} planejou ${salvos.length} ${salvos.length === 1 ? 'atividade' : 'atividades'}`,
+      })
       return salvos
     },
-    [escopo, checar],
+    [escopo, checar, notificarRegra, perfil.nome],
   )
 
   /* Reimportar a mesma planilha de uma semana que já tinha dias
@@ -3058,6 +3096,35 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Notificações por módulo (tela Notificações): quem recebe push
+     quando alguém lança diário, refeição, pendência ou atualiza o
+     planejamento, nesta obra. Uma linha por (obra, módulo) — salvar
+     de novo substitui a lista inteira de destinatários. */
+  const salvarRegraNotificacao = useCallback(
+    async (modulo, destinatariosIds) => {
+      const { organization_id, worksite_id } = escopo()
+      const salvo = checar(
+        await supabase.from('notification_rules')
+          .upsert({
+            organization_id, worksite_id, modulo,
+            destinatarios_ids: destinatariosIds || [],
+            atualizado_em: new Date().toISOString(),
+          }, { onConflict: 'worksite_id,modulo' })
+          .select('*').single(),
+        'salvar quem é notificado',
+      )
+      if (!salvo) return false
+      setTudo((t) => t && ({
+        ...t,
+        regrasNotificacao: t.regrasNotificacao.some((r) => r.id === salvo.id)
+          ? t.regrasNotificacao.map((r) => (r.id === salvo.id ? salvo : r))
+          : [...t.regrasNotificacao, salvo],
+      }))
+      return true
+    },
+    [escopo, checar],
+  )
+
   // ── Catálogo de materiais ─────────────────────────────────
   const salvarMaterial = useCallback(
     async ({ nome, unidade_padrao }) => {
@@ -3215,6 +3282,7 @@ export function DadosProvider({ perfil, children }) {
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
+      salvarRegraNotificacao,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -3250,6 +3318,7 @@ export function DadosProvider({ perfil, children }) {
       medirCronograma, removerItemCronograma, definirServicosDaEtapa, alternarVinculoServicoEtapa,
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
+      salvarRegraNotificacao,
     ],
   )
 
