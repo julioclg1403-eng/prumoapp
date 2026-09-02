@@ -98,21 +98,19 @@ export default function Producao({ voltar, perfil }) {
       </div>
 
       <div className="page">
-        <PageHeader titulo="Produtividade" sub="Serviço (empresa, contrato, time) → planta → marcação, medição por contrato e rendimento" />
+        <PageHeader titulo="Produtividade" sub="Serviço (empresa, contrato, time) → planta → marcação — medição e rendimento ficam dentro de cada serviço" />
 
         <div className="stack-2">
           <Segmentos
             valor={aba} onChange={setAba}
             opcoes={[
               { valor: 'servicos', rotulo: 'Serviços' },
-              { valor: 'medicao', rotulo: 'Medição' },
-              { valor: 'rendimento', rotulo: 'Rendimento' },
+              { valor: 'empresas', rotulo: 'Por empresa' },
             ]}
           />
 
           {aba === 'servicos' && <AbaServicos dados={dados} perfil={perfil} podeEditar={podeEditar} />}
-          {aba === 'medicao' && <AbaMedicao dados={dados} />}
-          {aba === 'rendimento' && <AbaRendimento dados={dados} />}
+          {aba === 'empresas' && <AbaServicosPorEmpresa dados={dados} perfil={perfil} podeEditar={podeEditar} />}
         </div>
       </div>
     </>
@@ -442,9 +440,101 @@ function BuscarColaboradoresMultiplo({ dados, companyId, valores, onMudar }) {
   )
 }
 
+/* ── Serviços agrupados por empresa ────────────────────────── */
+
+/* Uma empresa faz vários serviços — essa aba deixa ver todos os
+   dela juntos, em vez de caçar um por um na lista geral. Reusa o
+   mesmo DetalheServico de sempre pra abrir um serviço. */
+function AbaServicosPorEmpresa({ dados, perfil, podeEditar }) {
+  const [empresaAberta, setEmpresaAberta] = useState(null)
+  const [servicoAberto, setServicoAberto] = useState(null)
+
+  const servicosAtivos = (dados.servicosProducao || []).filter((s) => s.ativo !== false)
+
+  const porEmpresa = useMemo(() => {
+    const mapa = new Map()
+    for (const s of servicosAtivos) {
+      if (!s.company_id) continue
+      if (!mapa.has(s.company_id)) mapa.set(s.company_id, [])
+      mapa.get(s.company_id).push(s)
+    }
+    return [...mapa.entries()]
+      .map(([companyId, servicos]) => ({ companyId, nome: dados.nomeDe(dados.empresas, companyId), servicos }))
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [servicosAtivos, dados])
+
+  const servicoAtual = servicoAberto && servicosAtivos.find((s) => s.id === servicoAberto.id)
+  if (servicoAtual) {
+    return (
+      <DetalheServico
+        servico={servicoAtual} dados={dados} perfil={perfil} podeEditar={podeEditar}
+        voltar={() => setServicoAberto(null)}
+      />
+    )
+  }
+
+  const empresaAtual = empresaAberta && porEmpresa.find((e) => e.companyId === empresaAberta.companyId)
+  if (empresaAtual) {
+    return (
+      <div className="stack-2">
+        <button className="btn btn-ghost btn-sm" onClick={() => setEmpresaAberta(null)} style={{ alignSelf: 'flex-start' }}>
+          <Icon name="voltar" size={16} /> Empresas
+        </button>
+        <div className="t-strong" style={{ fontSize: 16 }}>{empresaAtual.nome}</div>
+        <div className="stack-1">
+          {empresaAtual.servicos.map((s) => {
+            const tipo = dados.tiposServico?.find((t) => t.id === s.service_type_id)
+            const qtdePlantas = (dados.plantasProducao || []).filter((p) => p.service_id === s.id && p.ativo !== false).length
+            return (
+              <button key={s.id} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setServicoAberto(s)}>
+                <div className="row-between" style={{ alignItems: 'center' }}>
+                  <div>
+                    <div className="t-strong">{s.nome}</div>
+                    <div className="t-caption">
+                      {tipo?.nome || 'Tipo removido'}
+                      {s.cod_contrato && ` · Contrato ${s.cod_contrato}`}
+                      {` · ${plural(qtdePlantas, 'planta', 'plantas')}`}
+                    </div>
+                  </div>
+                  <Icon name="avancar" size={16} />
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="stack-2">
+      {porEmpresa.length === 0 ? (
+        <div className="card-flat">
+          <Vazio titulo="Nenhum serviço com empresa vinculada" texto="Vincule uma empresa ao cadastrar ou editar um serviço, em Serviços." />
+        </div>
+      ) : (
+        <div className="stack-1">
+          {porEmpresa.map((e) => (
+            <button key={e.companyId} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setEmpresaAberta(e)}>
+              <div className="row-between" style={{ alignItems: 'center' }}>
+                <div className="t-strong">{e.nome}</div>
+                <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                  <span className="t-caption">{plural(e.servicos.length, 'serviço', 'serviços')}</span>
+                  <Icon name="avancar" size={16} />
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── Detalhe do serviço: dados + plantas (locais) dentro dele ─ */
 
 function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
+  const [abaServico, setAbaServico] = useState('plantas')
   const [enviando, setEnviando] = useState(false)
   const [editando, setEditando] = useState(false)
   const [plantaAberta, setPlantaAberta] = useState(null)
@@ -491,38 +581,57 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
         </div>
       </div>
 
-      {podeEditar && (
-        <button className="btn btn-primary" onClick={() => setEnviando(true)} style={{ alignSelf: 'flex-start' }}>
-          <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar local (planta)
-        </button>
+      {/* Medição e Rendimento ficam aqui dentro, escopados só a este
+         Serviço — pedido do Julio pra "ter o controle apenas daquele
+         serviço", em vez de um índice geral exposto pra todo mundo. */}
+      <Segmentos
+        valor={abaServico} onChange={setAbaServico}
+        opcoes={[
+          { valor: 'plantas', rotulo: 'Plantas' },
+          { valor: 'medicao', rotulo: 'Medição' },
+          { valor: 'rendimento', rotulo: 'Rendimento' },
+        ]}
+      />
+
+      {abaServico === 'plantas' && (
+        <div className="stack-2">
+          {podeEditar && (
+            <button className="btn btn-primary" onClick={() => setEnviando(true)} style={{ alignSelf: 'flex-start' }}>
+              <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar local (planta)
+            </button>
+          )}
+
+          {plantas.length === 0 ? (
+            <div className="card-flat">
+              <Vazio
+                titulo="Nenhum local importado ainda"
+                texto={podeEditar ? 'Importe o PDF de cada local (ex.: um por pavimento) pra começar a marcar.' : 'A gestão ainda não importou nenhum local deste serviço.'}
+                acao={podeEditar && <button className="btn btn-primary" onClick={() => setEnviando(true)}>Importar local</button>}
+              />
+            </div>
+          ) : (
+            <div className="stack-1">
+              {plantas.map((p) => {
+                const qtdeMarcadores = (dados.marcadoresProducao || []).filter((m) => m.plan_id === p.id && m.ativo !== false).length
+                return (
+                  <button key={p.id} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setPlantaAberta(p)}>
+                    <div className="row-between" style={{ alignItems: 'center' }}>
+                      <div>
+                        <div className="t-strong">{p.nome}</div>
+                        <div className="t-caption">{plural(qtdeMarcadores, 'marcação', 'marcações')} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
+                      </div>
+                      <Icon name="avancar" size={16} />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       )}
 
-      {plantas.length === 0 ? (
-        <div className="card-flat">
-          <Vazio
-            titulo="Nenhum local importado ainda"
-            texto={podeEditar ? 'Importe o PDF de cada local (ex.: um por pavimento) pra começar a marcar.' : 'A gestão ainda não importou nenhum local deste serviço.'}
-            acao={podeEditar && <button className="btn btn-primary" onClick={() => setEnviando(true)}>Importar local</button>}
-          />
-        </div>
-      ) : (
-        <div className="stack-1">
-          {plantas.map((p) => {
-            const qtdeMarcadores = (dados.marcadoresProducao || []).filter((m) => m.plan_id === p.id && m.ativo !== false).length
-            return (
-              <button key={p.id} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setPlantaAberta(p)}>
-                <div className="row-between" style={{ alignItems: 'center' }}>
-                  <div>
-                    <div className="t-strong">{p.nome}</div>
-                    <div className="t-caption">{plural(qtdeMarcadores, 'marcação', 'marcações')} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
-                  </div>
-                  <Icon name="avancar" size={16} />
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      )}
+      {abaServico === 'medicao' && <AbaMedicao servico={servico} dados={dados} />}
+      {abaServico === 'rendimento' && <AbaRendimento servico={servico} tipo={tipo} dados={dados} />}
 
       <EnviarPlantaSheet aberto={enviando} onFechar={() => setEnviando(false)} dados={dados} servico={servico} />
       {editando && <ServicoSheet dados={dados} servico={servico} onFechar={() => setEditando(false)} />}
@@ -1582,7 +1691,7 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
 
 /* ── Medição ────────────────────────────────────────────────── */
 
-function AbaMedicao({ dados }) {
+function AbaMedicao({ servico, dados }) {
   const hoje = hojeISO()
   const [periodoModo, setPeriodoModo] = useState('mes')
   const [periodoDia, setPeriodoDia] = useState(hoje)
@@ -1590,26 +1699,24 @@ function AbaMedicao({ dados }) {
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
 
-  /* Serviço arquivado, OU o próprio marcador arquivado (ex.: excluído
-     do rendimento por engano/teste — ver DetalheColaboradorRendimentoSheet),
-     some da medição. */
-  const marcadoresDeServicoArquivado = useMemo(() => {
-    const planPorId = new Map((dados.plantasProducao || []).map((p) => [p.id, p]))
-    const servicoPorId = new Map((dados.servicosProducao || []).map((s) => [s.id, s]))
-    const excluidos = new Set()
+  /* Só conta marcador de uma planta DESTE serviço — "controle apenas
+     daquele serviço", pedido do Julio — e só marcador ativo (nem ele
+     nem o serviço arquivados). */
+  const marcadoresValidos = useMemo(() => {
+    const planIdsDoServico = new Set((dados.plantasProducao || []).filter((p) => p.service_id === servico.id).map((p) => p.id))
+    const validos = new Set()
     for (const m of (dados.marcadoresProducao || [])) {
-      const servico = servicoPorId.get(planPorId.get(m.plan_id)?.service_id)
-      if (servico?.ativo === false || m.ativo === false) excluidos.add(m.id)
+      if (planIdsDoServico.has(m.plan_id) && m.ativo !== false) validos.add(m.id)
     }
-    return excluidos
-  }, [dados.plantasProducao, dados.servicosProducao, dados.marcadoresProducao])
+    return validos
+  }, [dados.plantasProducao, dados.marcadoresProducao, servico.id])
 
   /* Só evento com item de contrato vinculado vira medição — o
      "caso a caso" da conversa: nem todo evento precisa medir contra
      um contrato (ver MarcadorSheet/NovoEventoSheet, campo opcional). */
   const eventosComContrato = useMemo(
-    () => (dados.eventosProducao || []).filter((e) => e.contract_item_id && !marcadoresDeServicoArquivado.has(e.marker_id)),
-    [dados.eventosProducao, marcadoresDeServicoArquivado],
+    () => (dados.eventosProducao || []).filter((e) => e.contract_item_id && marcadoresValidos.has(e.marker_id)),
+    [dados.eventosProducao, marcadoresValidos],
   )
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
@@ -1696,71 +1803,42 @@ function AbaMedicao({ dados }) {
 
 /* ── Rendimento ─────────────────────────────────────────────── */
 
-function AbaRendimento({ dados }) {
+function AbaRendimento({ servico, tipo, dados }) {
   const hoje = hojeISO()
-  const [modo, setModo] = useState('colaborador')
   const [periodoModo, setPeriodoModo] = useState('mes')
   const [periodoDia, setPeriodoDia] = useState(hoje)
   const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
-  const [tipoId, setTipoId] = useState('')
   const [colaboradorAberto, setColaboradorAberto] = useState(null)
 
-  /* Rendimento cruza obras (dados.eventosProducaoTodasObras, exposto
-     em DadosContext) — o catálogo de serviço é da organização, então
-     dá pra comparar o mesmo serviço entre obras diferentes, e a
-     "base de dias trabalhados" é só o que foi lançado neste módulo
-     (não cruza com presença do diário — ver seção 6 do .md). */
-  const marcadorPorId = useMemo(
-    () => new Map((dados.marcadoresProducaoTodasObras || []).map((m) => [m.id, m])),
-    [dados.marcadoresProducaoTodasObras],
-  )
-  /* Serviço arquivado, OU o próprio marcador arquivado (ex.: excluído
-     do rendimento por engano/teste — ver DetalheColaboradorRendimentoSheet),
-     some dos índices — arquivar não é o mesmo que apagar, mas some da
-     contagem ativa. Marcador → planta → serviço, porque o evento em
-     si não guarda o serviço. */
-  const marcadoresDeServicoArquivado = useMemo(() => {
-    const planPorId = new Map((dados.plantasProducaoTodasObras || []).map((p) => [p.id, p]))
-    const servicoPorId = new Map((dados.servicosProducaoTodasObras || []).map((s) => [s.id, s]))
-    const excluidos = new Set()
-    for (const m of (dados.marcadoresProducaoTodasObras || [])) {
-      const servico = servicoPorId.get(planPorId.get(m.plan_id)?.service_id)
-      if (servico?.ativo === false || m.ativo === false) excluidos.add(m.id)
-    }
-    return excluidos
-  }, [dados.plantasProducaoTodasObras, dados.servicosProducaoTodasObras, dados.marcadoresProducaoTodasObras])
+  const unidade = ROTULO_UNIDADE[tipo?.unidade_resultado] || tipo?.unidade_resultado || ''
+
+  /* Escopado a este Serviço — "controle apenas daquele serviço",
+     pedido do Julio — só marcador de uma planta dele, e ativo (nem
+     ele nem o serviço arquivados). Já nasce no tipo certo (o do
+     Serviço), então não precisa mais escolher tipo nem comparar
+     "por serviço": aqui só existe um. */
+  const eventosDoServico = useMemo(() => {
+    const planIdsDoServico = new Set((dados.plantasProducao || []).filter((p) => p.service_id === servico.id).map((p) => p.id))
+    const markerIdsValidos = new Set(
+      (dados.marcadoresProducao || []).filter((m) => planIdsDoServico.has(m.plan_id) && m.ativo !== false).map((m) => m.id),
+    )
+    return (dados.eventosProducao || []).filter((e) => markerIdsValidos.has(e.marker_id))
+  }, [dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao, servico.id])
+
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
-      (dados.eventosProducaoTodasObras || []).filter((e) => !marcadoresDeServicoArquivado.has(e.marker_id)),
-      periodoModo,
+      eventosDoServico, periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
       (e) => e.data_execucao,
     ),
-    [dados.eventosProducaoTodasObras, marcadoresDeServicoArquivado, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
-  )
-  /* Cada evento vira "de que tipo de serviço" via o marcador que ele
-     pertence — precisa disso pra saber a unidade certa e pra agrupar
-     por serviço (o evento em si não guarda o tipo). */
-  const eventosComTipo = useMemo(
-    () => eventosDoPeriodo
-      .map((e) => ({ ...e, service_type_id: marcadorPorId.get(e.marker_id)?.service_type_id || null }))
-      .filter((e) => e.service_type_id),
-    [eventosDoPeriodo, marcadorPorId],
+    [eventosDoServico, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
   )
 
-  const tiposAtivos = (dados.tiposServico || []).filter((t) => t.ativo !== false)
-  const tipoSelecionado = tiposAtivos.find((t) => t.id === tipoId)
-  const unidadeDe = (t) => ROTULO_UNIDADE[t?.unidade_resultado] || t?.unidade_resultado || ''
-
-  const eventosDoTipo = useMemo(
-    () => eventosComTipo.filter((e) => e.service_type_id === tipoId),
-    [eventosComTipo, tipoId],
-  )
   const porColaborador = useMemo(() => {
     const mapa = new Map()
-    for (const ev of eventosDoTipo) {
+    for (const ev of eventosDoPeriodo) {
       if (!ev.worker_id) continue
       const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
       atual.quantidade += Number(ev.quantidade) || 0
@@ -1777,32 +1855,14 @@ function AbaRendimento({ dados }) {
       }))
       .filter((r) => r.colaborador)
       .sort((a, b) => b.rendimento - a.rendimento)
-  }, [eventosDoTipo, dados])
+  }, [eventosDoPeriodo, dados])
 
-  const mediaDoTipo = useMemo(() => {
-    if (!eventosDoTipo.length) return null
-    const quantidade = eventosDoTipo.reduce((s, e) => s + (Number(e.quantidade) || 0), 0)
-    const dias = new Set(eventosDoTipo.map((e) => e.data_execucao)).size
+  const mediaDoServico = useMemo(() => {
+    if (!eventosDoPeriodo.length) return null
+    const quantidade = eventosDoPeriodo.reduce((s, e) => s + (Number(e.quantidade) || 0), 0)
+    const dias = new Set(eventosDoPeriodo.map((e) => e.data_execucao)).size
     return dias > 0 ? quantidade / dias : 0
-  }, [eventosDoTipo])
-
-  const porServico = useMemo(() => {
-    const mapa = new Map()
-    for (const ev of eventosComTipo) {
-      const atual = mapa.get(ev.service_type_id) || { quantidade: 0, dias: new Set() }
-      atual.quantidade += Number(ev.quantidade) || 0
-      atual.dias.add(ev.data_execucao)
-      mapa.set(ev.service_type_id, atual)
-    }
-    return [...mapa.entries()]
-      .map(([tid, info]) => {
-        const tipo = (dados.tiposServico || []).find((t) => t.id === tid)
-        if (!tipo) return null
-        return { tipo, quantidade: info.quantidade, dias: info.dias.size, ritmo: info.dias.size > 0 ? info.quantidade / info.dias.size : 0 }
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.ritmo - a.ritmo)
-  }, [eventosComTipo, dados.tiposServico])
+  }, [eventosDoPeriodo])
 
   return (
     <div className="stack-2">
@@ -1819,79 +1879,45 @@ function AbaRendimento({ dados }) {
         />
       </SecaoRecolhivel>
 
-      <Segmentos
-        valor={modo} onChange={setModo}
-        opcoes={[{ valor: 'colaborador', rotulo: 'Por colaborador' }, { valor: 'servico', rotulo: 'Por serviço' }]}
-      />
-
-      {modo === 'colaborador' ? (
-        <div className="stack-2">
-          <Campo label="Tipo de serviço" dica="Rendimento só compara dentro do mesmo tipo — cada um tem sua própria unidade.">
-            <select className="sel" value={tipoId} onChange={(e) => setTipoId(e.target.value)}>
-              <option value="">Escolha</option>
-              {tiposAtivos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
-            </select>
-          </Campo>
-
-          {!tipoId ? (
-            <div className="card-flat"><Vazio titulo="Escolha um tipo de serviço" texto="Pra comparar colaboradores na mesma unidade." /></div>
-          ) : porColaborador.length === 0 ? (
-            <div className="card-flat"><Vazio titulo="Nada lançado nesse período" texto="Nenhum evento desse tipo, com colaborador vinculado, nesse período." /></div>
-          ) : (
-            <>
-              {mediaDoTipo != null && (
-                <div className="card-flat">
-                  <div className="t-caption">Média do serviço (todos os colaboradores, nesse período)</div>
-                  <div className="t-strong" style={{ fontSize: 16 }}>
-                    {mediaDoTipo.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(tipoSelecionado)}/dia
-                  </div>
-                </div>
-              )}
-              <div className="stack-1">
-                {porColaborador.map((r) => (
-                  <button
-                    key={r.workerId} className="card-flat row-between" style={{ padding: 10, alignItems: 'center', width: '100%', textAlign: 'left' }}
-                    onClick={() => setColaboradorAberto(r)}
-                  >
-                    <div>
-                      <div className="t-strong" style={{ fontSize: 14 }}>{r.colaborador.nome}</div>
-                      <div className="t-caption">{r.quantidade.toLocaleString('pt-BR')} {unidadeDe(tipoSelecionado)} em {r.dias} dia{r.dias === 1 ? '' : 's'}</div>
-                    </div>
-                    <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
-                      <div className="t-strong" style={{ fontSize: 15 }}>
-                        {r.rendimento.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(tipoSelecionado)}/dia
-                      </div>
-                      <Icon name="avancar" size={14} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      ) : porServico.length === 0 ? (
-        <div className="card-flat"><Vazio titulo="Nada lançado nesse período" texto="" /></div>
+      {porColaborador.length === 0 ? (
+        <div className="card-flat"><Vazio titulo="Nada lançado nesse período" texto="Nenhum evento com colaborador vinculado, nesse período." /></div>
       ) : (
-        <div className="stack-1">
-          {porServico.map((r) => (
-            <div key={r.tipo.id} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
-              <div>
-                <div className="t-strong" style={{ fontSize: 14 }}>{r.tipo.nome}</div>
-                <div className="t-caption">{r.quantidade.toLocaleString('pt-BR')} {unidadeDe(r.tipo)} em {r.dias} dia{r.dias === 1 ? '' : 's'} · todas as obras</div>
-              </div>
-              <div className="t-strong" style={{ fontSize: 15 }}>
-                {r.ritmo.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(r.tipo)}/dia
+        <>
+          {mediaDoServico != null && (
+            <div className="card-flat">
+              <div className="t-caption">Média do serviço (todos os colaboradores, nesse período)</div>
+              <div className="t-strong" style={{ fontSize: 16 }}>
+                {mediaDoServico.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidade}/dia
               </div>
             </div>
-          ))}
-        </div>
+          )}
+          <div className="stack-1">
+            {porColaborador.map((r) => (
+              <button
+                key={r.workerId} className="card-flat row-between" style={{ padding: 10, alignItems: 'center', width: '100%', textAlign: 'left' }}
+                onClick={() => setColaboradorAberto(r)}
+              >
+                <div>
+                  <div className="t-strong" style={{ fontSize: 14 }}>{r.colaborador.nome}</div>
+                  <div className="t-caption">{r.quantidade.toLocaleString('pt-BR')} {unidade} em {plural(r.dias, 'dia', 'dias')}</div>
+                </div>
+                <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                  <div className="t-strong" style={{ fontSize: 15 }}>
+                    {r.rendimento.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidade}/dia
+                  </div>
+                  <Icon name="avancar" size={14} />
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {colaboradorAberto && (
         <DetalheColaboradorRendimentoSheet
           colaborador={colaboradorAberto.colaborador}
-          eventos={eventosDoTipo.filter((e) => e.worker_id === colaboradorAberto.workerId)}
-          unidade={unidadeDe(tipoSelecionado)}
+          eventos={eventosDoPeriodo.filter((e) => e.worker_id === colaboradorAberto.workerId)}
+          unidade={unidade}
           dados={dados}
           onFechar={() => setColaboradorAberto(null)}
         />
