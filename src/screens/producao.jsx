@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural } from '../lib/dominio'
 import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
@@ -96,7 +96,7 @@ function AbaPlantas({ dados, perfil, podeEditar }) {
                 <div className="row-between" style={{ alignItems: 'center' }}>
                   <div>
                     <div className="t-strong">{p.nome}</div>
-                    <div className="t-caption">{qtdeMarcadores} marcação{qtdeMarcadores === 1 ? '' : 'ões'} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
+                    <div className="t-caption">{plural(qtdeMarcadores, 'marcação', 'marcações')} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
                   </div>
                   <Icon name="avancar" size={16} />
                 </div>
@@ -188,6 +188,8 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
   const [novoPonto, setNovoPonto] = useState(null)
   const [marcadorAberto, setMarcadorAberto] = useState(null)
 
+  const [tentativa, setTentativa] = useState(0)
+
   useEffect(() => {
     let vivo = true
     setCarregando(true)
@@ -201,12 +203,18 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
         const { carregarDocumentoPDF } = await import('../lib/pdfRender')
         const doc = await carregarDocumentoPDF(url)
         if (vivo) { setPdfDoc(doc); setPagina(1); setCarregando(false) }
-      } catch {
-        if (vivo) { setErro('Não consegui ler o PDF desta planta.'); setCarregando(false) }
+      } catch (e) {
+        /* Quase sempre é rede instável (obra sem sinal bom) — o
+           navegador some com o erro de verdade num `catch {}` mudo,
+           então loga aqui pra dar pra investigar se acontecer nas
+           ferramentas do navegador, e deixa a pessoa tentar de novo
+           sem precisar sair da tela e voltar. */
+        console.error('[Prumo] carregar a planta:', e)
+        if (vivo) { setErro('Não consegui ler o PDF desta planta. Pode ser a conexão — toque em "Tentar de novo".'); setCarregando(false) }
       }
     })()
     return () => { vivo = false }
-  }, [planta.id, planta.caminho])
+  }, [planta.id, planta.caminho, tentativa])
 
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current || !viewportRef.current) return
@@ -270,7 +278,14 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
         ) : <span />}
       </div>
 
-      {erro && <div className="alert danger">{erro}</div>}
+      {erro && (
+        <div className="alert danger" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span>{erro}</span>
+          <button className="btn btn-secondary btn-sm" style={{ flex: 'none' }} onClick={() => setTentativa((t) => t + 1)}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
       {carregando && <div className="t-caption">Carregando planta…</div>}
 
       {!carregando && !erro && (
