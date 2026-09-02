@@ -1032,11 +1032,20 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               dados={dados}
               onEscolher={(id) => setNovaSaida((p) => ({ ...p, material_id: id }))}
             />
-            {novaSaida.material_id && (
-              <div className="t-caption">
-                Saldo atual: {saldos.find((s) => s.material.id === novaSaida.material_id)?.saldo ?? 0} {unidadeMaterial(novaSaida.material_id)}
-              </div>
-            )}
+            {novaSaida.material_id && (() => {
+              const s = saldos.find((x) => x.material.id === novaSaida.material_id)
+              return (
+                <div className="card-flat" style={{ padding: 10 }}>
+                  <div className="t-micro">Estoque atual</div>
+                  <div className="t-strong" style={{ fontSize: 18, color: s?.abaixoDoMinimo ? 'var(--danger)' : undefined }}>
+                    {(s?.saldo ?? 0).toLocaleString('pt-BR')} {unidadeMaterial(novaSaida.material_id)}
+                  </div>
+                  {s?.abaixoDoMinimo && (
+                    <div className="t-caption" style={{ color: 'var(--danger)' }}>Abaixo do estoque mínimo cadastrado.</div>
+                  )}
+                </div>
+              )
+            })()}
             <div className="row-flex">
               {(novaSaida.worker_ids || []).length === 0 && (
                 <Campo label="Quantidade">
