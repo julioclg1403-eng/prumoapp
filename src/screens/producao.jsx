@@ -85,7 +85,14 @@ function SeletorCorColaborador({ dados, workerId }) {
 export default function Producao({ voltar, perfil }) {
   const dados = useDados()
   const [aba, setAba] = useState('servicos')
-  const podeEditar = perfil.role !== 'campo'
+  /* Pedido explícito do Julio: campo edita aqui igual gestão — são
+     eles que marcam e corrigem em obra. RLS já permitia (produção é
+     um módulo que campo cria/edita por padrão, ver migrações), só a
+     tela é que travava. Só o que precisa de admin de verdade
+     (editar/excluir o Serviço em si — empresa, contrato) continua
+     restrito, isso é `ehAdmin` em DetalheServico, separado desta
+     flag. */
+  const podeEditar = true
 
   return (
     <>
