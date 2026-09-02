@@ -6,7 +6,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Icon, Sheet } from './index'
+import { Icon, Sheet, TextareaComAudio } from './index'
 
 export default function ChatBot() {
   const [aberto, setAberto] = useState(false)
@@ -108,16 +108,18 @@ export default function ChatBot() {
             <div ref={fimRef} />
           </div>
 
-          <div className="row-flex" style={{ gap: 8, marginTop: 10, alignItems: 'flex-end' }}>
-            <textarea
-              className="ipt"
-              rows={1}
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              onKeyDown={aoTeclar}
-              placeholder="Escreva sua pergunta…"
-              style={{ resize: 'none', flex: 1, height: 44, paddingTop: 10 }}
-            />
+          <div className="row-flex" style={{ gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <TextareaComAudio
+                rows={1}
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                onKeyDown={aoTeclar}
+                placeholder="Escreva ou grave sua pergunta…"
+                disabled={carregando}
+                style={{ minHeight: 44, height: 44, paddingTop: 10 }}
+              />
+            </div>
             <button
               className="btn btn-primary"
               onClick={enviar}
