@@ -3372,6 +3372,27 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Corrige o pino já marcado (nome, dimensões) — diferente de um
+     "novo evento", que muda o estágio. Liberado pro campo também: quem
+     marcou errado em obra é quem melhor sabe corrigir. */
+  const editarMarcador = useCallback(
+    async (id, { elemento, dimensoes, quantidade_calculada }) => {
+      const marcador = checar(
+        await supabase.from('production_markers')
+          .update({ elemento, dimensoes, quantidade_calculada })
+          .eq('id', id).select('*').single(),
+        'editar a marcação',
+      )
+      if (!marcador) return false
+      setTudo((t) => t && ({
+        ...t,
+        marcadoresProducao: t.marcadoresProducao.map((m) => (m.id === id ? marcador : m)),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   // ── Usuários (só o admin chega aqui) ──────────────────────
   const definirPapel = useCallback(
     async (usuarioId, papel) => {
@@ -3515,7 +3536,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
-      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador,
+      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -3553,7 +3574,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
-      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador,
+      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador,
     ],
   )
 

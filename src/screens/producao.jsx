@@ -264,6 +264,24 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
   const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, Math.round((z + ZOOM_PASSO) * 100) / 100))
   const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, Math.round((z - ZOOM_PASSO) * 100) / 100))
 
+  /* Roda do mouse dá zoom quando a mãozinha está ativa — pedido do
+     Julio, igual CAD. Só nesse modo: fora dele a roda continua
+     rolando a página normal, sem surpresa. Precisa de listener nativo
+     (não `onWheel` do JSX) com `passive: false` pra `preventDefault`
+     funcionar de verdade e não rolar o viewport junto do zoom. */
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const aoRodarRoda = (e) => {
+      if (ferramenta !== 'mao') return
+      e.preventDefault()
+      if (e.deltaY < 0) zoomIn()
+      else if (e.deltaY > 0) zoomOut()
+    }
+    el.addEventListener('wheel', aoRodarRoda, { passive: false })
+    return () => el.removeEventListener('wheel', aoRodarRoda)
+  }, [ferramenta])
+
   return (
     <div className="stack-2">
       <div className="row-between" style={{ alignItems: 'center' }}>
@@ -316,7 +334,7 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
       )}
       {!carregando && !erro && podeEditar && (
         <div className="t-caption">
-          {ferramenta === 'marcar' ? 'Toque num ponto vazio da planta pra marcar um elemento novo.' : 'Arraste pra navegar pela planta.'}
+          {ferramenta === 'marcar' ? 'Toque num ponto vazio da planta pra marcar um elemento novo.' : 'Arraste pra navegar pela planta — a roda do mouse dá zoom.'}
         </div>
       )}
 
@@ -634,6 +652,7 @@ function MarcadorSheet({ ponto, planta, dados, onFechar }) {
 
 function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, onFechar }) {
   const [novoEvento, setNovoEvento] = useState(false)
+  const [editando, setEditando] = useState(false)
   const [confirmarArquivar, setConfirmarArquivar] = useState(false)
 
   /* `marcadorInicial` é o que estava na hora do clique no pino — um
@@ -660,7 +679,12 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
         </div>
 
         <div className="card-flat stack-1">
-          <div className="t-micro">Dimensões</div>
+          <div className="row-between" style={{ alignItems: 'center' }}>
+            <div className="t-micro">Dimensões</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditando(true)}>
+              <Icon name="editar" size={13} /> Editar
+            </button>
+          </div>
           <div className="t-caption">
             {(tipo?.campos_dimensao || []).map((c) => `${c.rotulo}: ${marcador.dimensoes?.[c.chave] ?? '—'}`).join(' · ')}
           </div>
@@ -718,6 +742,9 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
       {novoEvento && (
         <NovoEventoSheet marcador={marcador} tipo={tipo} dados={dados} onFechar={() => setNovoEvento(false)} />
       )}
+      {editando && (
+        <EditarMarcadorSheet marcador={marcador} tipo={tipo} dados={dados} onFechar={() => setEditando(false)} />
+      )}
 
       <Confirmar
         aberto={confirmarArquivar}
@@ -727,6 +754,68 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
         onOk={async () => { setConfirmarArquivar(false); await dados.arquivarMarcador(marcador.id); onFechar() }}
         onCancelar={() => setConfirmarArquivar(false)}
       />
+    </Sheet>
+  )
+}
+
+/* Corrige nome/dimensões do pino já marcado — não muda estágio nem
+   mexe no histórico de eventos, só os dados do próprio elemento.
+   Aberto pra gestão e campo: quem marcou errado em obra é quem
+   melhor sabe corrigir, sem precisar arquivar e marcar de novo. */
+function EditarMarcadorSheet({ marcador, tipo, dados, onFechar }) {
+  const [elemento, setElemento] = useState(marcador.elemento)
+  const [dimensoes, setDimensoes] = useState(() => ({ ...(marcador.dimensoes || {}) }))
+  const [salvando, setSalvando] = useState(false)
+
+  const quantidadeCalculada = tipo ? calcularQuantidade(tipo.formula, dimensoes) : marcador.quantidade_calculada
+  const podeSalvar = elemento.trim() && quantidadeCalculada != null
+
+  const salvar = async () => {
+    setSalvando(true)
+    const ok = await dados.editarMarcador(marcador.id, {
+      elemento: elemento.trim(),
+      dimensoes: Object.fromEntries(Object.entries(dimensoes).map(([k, v]) => [k, Number(v) || 0])),
+      quantidade_calculada: quantidadeCalculada,
+    })
+    setSalvando(false)
+    if (ok) onFechar()
+  }
+
+  return (
+    <Sheet
+      aberto titulo="Editar marcação" onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={salvar} disabled={salvando || !podeSalvar}>
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      }
+    >
+      <div className="stack-2">
+        <Campo label="Identificação do elemento" dica='Ex.: "Sapata N12"'>
+          <input className="ipt" autoFocus value={elemento} onChange={(e) => setElemento(e.target.value)} placeholder="Sapata N12" />
+        </Campo>
+
+        <Campo label="Dimensões">
+          <div className="row-wrap" style={{ gap: 8 }}>
+            {(tipo?.campos_dimensao || []).map((c) => (
+              <div key={c.chave} style={{ flex: '1 1 100px' }}>
+                <div className="t-caption" style={{ marginBottom: 2 }}>{c.rotulo}</div>
+                <input
+                  className="ipt" type="number" inputMode="decimal" step="0.01" min="0"
+                  value={dimensoes[c.chave] ?? ''}
+                  onChange={(e) => setDimensoes((d) => ({ ...d, [c.chave]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="t-caption" style={{ marginTop: 6 }}>
+            Quantidade calculada: <strong>{quantidadeCalculada != null ? `${quantidadeCalculada.toLocaleString('pt-BR')} ${ROTULO_UNIDADE[tipo?.unidade_resultado] || tipo?.unidade_resultado || ''}` : '—'}</strong>
+          </div>
+        </Campo>
+      </div>
     </Sheet>
   )
 }
