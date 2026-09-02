@@ -3534,6 +3534,31 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Reposiciona/redesenha um marcador já existente — diferente de
+     editarMarcador (que só mexe em nome/dimensões): aqui é o
+     DESENHO em si (ponto ↔ área, x/y/x2/y2) que muda, sem perder o
+     resto (dimensões, tipo, histórico de eventos). Pedido do Julio:
+     desenhar certinho no celular é difícil, então precisa dar pra
+     corrigir o desenho tocando de novo, em vez de arquivar e marcar
+     do zero. */
+  const editarGeometriaMarcador = useCallback(
+    async (id, { forma, x, y, x2, y2 }) => {
+      const marcador = checar(
+        await supabase.from('production_markers')
+          .update({ forma, x, y, x2: x2 ?? null, y2: y2 ?? null })
+          .eq('id', id).select('*').single(),
+        'reposicionar a marcação',
+      )
+      if (!marcador) return false
+      setTudo((t) => t && ({
+        ...t,
+        marcadoresProducao: t.marcadoresProducao.map((m) => (m.id === id ? marcador : m)),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   /* Cor fixa do colaborador na planta (Produtividade, "cor por
      colaborador") — sem escolher, cai no hash automático; escolhendo
      uma vez aqui, vale pra sempre em todas as marcações dele. */
@@ -3696,6 +3721,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      editarGeometriaMarcador,
       definirCorColaborador,
     }),
     [
@@ -3736,6 +3762,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      editarGeometriaMarcador,
       definirCorColaborador,
     ],
   )

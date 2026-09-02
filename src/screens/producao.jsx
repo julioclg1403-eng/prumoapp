@@ -734,6 +734,12 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
   const [novoPonto, setNovoPonto] = useState(null)
   const [areaEmDesenho, setAreaEmDesenho] = useState(null)
   const [marcadorAberto, setMarcadorAberto] = useState(null)
+  /* Redesenhar um marcador já existente: em vez de abrir "Nova
+     marcação", o próximo toque/arrasto substitui o x/y/x2/y2 (e a
+     forma, se trocar Ponto/Área) desse marcador — desenhar certinho
+     no celular é difícil, isso deixa corrigir sem arquivar e marcar
+     de novo. */
+  const [redesenhando, setRedesenhando] = useState(null)
 
   const [tentativa, setTentativa] = useState(0)
 
@@ -818,6 +824,11 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
   const aoClicarNaPlanta = (e) => {
     if (!podeEditar || ferramenta !== 'marcar' || formaMarcacao !== 'ponto' || !containerRef.current) return
     const { x, y } = coordsPercentual(e.clientX, e.clientY)
+    if (redesenhando) {
+      dados.editarGeometriaMarcador(redesenhando.id, { forma: 'ponto', x, y })
+      setRedesenhando(null)
+      return
+    }
     setNovoPonto({ forma: 'ponto', x, y, pagina })
   }
 
@@ -840,11 +851,16 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
     desenhandoAreaRef.current = false
     setAreaEmDesenho((a) => {
       if (a && Math.abs(a.x2 - a.x1) > 0.5 && Math.abs(a.y2 - a.y1) > 0.5) {
-        setNovoPonto({
-          forma: 'area', pagina,
+        const geometria = {
           x: Math.min(a.x1, a.x2), y: Math.min(a.y1, a.y2),
           x2: Math.max(a.x1, a.x2), y2: Math.max(a.y1, a.y2),
-        })
+        }
+        if (redesenhando) {
+          dados.editarGeometriaMarcador(redesenhando.id, { forma: 'area', ...geometria })
+          setRedesenhando(null)
+        } else {
+          setNovoPonto({ forma: 'area', pagina, ...geometria })
+        }
       }
       return null
     })
@@ -970,7 +986,18 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
           </div>
         </div>
       )}
-      {!carregando && !erro && podeEditar && (
+      {!carregando && !erro && redesenhando && (
+        <div className="alert info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span>
+            Toque{formaMarcacao === 'area' ? ' e arraste' : ''} o novo lugar de «{redesenhando.elemento}»
+            {formaMarcacao === 'area' ? ' (área)' : ' (ponto)'} — o resto da marcação continua igual.
+          </span>
+          <button className="btn btn-secondary btn-sm" style={{ flex: 'none' }} onClick={() => setRedesenhando(null)}>
+            Cancelar
+          </button>
+        </div>
+      )}
+      {!carregando && !erro && !redesenhando && podeEditar && (
         <div className="t-caption">
           {ferramenta !== 'marcar'
             ? 'Arraste pra navegar pela planta — a roda do mouse dá zoom.'
@@ -1097,6 +1124,12 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
         <DetalheMarcadorSheet
           marcador={marcadorAberto} dados={dados} podeEditar={podeEditar}
           onFechar={() => setMarcadorAberto(null)}
+          onEditarDesenho={(m) => {
+            setMarcadorAberto(null)
+            setFerramenta('marcar')
+            setFormaMarcacao(m.forma === 'area' ? 'area' : 'ponto')
+            setRedesenhando({ id: m.id, elemento: m.elemento })
+          }}
         />
       )}
     </div>
@@ -1360,7 +1393,7 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
 
 /* ── Detalhe do marcador: estágio atual + histórico + novo evento ── */
 
-function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, onFechar }) {
+function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, onFechar, onEditarDesenho }) {
   const [novoEvento, setNovoEvento] = useState(false)
   const [editando, setEditando] = useState(false)
   const [eventoEditando, setEventoEditando] = useState(null)
@@ -1386,9 +1419,16 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
   return (
     <Sheet aberto titulo={marcador.elemento} onFechar={onFechar}>
       <div className="stack-2">
-        <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
-          <Chip tom={etapaAtualInfo?.cor}>{etapaAtualInfo?.rotulo || marcador.etapa_atual}</Chip>
-          <span className="t-caption">{tipo?.nome}</span>
+        <div className="row-between" style={{ alignItems: 'center' }}>
+          <div className="row-wrap" style={{ gap: 8, alignItems: 'center' }}>
+            <Chip tom={etapaAtualInfo?.cor}>{etapaAtualInfo?.rotulo || marcador.etapa_atual}</Chip>
+            <span className="t-caption">{tipo?.nome} · {marcador.forma === 'area' ? 'área' : 'ponto'}</span>
+          </div>
+          {podeEditar && (
+            <button className="btn btn-ghost btn-sm" onClick={() => onEditarDesenho(marcador)}>
+              <Icon name="local" size={13} /> Editar desenho
+            </button>
+          )}
         </div>
 
         <div className="card-flat stack-1">
