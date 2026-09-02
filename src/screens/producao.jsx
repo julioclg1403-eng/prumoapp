@@ -71,11 +71,41 @@ export default function Producao({ voltar, perfil }) {
 /* ── Serviços (cadastro) ───────────────────────────────────── */
 
 function AbaServicos({ dados, perfil, podeEditar }) {
+  const hoje = hojeISO()
+  const [periodoModo, setPeriodoModo] = useState('mes')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
   const [criando, setCriando] = useState(false)
   const [servicoAberto, setServicoAberto] = useState(null)
 
   const servicos = (dados.servicosProducao || []).filter((s) => s.ativo !== false)
   const servicoAtual = servicoAberto && servicos.find((s) => s.id === servicoAberto.id)
+
+  const eventosDoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      dados.eventosProducao || [], periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (e) => e.data_execucao,
+    ),
+    [dados.eventosProducao, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+
+  /* Quanto cada Serviço produziu no período — soma a quantidade dos
+     eventos cujo marcador pertence a uma planta deste serviço (o
+     evento não guarda o serviço direto, só o marcador → planta). */
+  const quantidadePorServico = useMemo(() => {
+    const planPorId = new Map((dados.plantasProducao || []).map((p) => [p.id, p]))
+    const marcadorPorId = new Map((dados.marcadoresProducao || []).map((m) => [m.id, m]))
+    const mapa = new Map()
+    for (const ev of eventosDoPeriodo) {
+      const plan = planPorId.get(marcadorPorId.get(ev.marker_id)?.plan_id)
+      if (!plan) continue
+      mapa.set(plan.service_id, (mapa.get(plan.service_id) || 0) + (Number(ev.quantidade) || 0))
+    }
+    return mapa
+  }, [eventosDoPeriodo, dados.plantasProducao, dados.marcadoresProducao])
 
   if (servicoAtual) {
     return (
@@ -88,6 +118,19 @@ function AbaServicos({ dados, perfil, podeEditar }) {
 
   return (
     <div className="stack-2">
+      <SecaoRecolhivel
+        titulo="Período"
+        resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+      >
+        <FiltroPeriodo
+          modo={periodoModo} onModo={setPeriodoModo}
+          dia={periodoDia} onDia={setPeriodoDia}
+          mes={periodoMes} onMes={setPeriodoMes}
+          inicio={periodoInicio} onInicio={setPeriodoInicio}
+          fim={periodoFim} onFim={setPeriodoFim}
+        />
+      </SecaoRecolhivel>
+
       {podeEditar && (
         <button className="btn btn-primary" onClick={() => setCriando(true)} style={{ alignSelf: 'flex-start' }}>
           <Icon name="mais_sinal" size={16} /> Novo serviço
@@ -108,6 +151,8 @@ function AbaServicos({ dados, perfil, podeEditar }) {
             const tipo = dados.tiposServico?.find((t) => t.id === s.service_type_id)
             const empresa = s.company_id ? dados.nomeDe(dados.empresas, s.company_id) : null
             const qtdePlantas = (dados.plantasProducao || []).filter((p) => p.service_id === s.id && p.ativo !== false).length
+            const quantidadePeriodo = quantidadePorServico.get(s.id) || 0
+            const unidade = ROTULO_UNIDADE[tipo?.unidade_resultado] || tipo?.unidade_resultado || ''
             return (
               <button key={s.id} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setServicoAberto(s)}>
                 <div className="row-between" style={{ alignItems: 'center' }}>
@@ -120,7 +165,12 @@ function AbaServicos({ dados, perfil, podeEditar }) {
                       {` · ${plural(qtdePlantas, 'planta', 'plantas')}`}
                     </div>
                   </div>
-                  <Icon name="avancar" size={16} />
+                  <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                    {quantidadePeriodo > 0 && (
+                      <span className="t-caption">{quantidadePeriodo.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidade} no período</span>
+                    )}
+                    <Icon name="avancar" size={16} />
+                  </div>
                 </div>
               </button>
             )
@@ -792,13 +842,18 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valor, onEscolher }) {
 
   /* Time do Serviço tem prioridade — é pra isso que ele existe
      ("controle" do Julio: só quem tá registrado no serviço aparece).
-     Sem time registrado, cai pro efetivo do dia, e sem diário ainda,
-     todo mundo ativo. */
+     Sem time registrado mas com empresa vinculada, já vale só puxar
+     os colaboradores daquela empresa (não faz sentido oferecer gente
+     de outras empreiteiras). Sem nada disso, cai pro efetivo do dia,
+     e sem diário ainda, todo mundo ativo. */
   const disponiveis = useMemo(() => {
     const ativos = (dados.colaboradores || []).filter((c) => c.ativo !== false)
     if (servico?.funcionarios_ids?.length) {
       const permitidos = new Set(servico.funcionarios_ids)
       return ativos.filter((c) => permitidos.has(c.id))
+    }
+    if (servico?.company_id) {
+      return ativos.filter((c) => c.company_id === servico.company_id)
     }
     if (diarioDoDia) {
       const presentes = new Set((diarioDoDia.presencas || []).filter((p) => p.presente).map((p) => p.worker_id))
@@ -827,7 +882,11 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valor, onEscolher }) {
         <>
           <input
             className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
-            placeholder={servico?.funcionarios_ids?.length ? 'Buscar no time do serviço…' : diarioDoDia ? 'Buscar no efetivo do dia…' : 'Buscar colaborador…'}
+            placeholder={
+              servico?.funcionarios_ids?.length ? 'Buscar no time do serviço…'
+                : servico?.company_id ? 'Buscar na empresa do serviço…'
+                  : diarioDoDia ? 'Buscar no efetivo do dia…' : 'Buscar colaborador…'
+            }
           />
           {resultados.length > 0 && (
             <div className="stack-1">
@@ -978,7 +1037,7 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
 
         <Campo label="Data de execução">
           <input className="ipt" type="date" value={dataExecucao} onChange={(e) => setDataExecucao(e.target.value)} />
-          {dataExecucao && !diarioDoDia && !servico.funcionarios_ids?.length && (
+          {dataExecucao && !diarioDoDia && !servico.funcionarios_ids?.length && !servico.company_id && (
             <div className="t-caption" style={{ marginTop: 4 }}>
               Ainda não existe diário desse dia — a lista de colaboradores abaixo mostra todo mundo ativo da obra, e isto entra como lançamento a posteriori.
             </div>
@@ -1277,12 +1336,24 @@ function AbaMedicao({ dados }) {
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
 
+  /* Serviço arquivado some da medição — mesma regra do Rendimento. */
+  const marcadoresDeServicoArquivado = useMemo(() => {
+    const planPorId = new Map((dados.plantasProducao || []).map((p) => [p.id, p]))
+    const servicoPorId = new Map((dados.servicosProducao || []).map((s) => [s.id, s]))
+    const excluidos = new Set()
+    for (const m of (dados.marcadoresProducao || [])) {
+      const servico = servicoPorId.get(planPorId.get(m.plan_id)?.service_id)
+      if (servico?.ativo === false) excluidos.add(m.id)
+    }
+    return excluidos
+  }, [dados.plantasProducao, dados.servicosProducao, dados.marcadoresProducao])
+
   /* Só evento com item de contrato vinculado vira medição — o
      "caso a caso" da conversa: nem todo evento precisa medir contra
      um contrato (ver MarcadorSheet/NovoEventoSheet, campo opcional). */
   const eventosComContrato = useMemo(
-    () => (dados.eventosProducao || []).filter((e) => e.contract_item_id),
-    [dados.eventosProducao],
+    () => (dados.eventosProducao || []).filter((e) => e.contract_item_id && !marcadoresDeServicoArquivado.has(e.marker_id)),
+    [dados.eventosProducao, marcadoresDeServicoArquivado],
   )
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
@@ -1388,13 +1459,28 @@ function AbaRendimento({ dados }) {
     () => new Map((dados.marcadoresProducaoTodasObras || []).map((m) => [m.id, m])),
     [dados.marcadoresProducaoTodasObras],
   )
+  /* Serviço arquivado some dos índices — mesma regra do resto do
+     app (arquivar não é o mesmo que apagar, mas some da contagem
+     ativa). Marcador → planta → serviço, porque o evento em si não
+     guarda o serviço. */
+  const marcadoresDeServicoArquivado = useMemo(() => {
+    const planPorId = new Map((dados.plantasProducaoTodasObras || []).map((p) => [p.id, p]))
+    const servicoPorId = new Map((dados.servicosProducaoTodasObras || []).map((s) => [s.id, s]))
+    const excluidos = new Set()
+    for (const m of (dados.marcadoresProducaoTodasObras || [])) {
+      const servico = servicoPorId.get(planPorId.get(m.plan_id)?.service_id)
+      if (servico?.ativo === false) excluidos.add(m.id)
+    }
+    return excluidos
+  }, [dados.plantasProducaoTodasObras, dados.servicosProducaoTodasObras, dados.marcadoresProducaoTodasObras])
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
-      dados.eventosProducaoTodasObras || [], periodoModo,
+      (dados.eventosProducaoTodasObras || []).filter((e) => !marcadoresDeServicoArquivado.has(e.marker_id)),
+      periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
       (e) => e.data_execucao,
     ),
-    [dados.eventosProducaoTodasObras, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+    [dados.eventosProducaoTodasObras, marcadoresDeServicoArquivado, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
   )
   /* Cada evento vira "de que tipo de serviço" via o marcador que ele
      pertence — precisa disso pra saber a unidade certa e pra agrupar

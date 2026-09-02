@@ -3548,6 +3548,8 @@ export function DadosProvider({ perfil, children }) {
          versão filtrada se viesse depois). */
       eventosProducaoTodasObras: tudo.eventosProducao,
       marcadoresProducaoTodasObras: tudo.marcadoresProducao,
+      plantasProducaoTodasObras: tudo.plantasProducao,
+      servicosProducaoTodasObras: tudo.servicosProducao,
       ...daObra,
       salvarMaterial,
       trocarObra,
