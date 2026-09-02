@@ -1590,14 +1590,16 @@ function AbaMedicao({ dados }) {
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
 
-  /* Serviço arquivado some da medição — mesma regra do Rendimento. */
+  /* Serviço arquivado, OU o próprio marcador arquivado (ex.: excluído
+     do rendimento por engano/teste — ver DetalheColaboradorRendimentoSheet),
+     some da medição. */
   const marcadoresDeServicoArquivado = useMemo(() => {
     const planPorId = new Map((dados.plantasProducao || []).map((p) => [p.id, p]))
     const servicoPorId = new Map((dados.servicosProducao || []).map((s) => [s.id, s]))
     const excluidos = new Set()
     for (const m of (dados.marcadoresProducao || [])) {
       const servico = servicoPorId.get(planPorId.get(m.plan_id)?.service_id)
-      if (servico?.ativo === false) excluidos.add(m.id)
+      if (servico?.ativo === false || m.ativo === false) excluidos.add(m.id)
     }
     return excluidos
   }, [dados.plantasProducao, dados.servicosProducao, dados.marcadoresProducao])
@@ -1714,17 +1716,18 @@ function AbaRendimento({ dados }) {
     () => new Map((dados.marcadoresProducaoTodasObras || []).map((m) => [m.id, m])),
     [dados.marcadoresProducaoTodasObras],
   )
-  /* Serviço arquivado some dos índices — mesma regra do resto do
-     app (arquivar não é o mesmo que apagar, mas some da contagem
-     ativa). Marcador → planta → serviço, porque o evento em si não
-     guarda o serviço. */
+  /* Serviço arquivado, OU o próprio marcador arquivado (ex.: excluído
+     do rendimento por engano/teste — ver DetalheColaboradorRendimentoSheet),
+     some dos índices — arquivar não é o mesmo que apagar, mas some da
+     contagem ativa. Marcador → planta → serviço, porque o evento em
+     si não guarda o serviço. */
   const marcadoresDeServicoArquivado = useMemo(() => {
     const planPorId = new Map((dados.plantasProducaoTodasObras || []).map((p) => [p.id, p]))
     const servicoPorId = new Map((dados.servicosProducaoTodasObras || []).map((s) => [s.id, s]))
     const excluidos = new Set()
     for (const m of (dados.marcadoresProducaoTodasObras || [])) {
       const servico = servicoPorId.get(planPorId.get(m.plan_id)?.service_id)
-      if (servico?.ativo === false) excluidos.add(m.id)
+      if (servico?.ativo === false || m.ativo === false) excluidos.add(m.id)
     }
     return excluidos
   }, [dados.plantasProducaoTodasObras, dados.servicosProducaoTodasObras, dados.marcadoresProducaoTodasObras])
@@ -1902,6 +1905,7 @@ function AbaRendimento({ dados }) {
    data — pedido do Julio pra rastrear "onde" o rendimento veio, não
    só o número agregado. */
 function DetalheColaboradorRendimentoSheet({ colaborador, eventos, unidade, dados, onFechar }) {
+  const [arquivando, setArquivando] = useState(null)
   const marcadorPorId = useMemo(
     () => new Map((dados.marcadoresProducaoTodasObras || []).map((m) => [m.id, m])),
     [dados.marcadoresProducaoTodasObras],
@@ -1946,15 +1950,36 @@ function DetalheColaboradorRendimentoSheet({ colaborador, eventos, unidade, dado
             <div className="t-caption">{l.quantidade.toLocaleString('pt-BR')} {unidade} em {plural(l.dias.size, 'dia', 'dias')}</div>
             <div className="stack-1" style={{ marginTop: 4 }}>
               {l.eventos.map((ev) => (
-                <div key={ev.id} className="row-between" style={{ fontSize: 13 }}>
+                <div key={ev.id} className="row-between" style={{ fontSize: 13, alignItems: 'center' }}>
                   <span>{ev.elemento}</span>
-                  <span className="t-caption">{formatarData(ev.data_execucao)} · {Number(ev.quantidade || 0).toLocaleString('pt-BR')} {unidade}</span>
+                  <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+                    <span className="t-caption">{formatarData(ev.data_execucao)} · {Number(ev.quantidade || 0).toLocaleString('pt-BR')} {unidade}</span>
+                    <button
+                      className="btn btn-ghost btn-sm" style={{ padding: '2px 4px', color: 'var(--danger)' }}
+                      onClick={() => setArquivando(ev)} aria-label={`Excluir ${ev.elemento} da produtividade`}
+                    >
+                      <Icon name="x" size={13} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {/* "Excluir" aqui arquiva o marcador (mesma ação de sempre, na
+         planta) — some do rendimento e da medição, mas o histórico
+         continua guardado, só não conta mais como ativo. Não é o
+         "excluir permanentemente" do Serviço (esse apaga de vez). */}
+      <Confirmar
+        aberto={!!arquivando}
+        titulo="Excluir esta marcação da produtividade?"
+        texto={arquivando ? `«${arquivando.elemento}» some do rendimento e da medição — o histórico continua guardado, mas ele deixa de contar como marcação ativa.` : ''}
+        rotuloOk="Excluir" perigo
+        onOk={async () => { const ev = arquivando; setArquivando(null); if (ev) await dados.arquivarMarcador(ev.marker_id) }}
+        onCancelar={() => setArquivando(null)}
+      />
     </Sheet>
   )
 }
