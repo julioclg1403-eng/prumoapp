@@ -2,37 +2,82 @@
    ASSISTENTE DE IA — botão flutuante visível em qualquer tela,
    abre um painel de chat que fala com a Edge Function "prumo-chat"
    (já publicada no Supabase; ela cuida da chave da Anthropic).
+
+   Além de conversar, o assistente pode usar ferramentas (ver
+   agenteFerramentas.js) pra abrir telas do app e consultar dados
+   reais, como o ranking de rendimento por colaborador. Quando o
+   Claude pede pra usar uma ferramenta (stop_reason: 'tool_use'),
+   a gente executa localmente e manda o resultado de volta, num
+   loop, até ele responder só com texto.
    ============================================================ */
 
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useDados } from '../lib/DadosContext'
+import { FERRAMENTAS, executarFerramenta } from '../lib/agenteFerramentas'
 import { Icon, Sheet, TextareaComAudio } from './index'
 
-export default function ChatBot() {
+const MAX_RODADAS_DE_FERRAMENTA = 4
+
+function textoDosBlocos(content) {
+  return (content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+    .trim()
+}
+
+export default function ChatBot({ navegar, perfil }) {
+  const dados = useDados()
   const [aberto, setAberto] = useState(false)
-  const [mensagens, setMensagens] = useState([])
+  const [mensagens, setMensagens] = useState([]) // só pra exibição: {role, content: string}
   const [texto, setTexto] = useState('')
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
+  const historicoRef = useRef([]) // formato Anthropic completo, com blocos de tool_use/tool_result
   const fimRef = useRef(null)
 
   useEffect(() => {
     if (aberto) fimRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [mensagens, aberto, carregando])
 
+  const chamarAssistente = async (historico) => {
+    const { data, error } = await supabase.functions.invoke('prumo-chat', {
+      body: { messages: historico, tools: FERRAMENTAS },
+    })
+    if (error) throw error
+    if (data?.error) throw new Error(data.error)
+    return data
+  }
+
   const enviar = async () => {
     const conteudo = texto.trim()
     if (!conteudo || carregando) return
-    const historico = [...mensagens, { role: 'user', content: conteudo }]
-    setMensagens(historico)
+    historicoRef.current = [...historicoRef.current, { role: 'user', content: conteudo }]
+    setMensagens((m) => [...m, { role: 'user', content: conteudo }])
     setTexto('')
     setErro('')
     setCarregando(true)
     try {
-      const { data, error } = await supabase.functions.invoke('prumo-chat', { body: { messages: historico } })
-      if (error) throw error
-      const resposta = data?.reply?.trim()
-      setMensagens((m) => [...m, { role: 'assistant', content: resposta || 'Não consegui responder agora — tenta de novo.' }])
+      let rodadas = 0
+      for (;;) {
+        const resposta = await chamarAssistente(historicoRef.current)
+        historicoRef.current = [...historicoRef.current, { role: 'assistant', content: resposta.content }]
+
+        if (resposta.stop_reason !== 'tool_use' || rodadas >= MAX_RODADAS_DE_FERRAMENTA) {
+          const textoFinal = textoDosBlocos(resposta.content)
+          setMensagens((m) => [...m, { role: 'assistant', content: textoFinal || 'Não consegui responder agora — tenta de novo.' }])
+          break
+        }
+
+        rodadas += 1
+        const usosDeFerramenta = resposta.content.filter((b) => b.type === 'tool_use')
+        const resultados = usosDeFerramenta.map((uso) => {
+          const resultado = executarFerramenta(uso.name, uso.input, { dados, navegar, perfil })
+          return { type: 'tool_result', tool_use_id: uso.id, content: JSON.stringify(resultado) }
+        })
+        historicoRef.current = [...historicoRef.current, { role: 'user', content: resultados }]
+      }
     } catch {
       setErro('Não consegui falar com o assistente agora. Tenta de novo em instantes.')
     } finally {
@@ -78,7 +123,8 @@ export default function ChatBot() {
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
             {mensagens.length === 0 && (
               <div className="t-caption" style={{ textAlign: 'center', marginTop: 24 }}>
-                Pergunte qualquer coisa sobre a obra — diário, pendências, efetivo, planejamento e outros módulos do Prumo.
+                Pergunte qualquer coisa sobre a obra, peça pra abrir uma tela ou consultar rendimento
+                de colaboradores — diário, pendências, efetivo, planejamento e outros módulos do Prumo.
               </div>
             )}
             {mensagens.map((m, i) => (

@@ -191,7 +191,7 @@ export default function AppGestao({ perfil, onSair }) {
       <div className="app-body">{corpo}</div>
 
       <SinoNotificacoesPush />
-      <ChatBot />
+      <ChatBot navegar={goto} perfil={perfil} />
       <AvisoAbrirPeloIcone />
       <BarraErro mensagem={dados.erro} />
 
