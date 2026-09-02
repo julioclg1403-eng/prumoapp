@@ -3,9 +3,14 @@
 
    Quem manda o aviso na hora certa é a notificação push do
    navegador (Web Push + VAPID, ver usePushNotifications) — cada
-   pessoa ativa no aparelho dela. Sem ativar, um lembrete
-   "pendente" é só uma lista — não uma notificação. O WhatsApp
-   ainda não está configurado, então ele não é um canal aqui.
+   pessoa ativa no aparelho dela. O botão de ativar mora no sino
+   global (SinoNotificacoesPush, no topo de toda tela do app, fora
+   daqui), não nesta tela: tem gente sem acesso a Lembretes que
+   também precisa ativar push pros próprios avisos (pendência
+   atribuída etc.), então não podia ficar preso a este módulo. Sem
+   ativar, um lembrete "pendente" é só uma lista — não uma
+   notificação. O WhatsApp ainda não está configurado, então ele
+   não é um canal aqui.
    ============================================================ */
 
 import { useState, useMemo } from 'react'
@@ -14,7 +19,6 @@ import {
   hojeISO, formatarDataHora, situacaoLembrete, filtrarLembretes, plural, filtrarPorPeriodo, rotuloPeriodo,
 } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, FiltroPeriodo, SecaoRecolhivel } from '../components'
-import { usePushNotifications } from '../hooks/usePushNotifications'
 
 /* O input datetime-local trabalha em hora LOCAL, sem fuso — igual ao
    que new Date(valor).toISOString() espera receber de volta. */
@@ -27,7 +31,6 @@ function paraDatetimeLocal(iso) {
 
 export default function Lembretes({ perfil }) {
   const dados = useDados()
-  const push = usePushNotifications()
   const agora = new Date()
   const [filtro, setFiltro] = useState('pendentes')
   const [editando, setEditando] = useState(null)
@@ -141,40 +144,6 @@ export default function Lembretes({ perfil }) {
         />
 
         <div className="stack-2">
-          {push.suportado ? (
-            <div className="card-flat row-between" style={{ alignItems: 'center', gap: 10 }}>
-              <div className="grow">
-                <div className="t-strong" style={{ fontSize: 14 }}>Notificações no navegador</div>
-                <div className="t-caption">
-                  {push.inscrito
-                    ? 'Ativadas neste aparelho — você recebe um aviso quando o lembrete vencer, mesmo com o app fechado.'
-                    : 'Ative para receber um aviso na hora exata do lembrete, mesmo com o app fechado.'}
-                </div>
-                {push.erro && (
-                  <div className="t-caption" style={{ color: 'var(--danger)', marginTop: 4 }}>{push.erro}</div>
-                )}
-              </div>
-              <button
-                className={push.inscrito ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm'}
-                disabled={push.carregando}
-                onClick={() => (push.inscrito ? push.desativar() : push.ativar())}
-              >
-                {push.carregando ? '...' : push.inscrito ? 'Desativar' : 'Ativar'}
-              </button>
-            </div>
-          ) : push.precisaInstalarNoIphone ? (
-            <div className="alert info">
-              No iPhone, notificação só funciona depois de instalar o Prumo na tela de início:
-              toque em Compartilhar (o quadrado com a seta pra cima) e depois em "Adicionar à
-              Tela de Início". Abra o Prumo por esse ícone (não pelo Safari) e ative aqui.
-            </div>
-          ) : (
-            <div className="alert info">
-              Este navegador não aceita notificações push. Isto guarda a data marcada, mas
-              ninguém é avisado sozinho — é só uma lista pra você checar por conta própria.
-            </div>
-          )}
-
           <Segmentos
             valor={filtro} onChange={setFiltro}
             opcoes={[

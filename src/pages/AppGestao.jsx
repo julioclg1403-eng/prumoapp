@@ -6,7 +6,7 @@
    ============================================================ */
 
 import { useState, useCallback } from 'react'
-import { Icon, useDesktop, BarraErro, AvisoAbrirPeloIcone } from '../components'
+import { Icon, useDesktop, BarraErro, AvisoAbrirPeloIcone, SinoNotificacoesPush } from '../components'
 import { useDados } from '../lib/DadosContext'
 import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
 import { useAbrirQrColaborador } from '../lib/useAbrirQrColaborador'
@@ -189,6 +189,7 @@ export default function AppGestao({ perfil, onSair }) {
 
       <div className="app-body">{corpo}</div>
 
+      <SinoNotificacoesPush />
       <AvisoAbrirPeloIcone />
       <BarraErro mensagem={dados.erro} />
 

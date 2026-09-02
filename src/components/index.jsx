@@ -8,6 +8,7 @@ import { linksTemporarios, baixarFoto } from '../lib/fotos'
 import { linksTemporariosAnexos } from '../lib/anexos'
 import { transcrever } from '../lib/audio'
 import { gradeDoMes, somarMeses, rotuloMes } from '../lib/dominio'
+import { usePushNotifications } from '../hooks/usePushNotifications'
 
 /* ── Ícones (SVG na mão, sem biblioteca) ─────────────────── */
 
@@ -456,6 +457,71 @@ export function AvisoAbrirPeloIcone() {
         <Icon name="x" size={16} />
       </button>
     </div>
+  )
+}
+
+/* ── Sino de notificações push — global, fora de qualquer módulo ──
+   Antes só existia dentro de Lembretes; quem não tinha acesso a
+   Lembretes nunca achava onde ativar push pros próprios avisos
+   (pendência atribuída, planejamento atualizado etc.). Agora fica
+   sempre à vista, em cima da tela, em toda tela do app — não
+   depende de qual módulo a pessoa tem liberado. Deslocado da borda
+   (não em right:12) pra não brigar com o botão de ação que algumas
+   telas já têm no canto direito do próprio topbar (ex.: "+" em
+   Lembretes e Cadastros). */
+export function SinoNotificacoesPush() {
+  const push = usePushNotifications()
+  const [aberto, setAberto] = useState(false)
+
+  return (
+    <>
+      <button
+        onClick={() => setAberto(true)}
+        aria-label="Notificações push"
+        style={{
+          position: 'fixed', top: 10, right: 56, zIndex: 85,
+          width: 36, height: 36, borderRadius: '50%', border: '1px solid var(--border)',
+          background: 'var(--surface)', boxShadow: 'var(--shadow-pop)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, cursor: 'pointer',
+          color: push.inscrito ? 'var(--success)' : 'var(--text-2)',
+        }}
+      >
+        <Icon name="lembrete" size={17} />
+      </button>
+
+      <Sheet aberto={aberto} titulo="Notificações no navegador" onFechar={() => setAberto(false)}>
+        <div className="stack-2">
+          {push.suportado ? (
+            <div className="stack-1">
+              <div className="t-caption">
+                {push.inscrito
+                  ? 'Ativadas neste aparelho — você recebe um aviso quando algo for atribuído a você ou vencer, mesmo com o app fechado.'
+                  : 'Ative pra receber um aviso na hora — pendência atribuída, lembrete vencendo e outros avisos do app — mesmo com o app fechado.'}
+              </div>
+              {push.erro && <div className="t-caption" style={{ color: 'var(--danger)' }}>{push.erro}</div>}
+              <button
+                className={push.inscrito ? 'btn btn-secondary btn-block' : 'btn btn-primary btn-block'}
+                disabled={push.carregando}
+                onClick={() => (push.inscrito ? push.desativar() : push.ativar())}
+              >
+                {push.carregando ? '...' : push.inscrito ? 'Desativar' : 'Ativar'}
+              </button>
+            </div>
+          ) : push.precisaInstalarNoIphone ? (
+            <div className="alert info">
+              No iPhone, notificação só funciona depois de instalar o Prumo na tela de início:
+              toque em Compartilhar (o quadrado com a seta pra cima) e depois em "Adicionar à
+              Tela de Início". Abra o Prumo por esse ícone (não pelo Safari) e ative aqui.
+            </div>
+          ) : (
+            <div className="alert info">
+              Este navegador não aceita notificações push. Os avisos continuam aparecendo dentro
+              do app, mas ninguém é avisado sozinho fora dele.
+            </div>
+          )}
+        </div>
+      </Sheet>
+    </>
   )
 }
 
