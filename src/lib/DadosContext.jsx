@@ -191,7 +191,7 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento, treinamentosColaboradores,
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
       estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
-      tiposServico, plantasProducao, marcadoresProducao, eventosProducao,
+      tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -241,6 +241,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('worker_training_exemptions').select('*')),
       buscarPaginado(() => supabase.from('notification_rules').select('*')),
       buscarPaginado(() => supabase.from('service_types').select('*').order('nome')),
+      buscarPaginado(() => supabase.from('production_services').select('*').order('created_at', { ascending: false })),
       buscarPaginado(() => supabase.from('production_plans').select('*').order('created_at', { ascending: false })),
       buscarPaginado(() => supabase.from('production_markers').select('*')),
       buscarPaginado(() => supabase.from('production_marker_events').select('*').order('data_execucao', { ascending: false })),
@@ -256,7 +257,7 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
       movimentosEstoque, isencoesTreinamento, regrasNotificacao,
-      tiposServico, plantasProducao, marcadoresProducao, eventosProducao].find((r) => r.error)
+      tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -333,6 +334,7 @@ export function DadosProvider({ perfil, children }) {
          organização, mesmo motivo do catálogo de materiais acima —
          reutilizável entre obras, não passa pelo filtro de obra. */
       tiposServico: tiposServico.data || [],
+      servicosProducao: servicosProducao.data || [],
       plantasProducao: plantasProducao.data || [],
       marcadoresProducao: marcadoresProducao.data || [],
       eventosProducao: eventosProducao.data || [],
@@ -455,6 +457,7 @@ export function DadosProvider({ perfil, children }) {
       movimentosEstoque: filtrar(tudo.movimentosEstoque),
       isencoesTreinamento: filtrar(tudo.isencoesTreinamento),
       regrasNotificacao: filtrar(tudo.regrasNotificacao),
+      servicosProducao: filtrar(tudo.servicosProducao),
       plantasProducao: filtrar(tudo.plantasProducao),
       marcadoresProducao: filtrar(tudo.marcadoresProducao),
       eventosProducao: filtrar(tudo.eventosProducao),
@@ -3242,11 +3245,57 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  /* Serviço: registro por obra que fixa tipo (do catálogo), empresa,
+     contrato e o time de funcionários ANTES de importar qualquer
+     planta — cada combinação empresa+contrato é o seu próprio
+     Serviço (o Julio faz esse vínculo manualmente, o app não tenta
+     ligar etapas entre serviços diferentes sozinho). */
+  const salvarServico = useCallback(
+    async (item) => {
+      const linha = {
+        organization_id: perfil.organization_id, worksite_id: obraId,
+        nome: item.nome, service_type_id: item.service_type_id,
+        company_id: item.company_id || null, cod_contrato: item.cod_contrato || null,
+        funcionarios_ids: item.funcionarios_ids || [],
+      }
+      if (item.id) linha.id = item.id
+      else linha.criado_por = perfil.id
+      const salvo = checar(
+        await supabase.from('production_services').upsert(linha).select('*').single(),
+        'salvar o serviço',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        servicosProducao: t.servicosProducao.some((x) => x.id === salvo.id)
+          ? t.servicosProducao.map((x) => (x.id === salvo.id ? salvo : x))
+          : [salvo, ...t.servicosProducao],
+      }))
+      return salvo
+    },
+    [perfil.organization_id, perfil.id, obraId, checar],
+  )
+
+  const arquivarServico = useCallback(
+    async (id) => {
+      const atual = tudo?.servicosProducao.find((x) => x.id === id)
+      if (!atual) return
+      const novoValor = atual.ativo === false ? true : false
+      const r = await supabase.from('production_services').update({ ativo: novoValor }).eq('id', id)
+      if (r.error) { checar(r, `${novoValor ? 'reativar' : 'arquivar'} o serviço`); return }
+      setTudo((t) => t && ({
+        ...t,
+        servicosProducao: t.servicosProducao.map((x) => (x.id === id ? { ...x, ativo: novoValor } : x)),
+      }))
+    },
+    [tudo, checar],
+  )
+
   // ── Plantas, marcadores e eventos (Produtividade e Medição) ─
   const enviarPlanta = useCallback(
-    async ({ arquivo, nome }) => {
+    async ({ arquivo, nome, serviceId }) => {
       const { erro, planta } = await enviarPlantaProducao({
-        arquivo, organizationId: perfil.organization_id, obraId, nome, autorId: perfil.id,
+        arquivo, organizationId: perfil.organization_id, obraId, nome, autorId: perfil.id, serviceId,
       })
       if (erro) { avisarErro(erro); return null }
       setTudo((t) => t && ({ ...t, plantasProducao: [planta, ...t.plantasProducao] }))
@@ -3272,12 +3321,13 @@ export function DadosProvider({ perfil, children }) {
      juntos, numa tacada só — o formulário de marcação já pede tudo
      isso de uma vez (ver produtividade-medicao.md, seção 4). */
   const salvarMarcador = useCallback(
-    async ({ plan_id, service_type_id, elemento, x, y, pagina, dimensoes, quantidade_calculada, evento }) => {
+    async ({ plan_id, service_type_id, elemento, forma, x, y, x2, y2, pagina, dimensoes, quantidade_calculada, evento }) => {
       const { organization_id, worksite_id } = escopo()
       const marcador = checar(
         await supabase.from('production_markers').insert({
           organization_id, worksite_id, plan_id, service_type_id, elemento,
-          x, y, pagina: pagina || 1, dimensoes: dimensoes || {}, quantidade_calculada,
+          forma: forma || 'ponto', x, y, x2: x2 ?? null, y2: y2 ?? null,
+          pagina: pagina || 1, dimensoes: dimensoes || {}, quantidade_calculada,
           etapa_atual: evento.etapa, criado_por: perfil.id,
         }).select('*').single(),
         'salvar a marcação',
@@ -3536,6 +3586,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
+      salvarServico, arquivarServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador,
     }),
     [
@@ -3574,6 +3625,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
+      salvarServico, arquivarServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador,
     ],
   )
