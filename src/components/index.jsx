@@ -464,11 +464,19 @@ export function AvisoAbrirPeloIcone() {
    Antes só existia dentro de Lembretes; quem não tinha acesso a
    Lembretes nunca achava onde ativar push pros próprios avisos
    (pendência atribuída, planejamento atualizado etc.). Agora fica
-   sempre à vista, em cima da tela, em toda tela do app — não
-   depende de qual módulo a pessoa tem liberado. Deslocado da borda
-   (não em right:12) pra não brigar com o botão de ação que algumas
-   telas já têm no canto direito do próprio topbar (ex.: "+" em
-   Lembretes e Cadastros). */
+   sempre à vista, em toda tela do app — não depende de qual módulo
+   a pessoa tem liberado.
+
+   Fica logo ABAIXO do topbar (não dentro dele) de propósito: cada
+   tela desenha o próprio topbar (título +, em algumas, um botão de
+   ação ou o seletor de obra — ver Início), então não dá pra encaixar
+   um item fixo NA mesma fileira sem arriscar sobrepor algo
+   diferente em cada tela. Logo abaixo, mesma margem direita, é a
+   única posição que não briga com nada, em nenhuma tela. O deslize
+   de `max(14px, env(safe-area-inset-top))` é o mesmo cálculo que o
+   topbar usa pra não ficar embaixo do notch/relógio do celular —
+   sem isso, ficava "muito em cima", meio por baixo da barra de
+   status. */
 export function SinoNotificacoesPush() {
   const push = usePushNotifications()
   const [aberto, setAberto] = useState(false)
@@ -479,7 +487,7 @@ export function SinoNotificacoesPush() {
         onClick={() => setAberto(true)}
         aria-label="Notificações push"
         style={{
-          position: 'fixed', top: 10, right: 56, zIndex: 85,
+          position: 'fixed', top: 'calc(max(14px, env(safe-area-inset-top)) + 60px)', right: 12, zIndex: 85,
           width: 36, height: 36, borderRadius: '50%', border: '1px solid var(--border)',
           background: 'var(--surface)', boxShadow: 'var(--shadow-pop)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, cursor: 'pointer',
