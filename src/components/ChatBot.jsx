@@ -42,8 +42,13 @@ export default function ChatBot({ navegar, perfil }) {
   }, [mensagens, aberto, carregando])
 
   const chamarAssistente = async (historico) => {
+    const agora = new Date()
     const { data, error } = await supabase.functions.invoke('prumo-chat', {
-      body: { messages: historico, tools: FERRAMENTAS },
+      body: {
+        messages: historico,
+        tools: FERRAMENTAS,
+        contexto: { agora_iso: agora.toISOString(), fuso: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      },
     })
     if (error) throw error
     if (data?.error) throw new Error(data.error)
@@ -72,10 +77,10 @@ export default function ChatBot({ navegar, perfil }) {
 
         rodadas += 1
         const usosDeFerramenta = resposta.content.filter((b) => b.type === 'tool_use')
-        const resultados = usosDeFerramenta.map((uso) => {
-          const resultado = executarFerramenta(uso.name, uso.input, { dados, navegar, perfil })
+        const resultados = await Promise.all(usosDeFerramenta.map(async (uso) => {
+          const resultado = await executarFerramenta(uso.name, uso.input, { dados, navegar, perfil })
           return { type: 'tool_result', tool_use_id: uso.id, content: JSON.stringify(resultado) }
-        })
+        }))
         historicoRef.current = [...historicoRef.current, { role: 'user', content: resultados }]
       }
     } catch {
