@@ -32,12 +32,54 @@ import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indi
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
 /* Cor estável por colaborador (hash do id → matiz), pra "colorir por
-   colaborador" na planta — sem depender de cadastrar cor pra cada
-   pessoa. Mesmo id sempre cai na mesma cor, entre sessões. */
+   colaborador" na planta — usada só quando a pessoa não escolheu uma
+   cor própria (ver SeletorCorColaborador). Mesmo id sempre cai na
+   mesma cor, entre sessões. */
 function corDoColaborador(id) {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0
   return `hsl(${hash % 360}, 65%, 45%)`
+}
+
+/* Cor efetiva de um colaborador: a que ele escolheu (fixa,
+   `workers.cor`), senão o hash automático — usada tanto na planta
+   quanto na legenda. */
+function corEfetivaColaborador(colaborador, workerId) {
+  return colaborador?.cor || corDoColaborador(workerId)
+}
+
+const PALETA_CORES_COLABORADOR = [
+  '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c',
+  '#3498db', '#9b59b6', '#e91e63', '#795548', '#607d8b',
+]
+
+/* Escolher a cor de um colaborador na planta — aparece embaixo do
+   campo Colaborador assim que alguém é escolhido. Fixa pra sempre
+   (workers.cor), não é por evento: pedido do Julio pra "vincular
+   cor" à pessoa, não ficar preso no hash automático. */
+function SeletorCorColaborador({ dados, workerId }) {
+  if (!workerId) return null
+  const colaborador = dados.colaboradorPorId(workerId)
+  const corAtual = corEfetivaColaborador(colaborador, workerId)
+  return (
+    <div className="stack-1">
+      <div className="t-caption">Cor de {colaborador?.nome || 'colaborador'} na planta (modo "Cor: Colaborador")</div>
+      <div className="row-wrap" style={{ gap: 6 }}>
+        {PALETA_CORES_COLABORADOR.map((cor) => (
+          <button
+            key={cor} type="button"
+            onClick={() => dados.definirCorColaborador(workerId, cor)}
+            aria-label={`Escolher cor ${cor}`}
+            style={{
+              width: 24, height: 24, borderRadius: '50%', background: cor, cursor: 'pointer', padding: 0,
+              border: corAtual === cor ? '2px solid var(--text-1)' : '2px solid transparent',
+              boxShadow: '0 0 0 1px var(--border)',
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export default function Producao({ voltar, perfil }) {
@@ -604,9 +646,9 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
       const workerId = workerAtualPorMarcador.get(m.id)
       if (!workerId || vistos.has(workerId)) continue
       const colaborador = dados.colaboradorPorId(workerId)
-      if (colaborador) vistos.set(workerId, colaborador.nome)
+      if (colaborador) vistos.set(workerId, colaborador)
     }
-    return [...vistos.entries()].map(([id, nome]) => ({ id, nome, cor: corDoColaborador(id) }))
+    return [...vistos.entries()].map(([id, colaborador]) => ({ id, nome: colaborador.nome, cor: corEfetivaColaborador(colaborador, id) }))
   }, [corPor, marcadoresDaPagina, workerAtualPorMarcador, dados])
 
   const coordsPercentual = (clientX, clientY) => {
@@ -822,7 +864,7 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
             let corCss
             if (corPor === 'colaborador') {
               const workerId = workerAtualPorMarcador.get(m.id)
-              corCss = workerId ? corDoColaborador(workerId) : 'var(--text-3)'
+              corCss = workerId ? corEfetivaColaborador(dados.colaboradorPorId(workerId), workerId) : 'var(--text-3)'
             } else {
               const etapaInfo = tipo?.etapas?.find((e) => e.chave === m.etapa_atual)
               corCss = etapaInfo?.cor ? `var(--${etapaInfo.cor})` : 'var(--text-3)'
@@ -1118,6 +1160,7 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
 
         <Campo label="Colaborador" dica="Opcional.">
           <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerId} /></div>
         </Campo>
 
         <Campo label="Item de contrato" dica="Opcional — pode vincular depois, no detalhe da marcação.">
@@ -1382,6 +1425,7 @@ function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
 
         <Campo label="Colaborador" dica="Opcional.">
           <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerId} /></div>
         </Campo>
 
         <Campo label="Item de contrato" dica="Opcional — caso a caso: este estágio pode ser de um contrato diferente do estágio anterior.">
@@ -1467,6 +1511,7 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
 
         <Campo label="Colaborador" dica="Opcional.">
           <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerId} /></div>
         </Campo>
 
         <Campo label="Item de contrato" dica="Opcional — caso a caso: este estágio pode ser de um contrato diferente do estágio anterior.">

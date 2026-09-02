@@ -3490,6 +3490,21 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Cor fixa do colaborador na planta (Produtividade, "cor por
+     colaborador") — sem escolher, cai no hash automático; escolhendo
+     uma vez aqui, vale pra sempre em todas as marcações dele. */
+  const definirCorColaborador = useCallback(
+    async (workerId, cor) => {
+      const r = await supabase.from('workers').update({ cor: cor || null }).eq('id', workerId)
+      if (r.error) { checar(r, 'definir a cor do colaborador'); return }
+      setTudo((t) => t && ({
+        ...t,
+        colaboradores: t.colaboradores.map((c) => (c.id === workerId ? { ...c, cor: cor || null } : c)),
+      }))
+    },
+    [checar],
+  )
+
   // ── Usuários (só o admin chega aqui) ──────────────────────
   const definirPapel = useCallback(
     async (usuarioId, papel) => {
@@ -3637,6 +3652,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      definirCorColaborador,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -3676,6 +3692,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      definirCorColaborador,
     ],
   )
 
