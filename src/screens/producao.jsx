@@ -304,6 +304,10 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const [enviando, setEnviando] = useState(false)
   const [editando, setEditando] = useState(false)
   const [plantaAberta, setPlantaAberta] = useState(null)
+  /* Editar/excluir o Serviço mexe em empresa e contrato — coisa mais
+     sensível que marcar na planta, então fica só pro admin, mesmo que
+     o resto do módulo já libere pra gestão. */
+  const ehAdmin = perfil.role === 'admin'
 
   const plantas = (dados.plantasProducao || []).filter((p) => p.service_id === servico.id && p.ativo !== false)
   const plantaAtual = plantaAberta && plantas.find((p) => p.id === plantaAberta.id)
@@ -330,7 +334,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
             <div className="t-strong" style={{ fontSize: 16 }}>{servico.nome}</div>
             <div className="t-caption">{tipo?.nome || 'Tipo removido'}</div>
           </div>
-          {podeEditar && (
+          {ehAdmin && (
             <button className="btn btn-ghost btn-sm" onClick={() => setEditando(true)}>
               <Icon name="editar" size={13} /> Editar
             </button>
