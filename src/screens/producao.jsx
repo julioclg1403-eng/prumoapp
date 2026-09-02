@@ -985,7 +985,19 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
 
       <div
         ref={viewportRef}
-        style={{ overflow: 'auto', maxHeight: '70vh', border: '1px solid var(--border)', borderRadius: 8 }}
+        style={{
+          overflow: 'auto', maxHeight: '70vh', border: '1px solid var(--border)', borderRadius: 8,
+          /* No celular, "overflow: auto" some com o toque assim que o
+             dedo se move — o navegador decide sozinho "isso é rolar"
+             antes do nosso onTouchMove decidir "isso é desenhar a
+             área"/"isso é um toque pra marcar", e quem ganha essa
+             corrida é sempre o navegador. touch-action:none desliga o
+             gesto nativo de rolar/pinçar enquanto a ferramenta
+             "Marcar" está ativa, deixando o toque 100% pros nossos
+             handlers (ponto e área voltam a funcionar no celular). Só
+             na mãozinha o toque nativo volta — lá rolar É o gesto. */
+          touchAction: ferramenta === 'marcar' ? 'none' : 'auto',
+        }}
         onMouseDown={(e) => iniciarArrasto(e.clientX, e.clientY)}
         onMouseMove={(e) => moverArrasto(e.clientX, e.clientY)}
         onMouseUp={pararArrasto}
@@ -1007,6 +1019,7 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
             position: 'relative', lineHeight: 0,
             width: larguraRenderizada || '100%', height: alturaRenderizada || 'auto',
             cursor: ferramenta === 'mao' ? 'grab' : (podeEditar ? 'crosshair' : 'default'),
+            touchAction: ferramenta === 'marcar' ? 'none' : 'auto',
           }}
         >
           <canvas ref={canvasRef} style={{ width: '100%', display: 'block' }} />
