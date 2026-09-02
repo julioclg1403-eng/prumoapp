@@ -539,8 +539,8 @@ function EnviarPlantaSheet({ aberto, onFechar, dados, servico }) {
 /* ── Visualizar planta + marcação ──────────────────────────── */
 
 const ZOOM_MIN = 0.5
-const ZOOM_MAX = 4
-const ZOOM_PASSO = 0.25
+const ZOOM_MAX = 10
+const ZOOM_PASSO = 0.5
 
 function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, voltar }) {
   const [pdfDoc, setPdfDoc] = useState(null)

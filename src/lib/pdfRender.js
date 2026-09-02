@@ -44,11 +44,23 @@ export async function renderizarPaginaPDF(pdfDoc, numeroPagina, canvas, larguraA
     renderTaskRef.current = null
   }
 
-  canvas.width = viewport.width
-  canvas.height = viewport.height
+  /* Celular com tela retina/alta densidade (devicePixelRatio 2-3x)
+     borra a planta se o canvas só tiver 1 pixel real por pixel de
+     CSS — reclamação do Julio ("qualidade ruim no mobile"). Desenha
+     num canvas maior (backing store) e deixa o CSS (width:100% no
+     JSX) encolher de volta pro tamanho visual certo — o navegador
+     faz o downscale, que é o que dá nitidez. Capado em 2x: acima
+     disso o ganho é imperceptível e o canvas fica pesado demais pra
+     celular mais fraco. */
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  canvas.width = Math.round(viewport.width * dpr)
+  canvas.height = Math.round(viewport.height * dpr)
 
   const contexto = canvas.getContext('2d')
-  const task = pagina.render({ canvasContext: contexto, viewport })
+  const task = pagina.render({
+    canvasContext: contexto, viewport,
+    transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null,
+  })
   if (renderTaskRef) renderTaskRef.current = task
 
   try {
