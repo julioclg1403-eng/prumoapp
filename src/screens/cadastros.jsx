@@ -192,6 +192,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const [importando, setImportando] = useState(false)
   const [importandoPDF, setImportandoPDF] = useState(false)
   const [agrupamento, setAgrupamento] = useState('nome')
+  const [busca, setBusca] = useState('')
 
   /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
      gravação barrada pela permissão não dá erro, simplesmente não
@@ -209,6 +210,14 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const ativos = todos.filter((x) => x.ativo !== false).length
   const arquivados = todos.filter((x) => x.ativo === false).length
   const lista = todos.filter((x) => (mostrarArquivados ? x.ativo === false : x.ativo !== false))
+  /* Busca por nome, sem acento/caixa (mesma normalização usada pra
+     casar cadastro duplicado) — filtra só o que já está sendo
+     mostrado (ativos ou arquivados, conforme o toggle acima), pra
+     achar rápido numa lista de 50+ itens sem trocar de contexto. */
+  const buscaNormalizada = normalizarParaCasar(busca.trim())
+  const listaFiltrada = buscaNormalizada
+    ? lista.filter((x) => normalizarParaCasar(x.nome || '').includes(buscaNormalizada))
+    : lista
 
   /* Só faz sentido pra colaborador e pra estrutura/planejamento — os
      outros cadastros não têm função, empresa nem atividade nessa
@@ -224,7 +233,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const grupos = useMemo(() => {
     if (!grupavel || agrupamento === 'nome') return null
     const grupos = new Map()
-    lista.forEach((item) => {
+    listaFiltrada.forEach((item) => {
       let chave, rotuloSemDado, rotulo
       if (agrupamento === 'funcao') {
         const funcao = (item.funcao || item.nome || '').trim()
@@ -248,7 +257,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
       if (b.rotulo === b.rotuloSemDado) return -1
       return a.rotulo.localeCompare(b.rotulo, 'pt-BR')
     })
-  }, [grupavel, agrupamento, lista, dados])
+  }, [grupavel, agrupamento, listaFiltrada, dados])
 
   const abrirNovo = () => setEditando({})
 
@@ -374,7 +383,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
 
           <Segmentos
             valor={tipo}
-            onChange={(t) => { setTipo(t); setMostrarArquivados(false); setAgrupamento('nome') }}
+            onChange={(t) => { setTipo(t); setMostrarArquivados(false); setAgrupamento('nome'); setBusca('') }}
             opcoes={opcoesTipo}
           />
 
@@ -384,6 +393,14 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             <CatalogoServicosConteudo dados={dados} />
           ) : (
             <>
+          <div className="row-flex" style={{ alignItems: 'center', gap: 6 }}>
+            <Icon name="busca" size={16} />
+            <input
+              className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome…"
+            />
+          </div>
+
           {arquivados > 0 && (
             <Segmentos
               valor={mostrarArquivados ? 'arquivados' : 'ativos'}
@@ -412,16 +429,18 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             />
           )}
 
-          {lista.length === 0 ? (
+          {listaFiltrada.length === 0 ? (
             <div className="card-flat">
               <Vazio
-                titulo={mostrarArquivados ? `Nenhum ${rotuloArquivado.toLowerCase()}` : `Nenhum${def.feminino ? 'a' : ''} ${def.singular} cadastrad${def.feminino ? 'a' : 'o'}`}
+                titulo={buscaNormalizada ? 'Nada encontrado' : mostrarArquivados ? `Nenhum ${rotuloArquivado.toLowerCase()}` : `Nenhum${def.feminino ? 'a' : ''} ${def.singular} cadastrad${def.feminino ? 'a' : 'o'}`}
                 texto={
-                  mostrarArquivados
-                    ? `Nenhum${def.feminino ? 'a' : ''} ${def.singular} foi ${def.statusPessoa ? 'inativad' : 'arquivad'}${def.feminino ? 'a' : 'o'} ainda.`
-                    : `Cadastre ${def.feminino ? 'a primeira' : 'o primeiro'} ${def.singular} para começar a usar.`
+                  buscaNormalizada
+                    ? `Nenhum${def.feminino ? 'a' : ''} ${def.singular} com "${busca.trim()}" no nome.`
+                    : mostrarArquivados
+                      ? `Nenhum${def.feminino ? 'a' : ''} ${def.singular} foi ${def.statusPessoa ? 'inativad' : 'arquivad'}${def.feminino ? 'a' : 'o'} ainda.`
+                      : `Cadastre ${def.feminino ? 'a primeira' : 'o primeiro'} ${def.singular} para começar a usar.`
                 }
-                acao={!mostrarArquivados && <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar</button>}
+                acao={!mostrarArquivados && !buscaNormalizada && <button className="btn btn-primary" onClick={abrirNovo}>Cadastrar</button>}
               />
             </div>
           ) : grupos ? (
@@ -437,7 +456,7 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
             </div>
           ) : (
             <div className="stack-1">
-              {lista.map((item) => <ItemDoCadastro key={item.id} item={item} />)}
+              {listaFiltrada.map((item) => <ItemDoCadastro key={item.id} item={item} />)}
             </div>
           )}
             </>
