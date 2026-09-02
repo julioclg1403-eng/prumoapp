@@ -10,6 +10,7 @@
 
 import { useState, useCallback } from 'react'
 import { Icon, useDesktop, BarraErro, AvisoAbrirPeloIcone, SeletorObra, SinoNotificacoesPush } from '../components'
+import ChatBot from '../components/ChatBot'
 import { useDados } from '../lib/DadosContext'
 import { useAbrirQrMaterial } from '../lib/useAbrirQrMaterial'
 import { useAbrirQrColaborador } from '../lib/useAbrirQrColaborador'
@@ -150,6 +151,7 @@ export default function AppCampo({ perfil, onSair }) {
       <div className="app-body">{corpo}</div>
 
       <SinoNotificacoesPush />
+      <ChatBot />
       <AvisoAbrirPeloIcone />
       <BarraErro mensagem={dados.erro} />
 
