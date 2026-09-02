@@ -242,6 +242,21 @@ function ServicoSheet({ dados, servico, onFechar }) {
   const [funcionariosIds, setFuncionariosIds] = useState(servico?.funcionarios_ids || [])
   const [salvando, setSalvando] = useState(false)
   const [confirmarArquivar, setConfirmarArquivar] = useState(false)
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
+
+  /* Quanto vai junto se excluir de verdade — plantas, marcadores e
+     eventos em cascata no banco. Mostrado no aviso pra ninguém
+     apagar sem saber o tamanho do estrago (é irreversível). */
+  const impactoExclusao = useMemo(() => {
+    if (!servico) return null
+    const plantas = (dados.plantasProducao || []).filter((p) => p.service_id === servico.id)
+    const planIds = new Set(plantas.map((p) => p.id))
+    const marcadores = (dados.marcadoresProducao || []).filter((m) => planIds.has(m.plan_id))
+    const markerIds = new Set(marcadores.map((m) => m.id))
+    const eventos = (dados.eventosProducao || []).filter((e) => markerIds.has(e.marker_id))
+    return { plantas: plantas.length, marcadores: marcadores.length, eventos: eventos.length }
+  }, [servico, dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao])
 
   const tiposAtivos = (dados.tiposServico || []).filter((t) => t.ativo !== false)
   const empresasAtivas = (dados.empresas || []).filter((e) => e.ativo !== false)
@@ -326,9 +341,14 @@ function ServicoSheet({ dados, servico, onFechar }) {
         </Campo>
 
         {servico && (
-          <button className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)', alignSelf: 'flex-start' }} onClick={() => setConfirmarArquivar(true)}>
-            <Icon name="x" size={13} /> Arquivar serviço
-          </button>
+          <div className="row-flex" style={{ gap: 8 }}>
+            <button className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)', flex: 1 }} onClick={() => setConfirmarArquivar(true)}>
+              <Icon name="x" size={13} /> Arquivar
+            </button>
+            <button className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)', flex: 1 }} onClick={() => setConfirmarExcluir(true)}>
+              <Icon name="x" size={13} /> Excluir permanentemente
+            </button>
+          </div>
         )}
       </div>
 
@@ -340,6 +360,29 @@ function ServicoSheet({ dados, servico, onFechar }) {
           rotuloOk="Arquivar" perigo
           onOk={async () => { setConfirmarArquivar(false); await dados.arquivarServico(servico.id); onFechar() }}
           onCancelar={() => setConfirmarArquivar(false)}
+        />
+      )}
+
+      {servico && (
+        <Confirmar
+          aberto={confirmarExcluir}
+          titulo="Excluir este serviço para sempre?"
+          texto={
+            `Isso apaga «${servico.nome}» e tudo que só existe por causa dele: `
+            + `${plural(impactoExclusao?.plantas || 0, 'planta', 'plantas')}, `
+            + `${plural(impactoExclusao?.marcadores || 0, 'marcação', 'marcações')} e `
+            + `${plural(impactoExclusao?.eventos || 0, 'evento', 'eventos')} de histórico. `
+            + 'Diferente de arquivar, essa ação não pode ser desfeita.'
+          }
+          rotuloOk={excluindo ? 'Excluindo…' : 'Excluir para sempre'} perigo
+          onOk={async () => {
+            setExcluindo(true)
+            const ok = await dados.excluirServico(servico.id)
+            setExcluindo(false)
+            setConfirmarExcluir(false)
+            if (ok) onFechar()
+          }}
+          onCancelar={() => setConfirmarExcluir(false)}
         />
       )}
     </Sheet>
@@ -1660,6 +1703,7 @@ function AbaRendimento({ dados }) {
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
   const [tipoId, setTipoId] = useState('')
+  const [colaboradorAberto, setColaboradorAberto] = useState(null)
 
   /* Rendimento cruza obras (dados.eventosProducaoTodasObras, exposto
      em DadosContext) — o catálogo de serviço é da organização, então
@@ -1802,15 +1846,21 @@ function AbaRendimento({ dados }) {
               )}
               <div className="stack-1">
                 {porColaborador.map((r) => (
-                  <div key={r.workerId} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
+                  <button
+                    key={r.workerId} className="card-flat row-between" style={{ padding: 10, alignItems: 'center', width: '100%', textAlign: 'left' }}
+                    onClick={() => setColaboradorAberto(r)}
+                  >
                     <div>
                       <div className="t-strong" style={{ fontSize: 14 }}>{r.colaborador.nome}</div>
                       <div className="t-caption">{r.quantidade.toLocaleString('pt-BR')} {unidadeDe(tipoSelecionado)} em {r.dias} dia{r.dias === 1 ? '' : 's'}</div>
                     </div>
-                    <div className="t-strong" style={{ fontSize: 15 }}>
-                      {r.rendimento.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(tipoSelecionado)}/dia
+                    <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                      <div className="t-strong" style={{ fontSize: 15 }}>
+                        {r.rendimento.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidadeDe(tipoSelecionado)}/dia
+                      </div>
+                      <Icon name="avancar" size={14} />
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </>
@@ -1833,6 +1883,78 @@ function AbaRendimento({ dados }) {
           ))}
         </div>
       )}
+
+      {colaboradorAberto && (
+        <DetalheColaboradorRendimentoSheet
+          colaborador={colaboradorAberto.colaborador}
+          eventos={eventosDoTipo.filter((e) => e.worker_id === colaboradorAberto.workerId)}
+          unidade={unidadeDe(tipoSelecionado)}
+          dados={dados}
+          onFechar={() => setColaboradorAberto(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/* Detalhe do rendimento de um colaborador: em quais locais (plantas)
+   ele trabalhou nesse tipo/período, e cada marcação individual com
+   data — pedido do Julio pra rastrear "onde" o rendimento veio, não
+   só o número agregado. */
+function DetalheColaboradorRendimentoSheet({ colaborador, eventos, unidade, dados, onFechar }) {
+  const marcadorPorId = useMemo(
+    () => new Map((dados.marcadoresProducaoTodasObras || []).map((m) => [m.id, m])),
+    [dados.marcadoresProducaoTodasObras],
+  )
+  const plantaPorId = useMemo(
+    () => new Map((dados.plantasProducaoTodasObras || []).map((p) => [p.id, p])),
+    [dados.plantasProducaoTodasObras],
+  )
+
+  const porLocal = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of eventos) {
+      const marcador = marcadorPorId.get(ev.marker_id)
+      const planta = marcador ? plantaPorId.get(marcador.plan_id) : null
+      const chave = planta?.id || 'sem-local'
+      const atual = mapa.get(chave) || { nome: planta?.nome || 'Local removido', quantidade: 0, dias: new Set(), eventos: [] }
+      atual.quantidade += Number(ev.quantidade) || 0
+      atual.dias.add(ev.data_execucao)
+      atual.eventos.push({ ...ev, elemento: marcador?.elemento || '—' })
+      mapa.set(chave, atual)
+    }
+    return [...mapa.values()]
+      .map((l) => ({
+        ...l,
+        ritmo: l.dias.size > 0 ? l.quantidade / l.dias.size : 0,
+        eventos: l.eventos.sort((a, b) => (a.data_execucao < b.data_execucao ? 1 : -1)),
+      }))
+      .sort((a, b) => b.quantidade - a.quantidade)
+  }, [eventos, marcadorPorId, plantaPorId])
+
+  return (
+    <Sheet aberto titulo={colaborador.nome} onFechar={onFechar}>
+      <div className="stack-2">
+        {porLocal.map((l) => (
+          <div key={l.nome} className="card-flat stack-1">
+            <div className="row-between" style={{ alignItems: 'center' }}>
+              <div className="t-strong" style={{ fontSize: 14 }}>{l.nome}</div>
+              <div className="t-strong" style={{ fontSize: 14 }}>
+                {l.ritmo.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {unidade}/dia
+              </div>
+            </div>
+            <div className="t-caption">{l.quantidade.toLocaleString('pt-BR')} {unidade} em {plural(l.dias.size, 'dia', 'dias')}</div>
+            <div className="stack-1" style={{ marginTop: 4 }}>
+              {l.eventos.map((ev) => (
+                <div key={ev.id} className="row-between" style={{ fontSize: 13 }}>
+                  <span>{ev.elemento}</span>
+                  <span className="t-caption">{formatarData(ev.data_execucao)} · {Number(ev.quantidade || 0).toLocaleString('pt-BR')} {unidade}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Sheet>
   )
 }

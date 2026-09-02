@@ -3291,6 +3291,31 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  /* Diferente de arquivar: apaga o Serviço de verdade — e, em
+     cascata no banco, as plantas, marcadores e eventos que só
+     existiam por causa dele. Só o admin chega nessa opção (ver
+     producao.jsx); irreversível, por isso o front pede a contagem
+     do que vai junto antes de confirmar. */
+  const excluirServico = useCallback(
+    async (id) => {
+      const planIds = new Set((tudo?.plantasProducao || []).filter((p) => p.service_id === id).map((p) => p.id))
+      const markerIds = new Set((tudo?.marcadoresProducao || []).filter((m) => planIds.has(m.plan_id)).map((m) => m.id))
+
+      const r = await supabase.from('production_services').delete().eq('id', id)
+      if (r.error) { checar(r, 'excluir o serviço'); return false }
+
+      setTudo((t) => t && ({
+        ...t,
+        servicosProducao: t.servicosProducao.filter((s) => s.id !== id),
+        plantasProducao: t.plantasProducao.filter((p) => !planIds.has(p.id)),
+        marcadoresProducao: t.marcadoresProducao.filter((m) => !markerIds.has(m.id)),
+        eventosProducao: t.eventosProducao.filter((e) => !markerIds.has(e.marker_id)),
+      }))
+      return true
+    },
+    [tudo, checar],
+  )
+
   // ── Plantas, marcadores e eventos (Produtividade e Medição) ─
   const enviarPlanta = useCallback(
     async ({ arquivo, nome, serviceId }) => {
@@ -3650,7 +3675,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
-      salvarServico, arquivarServico,
+      salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
       definirCorColaborador,
     }),
@@ -3690,7 +3715,7 @@ export function DadosProvider({ perfil, children }) {
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
-      salvarServico, arquivarServico,
+      salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
       definirCorColaborador,
     ],
