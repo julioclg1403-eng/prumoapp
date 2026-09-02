@@ -69,13 +69,17 @@ export default function ChatBot({ navegar, perfil }) {
         const resposta = await chamarAssistente(historicoRef.current)
         historicoRef.current = [...historicoRef.current, { role: 'assistant', content: resposta.content }]
 
-        if (resposta.stop_reason !== 'tool_use' || rodadas >= MAX_RODADAS_DE_FERRAMENTA) {
+        if (rodadas >= MAX_RODADAS_DE_FERRAMENTA || (resposta.stop_reason !== 'tool_use' && resposta.stop_reason !== 'pause_turn')) {
           const textoFinal = textoDosBlocos(resposta.content)
           setMensagens((m) => [...m, { role: 'assistant', content: textoFinal || 'Não consegui responder agora — tenta de novo.' }])
           break
         }
 
         rodadas += 1
+
+        if (resposta.stop_reason === 'pause_turn') {
+          continue // busca na web ainda rodando — manda de volta sem alteração
+        }
         const usosDeFerramenta = resposta.content.filter((b) => b.type === 'tool_use')
         const resultados = await Promise.all(usosDeFerramenta.map(async (uso) => {
           const resultado = await executarFerramenta(uso.name, uso.input, { dados, navegar, perfil })
