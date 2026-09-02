@@ -404,6 +404,19 @@ export function DadosProvider({ perfil, children }) {
     }).catch(() => {})
   }, [tudo, obraId, perfil.id])
 
+  /* Notifica gente específica direto (não por regra de módulo) —
+     usada pra avisar quem foi marcado como responsável assim que o
+     lembrete/pendência é criado, sem depender de estar cadastrado
+     numa regra de notificação. Mesma silêncio-em-erro de propósito
+     do notificarRegra. */
+  const notificarPessoas = useCallback((profileIds, { titulo, corpo }) => {
+    const alvos = [...new Set(profileIds)].filter((id) => id && id !== perfil.id)
+    if (!alvos.length) return
+    supabase.functions.invoke('send-push', {
+      body: { profile_ids: alvos, title: titulo, body: corpo, url: '/' },
+    }).catch(() => {})
+  }, [perfil.id])
+
   /* ── A obra escolhida filtra TUDO ────────────────────────────
      O recorte acontece aqui, num lugar só, e não em cada tela.
      Se cada tela filtrasse por conta própria, bastaria uma
@@ -838,10 +851,13 @@ export function DadosProvider({ perfil, children }) {
       }))
       if (!p.id) {
         notificarRegra('pendencias', { titulo: 'Nova pendência', corpo: `${perfil.nome}: ${linha.titulo}` })
+        if (linha.responsavel_id) {
+          notificarPessoas([linha.responsavel_id], { titulo: 'Pendência atribuída a você', corpo: linha.titulo })
+        }
       }
       return comFotos
     },
-    [perfil.id, perfil.nome, escopo, checar, tudo, notificarRegra],
+    [perfil.id, perfil.nome, escopo, checar, tudo, notificarRegra, notificarPessoas],
   )
 
   /* ── Fotos de pendência ──────────────────────────────────── */
@@ -3114,9 +3130,12 @@ export function DadosProvider({ perfil, children }) {
           ? t.lembretes.map((x) => (x.id === salvo.id ? salvo : x))
           : [...t.lembretes, salvo],
       }))
+      if (!l.id && linha.responsaveis_ids.length) {
+        notificarPessoas(linha.responsaveis_ids, { titulo: 'Novo lembrete', corpo: linha.texto })
+      }
       return salvo
     },
-    [perfil.id, escopo, checar],
+    [perfil.id, escopo, checar, notificarPessoas],
   )
 
   const mudarStatusLembrete = useCallback(
