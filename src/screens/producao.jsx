@@ -31,6 +31,15 @@ import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indi
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
+/* Cor estável por colaborador (hash do id → matiz), pra "colorir por
+   colaborador" na planta — sem depender de cadastrar cor pra cada
+   pessoa. Mesmo id sempre cai na mesma cor, entre sessões. */
+function corDoColaborador(id) {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0
+  return `hsl(${hash % 360}, 65%, 45%)`
+}
+
 export default function Producao({ voltar, perfil }) {
   const dados = useDados()
   const [aba, setAba] = useState('servicos')
@@ -511,6 +520,10 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
      visual/rastreabilidade — a quantidade continua vindo dos campos
      de dimensão digitados, igual o pino. */
   const [formaMarcacao, setFormaMarcacao] = useState('ponto')
+  /* Cor do pino: por estágio (padrão, do Catálogo) ou por colaborador
+     — pedido do Julio pra bater o olho e ver quem fez o quê, quando
+     estágios diferentes acabam com a mesma cor. */
+  const [corPor, setCorPor] = useState('etapa')
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
   const viewportRef = useRef(null)
@@ -571,6 +584,30 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
     () => (dados.marcadoresProducao || []).filter((m) => m.plan_id === planta.id && m.pagina === pagina && m.ativo !== false),
     [dados.marcadoresProducao, planta.id, pagina],
   )
+
+  /* Colaborador "atual" de cada marcador = quem fez o evento mais
+     recente — mesma lógica do etapa_atual, só que pro worker.
+     `dados.eventosProducao` já vem ordenado por data_execucao desc,
+     então o primeiro evento visto de cada marcador é o mais novo. */
+  const workerAtualPorMarcador = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of (dados.eventosProducao || [])) {
+      if (ev.worker_id && !mapa.has(ev.marker_id)) mapa.set(ev.marker_id, ev.worker_id)
+    }
+    return mapa
+  }, [dados.eventosProducao])
+
+  const legendaColaboradores = useMemo(() => {
+    if (corPor !== 'colaborador') return []
+    const vistos = new Map()
+    for (const m of marcadoresDaPagina) {
+      const workerId = workerAtualPorMarcador.get(m.id)
+      if (!workerId || vistos.has(workerId)) continue
+      const colaborador = dados.colaboradorPorId(workerId)
+      if (colaborador) vistos.set(workerId, colaborador.nome)
+    }
+    return [...vistos.entries()].map(([id, nome]) => ({ id, nome, cor: corDoColaborador(id) }))
+  }, [corPor, marcadoresDaPagina, workerAtualPorMarcador, dados])
 
   const coordsPercentual = (clientX, clientY) => {
     const rect = containerRef.current.getBoundingClientRect()
@@ -708,6 +745,23 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
             </div>
           )}
           <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+            <span className="t-caption">Cor:</span>
+            <button
+              className={`btn btn-sm ${corPor === 'etapa' ? 'btn-dark' : 'btn-secondary'}`}
+              onClick={() => setCorPor('etapa')}
+              title="Colorir os pinos pelo estágio"
+            >
+              Estágio
+            </button>
+            <button
+              className={`btn btn-sm ${corPor === 'colaborador' ? 'btn-dark' : 'btn-secondary'}`}
+              onClick={() => setCorPor('colaborador')}
+              title="Colorir os pinos por quem fez o último evento"
+            >
+              Colaborador
+            </button>
+          </div>
+          <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
             <button className="btn btn-ghost btn-sm" onClick={zoomOut} disabled={zoom <= ZOOM_MIN} aria-label="Diminuir zoom">−</button>
             <span className="t-caption" style={{ minWidth: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
             <button className="btn btn-ghost btn-sm" onClick={zoomIn} disabled={zoom >= ZOOM_MAX} aria-label="Aumentar zoom">+</button>
@@ -722,6 +776,16 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
             : formaMarcacao === 'ponto'
               ? 'Toque num ponto vazio da planta pra marcar um elemento novo.'
               : 'Arraste um retângulo na planta pra marcar uma área.'}
+        </div>
+      )}
+      {!carregando && !erro && corPor === 'colaborador' && legendaColaboradores.length > 0 && (
+        <div className="row-wrap" style={{ gap: 10 }}>
+          {legendaColaboradores.map((c) => (
+            <span key={c.id} className="t-caption" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.cor, display: 'inline-block' }} />
+              {c.nome}
+            </span>
+          ))}
         </div>
       )}
 
@@ -753,8 +817,16 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
         >
           <canvas ref={canvasRef} style={{ width: '100%', display: 'block' }} />
           {marcadoresDaPagina.map((m) => {
-            const etapaInfo = tipo?.etapas?.find((e) => e.chave === m.etapa_atual)
-            const cor = etapaInfo?.cor
+            /* Cor por estágio (padrão, do Catálogo) ou por colaborador
+               — a pessoa escolhe no toggle "Cor:" acima da planta. */
+            let corCss
+            if (corPor === 'colaborador') {
+              const workerId = workerAtualPorMarcador.get(m.id)
+              corCss = workerId ? corDoColaborador(workerId) : 'var(--text-3)'
+            } else {
+              const etapaInfo = tipo?.etapas?.find((e) => e.chave === m.etapa_atual)
+              corCss = etapaInfo?.cor ? `var(--${etapaInfo.cor})` : 'var(--text-3)'
+            }
             if (m.forma === 'area') {
               return (
                 <button
@@ -765,8 +837,8 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
                     position: 'absolute',
                     left: `${m.x}%`, top: `${m.y}%`,
                     width: `${Math.max(0.5, (m.x2 ?? m.x) - m.x)}%`, height: `${Math.max(0.5, (m.y2 ?? m.y) - m.y)}%`,
-                    padding: 0, border: `2px solid ${cor ? `var(--${cor})` : 'var(--text-3)'}`,
-                    background: cor ? `var(--${cor})` : 'var(--text-3)', opacity: 0.4, cursor: 'pointer',
+                    padding: 0, border: `2px solid ${corCss}`,
+                    background: corCss, opacity: 0.4, cursor: 'pointer',
                   }}
                 />
               )
@@ -780,7 +852,7 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
                   position: 'absolute', left: `${m.x}%`, top: `${m.y}%`,
                   width: 22, height: 22, padding: 0,
                   borderRadius: '50% 50% 50% 0', transform: 'translate(-50%, -100%) rotate(-45deg)',
-                  background: cor ? `var(--${cor})` : 'var(--text-3)',
+                  background: corCss,
                   border: '2px solid var(--surface, #fff)', boxShadow: '0 1px 3px rgba(0,0,0,.4)', cursor: 'pointer',
                 }}
               />
