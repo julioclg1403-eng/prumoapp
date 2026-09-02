@@ -3422,6 +3422,53 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Corrige um evento do histórico já lançado (etapa/colaborador/
+     data/contrato/quantidade/observação errados) — não cria evento
+     novo, edita o que já existe. Se for o evento mais recente do
+     marcador, o etapa_atual e o a_posteriori/diário são recalculados
+     igual a um evento novo, pra não ficar desalinhado. */
+  const editarEventoMarcador = useCallback(
+    async (eventoId, campos) => {
+      const { worksite_id } = escopo()
+      const diario = campos.data_execucao ? diarioDaData(tudo?.diarios || [], campos.data_execucao, worksite_id) : null
+      const aPosteriori = !diario || diario.status === 'finalizado'
+
+      const eventoSalvo = checar(
+        await supabase.from('production_marker_events').update({
+          etapa: campos.etapa, worker_id: campos.worker_id || null,
+          data_execucao: campos.data_execucao, diario_id: diario?.id || null,
+          a_posteriori: aPosteriori, contract_item_id: campos.contract_item_id || null,
+          quantidade: campos.quantidade, observacao: campos.observacao || null,
+        }).eq('id', eventoId).select('*').single(),
+        'editar o evento',
+      )
+      if (!eventoSalvo) return false
+
+      const eventosDoMarcador = (tudo?.eventosProducao || [])
+        .map((e) => (e.id === eventoId ? eventoSalvo : e))
+        .filter((e) => e.marker_id === eventoSalvo.marker_id)
+      const maisRecente = eventosDoMarcador.reduce(
+        (a, b) => (!a || b.data_execucao > a.data_execucao ? b : a), null,
+      )
+      const marcadorAtualizado = maisRecente?.etapa
+        ? checar(
+          await supabase.from('production_markers').update({ etapa_atual: maisRecente.etapa }).eq('id', eventoSalvo.marker_id).select('*').single(),
+          'atualizar o estágio da marcação',
+        )
+        : null
+
+      setTudo((t) => t && ({
+        ...t,
+        eventosProducao: t.eventosProducao.map((e) => (e.id === eventoId ? eventoSalvo : e)),
+        marcadoresProducao: marcadorAtualizado
+          ? t.marcadoresProducao.map((m) => (m.id === eventoSalvo.marker_id ? marcadorAtualizado : m))
+          : t.marcadoresProducao,
+      }))
+      return true
+    },
+    [escopo, checar, tudo],
+  )
+
   /* Corrige o pino já marcado (nome, dimensões) — diferente de um
      "novo evento", que muda o estágio. Liberado pro campo também: quem
      marcou errado em obra é quem melhor sabe corrigir. */
@@ -3589,7 +3636,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico,
-      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador,
+      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
     }),
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
@@ -3628,7 +3675,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico,
-      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador,
+      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
     ],
   )
 

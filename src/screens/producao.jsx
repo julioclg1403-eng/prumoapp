@@ -1148,6 +1148,7 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
 function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, onFechar }) {
   const [novoEvento, setNovoEvento] = useState(false)
   const [editando, setEditando] = useState(false)
+  const [eventoEditando, setEventoEditando] = useState(null)
   const [confirmarArquivar, setConfirmarArquivar] = useState(false)
 
   /* `marcadorInicial` é o que estava na hora do clique no pino — um
@@ -1216,7 +1217,12 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
                   <div key={ev.id} className="card-flat" style={{ padding: 10 }}>
                     <div className="row-between" style={{ alignItems: 'center' }}>
                       <Chip tom={etapaInfo?.cor}>{etapaInfo?.rotulo || ev.etapa}</Chip>
-                      <span className="t-caption">{formatarData(ev.data_execucao)}</span>
+                      <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
+                        <span className="t-caption">{formatarData(ev.data_execucao)}</span>
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 4px' }} onClick={() => setEventoEditando(ev)} aria-label="Editar evento">
+                          <Icon name="editar" size={13} />
+                        </button>
+                      </div>
                     </div>
                     <div className="t-caption" style={{ marginTop: 4 }}>
                       {ev.worker_id ? dados.colaboradorPorId(ev.worker_id)?.nome || '—' : 'Sem colaborador vinculado'}
@@ -1241,6 +1247,9 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
       )}
       {editando && (
         <EditarMarcadorSheet marcador={marcador} tipo={tipo} dados={dados} onFechar={() => setEditando(false)} />
+      )}
+      {eventoEditando && (
+        <EditarEventoSheet evento={eventoEditando} marcador={marcador} tipo={tipo} servico={servico} dados={dados} onFechar={() => setEventoEditando(null)} />
       )}
 
       <Confirmar
@@ -1348,6 +1357,91 @@ function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
   return (
     <Sheet
       aberto titulo="Novo evento" onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={salvar} disabled={salvando || !podeSalvar}>
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      }
+    >
+      <div className="stack-2">
+        <Campo label="Estágio">
+          <select className="sel" value={etapa} onChange={(e) => setEtapa(e.target.value)}>
+            {(tipo?.etapas || []).map((e) => <option key={e.chave} value={e.chave}>{e.rotulo}</option>)}
+          </select>
+        </Campo>
+
+        <Campo label="Data de execução">
+          <input className="ipt" type="date" value={dataExecucao} onChange={(e) => setDataExecucao(e.target.value)} />
+          {dataExecucao && !diarioDoDia && (
+            <div className="t-caption" style={{ marginTop: 4 }}>Sem diário nesse dia — entra como lançamento a posteriori.</div>
+          )}
+        </Campo>
+
+        <Campo label="Colaborador" dica="Opcional.">
+          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
+        </Campo>
+
+        <Campo label="Item de contrato" dica="Opcional — caso a caso: este estágio pode ser de um contrato diferente do estágio anterior.">
+          <BuscarItemContrato dados={dados} servico={servico} valor={contractItemId} onEscolher={setContractItemId} />
+        </Campo>
+
+        {contratoSelecionado && (
+          <Campo label="Quantidade a medir">
+            <input
+              className="ipt" type="number" inputMode="decimal" step="0.01"
+              value={quantidade} placeholder={String(marcador.quantidade_calculada ?? '')}
+              onChange={(e) => setQuantidade(e.target.value)}
+            />
+            <AvisoSaldoContrato contratoItem={contratoSelecionado} quantidade={quantidadeEvento} dados={dados} />
+          </Campo>
+        )}
+
+        <Campo label="Observação" dica="Opcional.">
+          <textarea className="ipt" rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+        </Campo>
+      </div>
+    </Sheet>
+  )
+}
+
+/* Corrige um evento já lançado no histórico (etapa, colaborador,
+   data, item de contrato, quantidade, observação) — pra quando
+   alguma informação foi anotada errada. Não cria evento novo, edita
+   o que já existe; se for o mais recente, o estágio do pino e o
+   a-posteriori são recalculados igual um evento novo. */
+function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar }) {
+  const [etapa, setEtapa] = useState(evento.etapa)
+  const [workerId, setWorkerId] = useState(evento.worker_id || '')
+  const [dataExecucao, setDataExecucao] = useState(evento.data_execucao)
+  const [contractItemId, setContractItemId] = useState(evento.contract_item_id || '')
+  const [quantidade, setQuantidade] = useState(evento.quantidade != null ? String(evento.quantidade) : '')
+  const [observacao, setObservacao] = useState(evento.observacao || '')
+  const [salvando, setSalvando] = useState(false)
+
+  const diarioDoDia = dataExecucao ? diarioDaData(dados.diarios || [], dataExecucao, dados.obra.id) : null
+  const contratoSelecionado = contractItemId ? (dados.contratos || []).find((i) => i.id === contractItemId) : null
+  const quantidadeEvento = quantidade === '' ? marcador.quantidade_calculada : Number(quantidade)
+
+  const podeSalvar = etapa && dataExecucao
+
+  const salvar = async () => {
+    setSalvando(true)
+    const ok = await dados.editarEventoMarcador(evento.id, {
+      etapa, worker_id: workerId || null, data_execucao: dataExecucao,
+      contract_item_id: contractItemId || null,
+      quantidade: quantidadeEvento,
+      observacao: observacao.trim() || null,
+    })
+    setSalvando(false)
+    if (ok) onFechar()
+  }
+
+  return (
+    <Sheet
+      aberto titulo="Editar evento" onFechar={onFechar}
       rodape={
         <div className="row-flex">
           <button className="btn btn-secondary grow" onClick={onFechar}>Cancelar</button>
