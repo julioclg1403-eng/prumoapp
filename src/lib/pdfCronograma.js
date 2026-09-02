@@ -155,6 +155,32 @@ function acharColunas(linhas) {
   // caminho — em vez de a coluna vizinha "comer" o espaço todo.
   if (!achado.descricao) achado.descricao = { x: 0, virtual: true }
 
+  // O cabeçalho pode se espalhar por VÁRIAS linhas visuais — pra
+  // cima ("META"/"REAL" às vezes vêm numa linha acima, como
+  // super-título das colunas gêmeas "META INÍCIO"/"META TÉRMINO",
+  // separado do "INÍCIO"/"TÉRMINO" de baixo) e pra baixo (mesmo
+  // motivo de "RESPONSAVEL" virar "RESPONS" + "AVEL": o título
+  // quebrou, ou "INÍCIO"/"TÉRMINO" repetidos como sub-rótulo da
+  // META). Absorve enquanto a linha vizinha parecer continuação de
+  // título (sem data, só fragmentos curtos) — para no primeiro
+  // sinal de dado de verdade, nas duas direções.
+  const ehLinhaDeTitulo = (l) => l.itens.every((it) => it.texto.length <= 10) && !l.itens.some((it) => dataDoTexto(it.texto))
+  let yFinal = linha.y
+  const abaixo = [...linhas].filter((l) => l.y < linha.y - 0.5).sort((a, b) => b.y - a.y)
+  for (const l of abaixo) {
+    if (!ehLinhaDeTitulo(l)) break
+    yFinal = l.y
+  }
+  let yTopo = linha.y
+  const acima = [...linhas].filter((l) => l.y > linha.y + 0.5).sort((a, b) => a.y - b.y)
+  const blocoAcima = []
+  for (const l of acima) {
+    if (!ehLinhaDeTitulo(l)) break
+    yTopo = l.y
+    blocoAcima.push(l)
+  }
+  const blocoAbaixo = [...linhas].filter((l) => l.y < linha.y - 0.5 && l.y >= yFinal - 0.5)
+
   // A fronteira de cada coluna é o MEIO DO CAMINHO até o próximo
   // título de verdade — não até o próximo fragmento de texto
   // qualquer da linha, que pode ser um rótulo solto ("MÊS: 08/2026",
@@ -169,14 +195,23 @@ function acharColunas(linhas) {
   // contar "META INÍCIO", a coluna do responsável esticava até
   // dentro da primeira data. E sem contar a coluna de 1 letra, ela
   // esticava para o OUTRO lado e engolia o código da coluna vizinha.
+  //
+  // Esses marcadores podem estar em QUALQUER linha do bloco do
+  // cabeçalho (não só na linha principal) — um relatório real tinha
+  // "META"/"REAL" numa linha acima da de "INÍCIO"/"TÉRMINO", e sem
+  // varrer essa linha também, a coluna "início" esticava pra
+  // esquerda e engolia a data de "meta término" vizinha.
   const marcadoresDeFronteira = ['META', 'REAL', 'JUSTIFICATIVA']
   const ehColunaDeCodigo = (item) => normalizar(item.texto).length === 1
   const pontos = [...Object.values(achado)]
-  for (const item of linha.itens) {
-    if (pontos.includes(item)) continue
-    const norm = normalizar(item.texto)
-    if (marcadoresDeFronteira.some((m) => norm === m || norm.startsWith(m)) || ehColunaDeCodigo(item)) {
-      pontos.push(item)
+  const linhasDoBloco = [linha, ...blocoAcima, ...blocoAbaixo]
+  for (const l of linhasDoBloco) {
+    for (const item of l.itens) {
+      if (pontos.includes(item)) continue
+      const norm = normalizar(item.texto)
+      if (marcadoresDeFronteira.some((m) => norm === m || norm.startsWith(m)) || ehColunaDeCodigo(item)) {
+        pontos.push(item)
+      }
     }
   }
   pontos.sort((a, b) => a.x - b.x)
@@ -202,23 +237,6 @@ function acharColunas(linhas) {
       x0: anterior ? fronteira(anterior, item) : 0,
       x1: proximo ? fronteira(item, proximo) : item.x + 400,
     }
-  }
-
-  // O cabeçalho pode ocupar duas linhas visuais (o mesmo motivo de
-  // "RESPONSAVEL" virar "RESPONS" + "AVEL": o título quebrou). A
-  // segunda linha não tem data nem texto longo — só pontas soltas de
-  // título ("AVEL", "TÉRMINO"). Se eu não incluir essa segunda linha
-  // no cabeçalho, ela sobra como se fosse a primeira linha de dados
-  // e contamina a atividade mais próxima. Absorve enquanto a linha
-  // de baixo parecer continuação de título (sem data, só fragmentos
-  // curtos) — para no primeiro sinal de dado de verdade.
-  let yFinal = linha.y
-  const abaixo = [...linhas].filter((l) => l.y < linha.y - 0.5).sort((a, b) => b.y - a.y)
-  for (const l of abaixo) {
-    const temData = l.itens.some((it) => dataDoTexto(it.texto))
-    const soTituloCurto = l.itens.every((it) => it.texto.length <= 10)
-    if (temData || !soTituloCurto) break
-    yFinal = l.y
   }
 
   return { y: yFinal, limites }
