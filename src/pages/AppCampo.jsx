@@ -29,6 +29,7 @@ import Seguranca from '../screens/seguranca'
 import Projetos from '../screens/projetos'
 import Suprimentos from '../screens/suprimentos'
 import Contratos from '../screens/contratos'
+import Producao from '../screens/producao'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
 /* Mesma lista/filtro do AppGestao (dominio.moduloPermitido): admin
@@ -47,6 +48,7 @@ const TODOS_ITENS = [
   { chave: 'equipamentos', rotulo: 'Almoxarifado', desc: 'Máquinas e ferramentas, e onde cada uma está', icone: 'equipamento' },
   { chave: 'suprimentos', rotulo: 'Suprimentos', desc: 'Pedidos de compra importados do sistema, com dashboard de prazo', icone: 'pedidos' },
   { chave: 'contratos', rotulo: 'Contratos', desc: 'Contratos importados do sistema, com cruzamento de itens entre eles', icone: 'relatorio' },
+  { chave: 'producao', rotulo: 'Produtividade', desc: 'Marcação de execução na planta, medição por contrato e rendimento', icone: 'obra' },
   { chave: 'seguranca', rotulo: 'Segurança', desc: 'Ocorrências e advertências da obra', icone: 'alerta' },
   { chave: 'projetos', rotulo: 'Projetos', desc: 'Apontamentos entre projeto e obra, por disciplina', icone: 'projeto' },
   { chave: 'cadastros', rotulo: 'Cadastros', desc: 'Empresas, colaboradores, locais e serviços', icone: 'cadastros' },
@@ -117,6 +119,7 @@ export default function AppCampo({ perfil, onSair }) {
     case 'projetos':     corpo = <Projetos goto={goto} voltar={voltar} perfil={perfil} />; break
     case 'suprimentos':  corpo = <Suprimentos voltar={voltar} perfil={perfil} />; break
     case 'contratos':    corpo = <Contratos voltar={voltar} perfil={perfil} />; break
+    case 'producao':     corpo = <Producao voltar={voltar} perfil={perfil} params={rota.params} />; break
     case 'cadastros':    corpo = <Cadastros voltar={voltar} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={voltar} params={rota.params} />; break
     case 'mais':         corpo = <Mais itens={noMais} irParaAba={irParaAba} perfil={perfil} onSair={onSair} />; break

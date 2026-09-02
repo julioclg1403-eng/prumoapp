@@ -345,6 +345,7 @@ export const MODULOS_RESTRINGIVEIS = [
   { chave: 'galeria', rotulo: 'Galeria' },
   { chave: 'lembretes', rotulo: 'Lembretes' },
   { chave: 'equipamentos', rotulo: 'Almoxarifado' },
+  { chave: 'producao', rotulo: 'Produtividade' },
   { chave: 'seguranca', rotulo: 'Segurança' },
   { chave: 'projetos', rotulo: 'Projetos' },
   { chave: 'suprimentos', rotulo: 'Suprimentos' },
