@@ -25,18 +25,41 @@ export async function carregarDocumentoPDF(url) {
    na largura `larguraAlvo` (px) — a escala é calculada a partir da
    largura natural da página, pra caber certinho no container sem
    distorcer. Devolve a altura resultante (o container usa isso pra
-   dimensionar a camada de marcadores por cima). */
-export async function renderizarPaginaPDF(pdfDoc, numeroPagina, canvas, larguraAlvo) {
+   dimensionar a camada de marcadores por cima).
+
+   `renderTaskRef` (opcional, um `useRef(null)`) é o que permite
+   trocar de zoom rápido sem quebrar: o pdfjs-dist não aceita duas
+   chamadas de render() ativas ao mesmo tempo no MESMO canvas — cada
+   clique novo em +/− antes do anterior terminar lançava "Cannot use
+   the same canvas during multiple render() operations". Cancelar o
+   anterior antes de começar o próximo resolve. */
+export async function renderizarPaginaPDF(pdfDoc, numeroPagina, canvas, larguraAlvo, renderTaskRef) {
   const pagina = await pdfDoc.getPage(numeroPagina)
   const viewportBase = pagina.getViewport({ scale: 1 })
   const escala = larguraAlvo / viewportBase.width
   const viewport = pagina.getViewport({ scale: escala })
 
+  if (renderTaskRef?.current) {
+    renderTaskRef.current.cancel()
+    renderTaskRef.current = null
+  }
+
   canvas.width = viewport.width
   canvas.height = viewport.height
 
   const contexto = canvas.getContext('2d')
-  await pagina.render({ canvasContext: contexto, viewport }).promise
+  const task = pagina.render({ canvasContext: contexto, viewport })
+  if (renderTaskRef) renderTaskRef.current = task
+
+  try {
+    await task.promise
+  } catch (e) {
+    // Cancelado de propósito (zoom mudou de novo antes de terminar)
+    // — não é um erro real, só o anterior perdendo a corrida.
+    if (e?.name === 'RenderingCancelledException') return viewport.height
+    throw e
+  }
+  if (renderTaskRef?.current === task) renderTaskRef.current = null
 
   return viewport.height
 }

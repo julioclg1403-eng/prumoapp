@@ -162,13 +162,29 @@ function EnviarPlantaSheet({ aberto, onFechar, dados }) {
 
 /* ── Visualizar planta + marcação ──────────────────────────── */
 
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 4
+const ZOOM_PASSO = 0.25
+
 function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
   const [pdfDoc, setPdfDoc] = useState(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [pagina, setPagina] = useState(1)
+  const [zoom, setZoom] = useState(1)
+  const [alturaRenderizada, setAlturaRenderizada] = useState(0)
+  const [larguraRenderizada, setLarguraRenderizada] = useState(0)
+  /* "marcar" (padrão): clique na planta abre nova marcação. "mao":
+     clique-e-arrasta pan, igual mãozinha de CAD — pedido explícito
+     do Julio ("tipo um pan, mãozinha, zoom, mexer como AutoCAD"),
+     porque sem isso as duas coisas (marcar um ponto vs. só navegar
+     pela planta) disputavam o mesmo clique. */
+  const [ferramenta, setFerramenta] = useState('marcar')
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
+  const viewportRef = useRef(null)
+  const arrastoRef = useRef(null)
+  const renderTaskRef = useRef(null)
   const [novoPonto, setNovoPonto] = useState(null)
   const [marcadorAberto, setMarcadorAberto] = useState(null)
 
@@ -177,6 +193,7 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
     setCarregando(true)
     setErro('')
     setPdfDoc(null)
+    setZoom(1)
     ;(async () => {
       const url = await linkTemporarioPlanta(planta.caminho)
       if (!url) { if (vivo) { setErro('Não consegui abrir esta planta.'); setCarregando(false) }; return }
@@ -192,19 +209,22 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
   }, [planta.id, planta.caminho])
 
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || !containerRef.current) return
+    if (!pdfDoc || !canvasRef.current || !viewportRef.current) return
     let vivo = true
     ;(async () => {
-      const largura = containerRef.current.clientWidth
+      const larguraBase = viewportRef.current.clientWidth
+      const largura = larguraBase * zoom
       try {
         const { renderizarPaginaPDF } = await import('../lib/pdfRender')
-        await renderizarPaginaPDF(pdfDoc, pagina, canvasRef.current, largura)
-      } catch {
+        const altura = await renderizarPaginaPDF(pdfDoc, pagina, canvasRef.current, largura, renderTaskRef)
+        if (vivo) { setLarguraRenderizada(largura); setAlturaRenderizada(altura); setErro('') }
+      } catch (e) {
+        console.error('[Prumo] desenhar a planta:', e)
         if (vivo) setErro('Não consegui desenhar esta página.')
       }
     })()
     return () => { vivo = false }
-  }, [pdfDoc, pagina])
+  }, [pdfDoc, pagina, zoom])
 
   const marcadoresDaPagina = useMemo(
     () => (dados.marcadoresProducao || []).filter((m) => m.plan_id === planta.id && m.pagina === pagina && m.ativo !== false),
@@ -212,12 +232,29 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
   )
 
   const aoClicarNaPlanta = (e) => {
-    if (!podeEditar || !containerRef.current) return
+    if (!podeEditar || ferramenta !== 'marcar' || !containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
     const x = ((e.clientX - rect.left) / rect.width) * 100
     const y = ((e.clientY - rect.top) / rect.height) * 100
     setNovoPonto({ x, y, pagina })
   }
+
+  /* Arrastar com a mãozinha rola o viewport na mão — mais direto que
+     caçar a barra de rolagem, principalmente no celular. Funciona a
+     dedo (touch) e com o mouse. */
+  const iniciarArrasto = (clientX, clientY) => {
+    if (ferramenta !== 'mao' || !viewportRef.current) return
+    arrastoRef.current = { x: clientX, y: clientY, scrollLeft: viewportRef.current.scrollLeft, scrollTop: viewportRef.current.scrollTop }
+  }
+  const moverArrasto = (clientX, clientY) => {
+    if (!arrastoRef.current || !viewportRef.current) return
+    viewportRef.current.scrollLeft = arrastoRef.current.scrollLeft - (clientX - arrastoRef.current.x)
+    viewportRef.current.scrollTop = arrastoRef.current.scrollTop - (clientY - arrastoRef.current.y)
+  }
+  const pararArrasto = () => { arrastoRef.current = null }
+
+  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, Math.round((z + ZOOM_PASSO) * 100) / 100))
+  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, Math.round((z - ZOOM_PASSO) * 100) / 100))
 
   return (
     <div className="stack-2">
@@ -235,34 +272,79 @@ function VisualizarPlanta({ planta, dados, perfil, podeEditar, voltar }) {
 
       {erro && <div className="alert danger">{erro}</div>}
       {carregando && <div className="t-caption">Carregando planta…</div>}
+
+      {!carregando && !erro && (
+        <div className="row-between" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div className="row-flex" style={{ gap: 4 }}>
+            <button
+              className={`btn btn-sm ${ferramenta === 'marcar' ? 'btn-dark' : 'btn-secondary'}`}
+              onClick={() => setFerramenta('marcar')}
+              title="Marcar um elemento"
+            >
+              <Icon name="mais_sinal" size={14} /> Marcar
+            </button>
+            <button
+              className={`btn btn-sm ${ferramenta === 'mao' ? 'btn-dark' : 'btn-secondary'}`}
+              onClick={() => setFerramenta('mao')}
+              title="Mãozinha — arrastar pra navegar"
+            >
+              ✋ Mão
+            </button>
+          </div>
+          <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+            <button className="btn btn-ghost btn-sm" onClick={zoomOut} disabled={zoom <= ZOOM_MIN} aria-label="Diminuir zoom">−</button>
+            <span className="t-caption" style={{ minWidth: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+            <button className="btn btn-ghost btn-sm" onClick={zoomIn} disabled={zoom >= ZOOM_MAX} aria-label="Aumentar zoom">+</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setZoom(1)} disabled={zoom === 1}>Ajustar</button>
+          </div>
+        </div>
+      )}
       {!carregando && !erro && podeEditar && (
-        <div className="t-caption">Toque num ponto vazio da planta pra marcar um elemento novo.</div>
+        <div className="t-caption">
+          {ferramenta === 'marcar' ? 'Toque num ponto vazio da planta pra marcar um elemento novo.' : 'Arraste pra navegar pela planta.'}
+        </div>
       )}
 
       <div
-        ref={containerRef} onClick={aoClicarNaPlanta}
-        style={{ position: 'relative', width: '100%', cursor: podeEditar ? 'crosshair' : 'default', lineHeight: 0 }}
+        ref={viewportRef}
+        style={{ overflow: 'auto', maxHeight: '70vh', border: '1px solid var(--border)', borderRadius: 8 }}
+        onMouseDown={(e) => iniciarArrasto(e.clientX, e.clientY)}
+        onMouseMove={(e) => moverArrasto(e.clientX, e.clientY)}
+        onMouseUp={pararArrasto}
+        onMouseLeave={pararArrasto}
+        onTouchStart={(e) => iniciarArrasto(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchMove={(e) => moverArrasto(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchEnd={pararArrasto}
       >
-        <canvas ref={canvasRef} style={{ width: '100%', display: 'block', borderRadius: 8, border: '1px solid var(--border)' }} />
-        {marcadoresDaPagina.map((m) => {
-          const tipo = dados.tiposServico?.find((t) => t.id === m.service_type_id)
-          const etapaInfo = tipo?.etapas?.find((e) => e.chave === m.etapa_atual)
-          const cor = etapaInfo?.cor
-          return (
-            <button
-              key={m.id}
-              onClick={(e) => { e.stopPropagation(); setMarcadorAberto(m) }}
-              aria-label={m.elemento}
-              style={{
-                position: 'absolute', left: `${m.x}%`, top: `${m.y}%`,
-                width: 22, height: 22, padding: 0,
-                borderRadius: '50% 50% 50% 0', transform: 'translate(-50%, -100%) rotate(-45deg)',
-                background: cor ? `var(--${cor})` : 'var(--text-3)',
-                border: '2px solid var(--surface, #fff)', boxShadow: '0 1px 3px rgba(0,0,0,.4)', cursor: 'pointer',
-              }}
-            />
-          )
-        })}
+        <div
+          ref={containerRef} onClick={aoClicarNaPlanta}
+          style={{
+            position: 'relative', lineHeight: 0,
+            width: larguraRenderizada || '100%', height: alturaRenderizada || 'auto',
+            cursor: ferramenta === 'mao' ? 'grab' : (podeEditar ? 'crosshair' : 'default'),
+          }}
+        >
+          <canvas ref={canvasRef} style={{ width: '100%', display: 'block' }} />
+          {marcadoresDaPagina.map((m) => {
+            const tipo = dados.tiposServico?.find((t) => t.id === m.service_type_id)
+            const etapaInfo = tipo?.etapas?.find((e) => e.chave === m.etapa_atual)
+            const cor = etapaInfo?.cor
+            return (
+              <button
+                key={m.id}
+                onClick={(e) => { e.stopPropagation(); setMarcadorAberto(m) }}
+                aria-label={m.elemento}
+                style={{
+                  position: 'absolute', left: `${m.x}%`, top: `${m.y}%`,
+                  width: 22, height: 22, padding: 0,
+                  borderRadius: '50% 50% 50% 0', transform: 'translate(-50%, -100%) rotate(-45deg)',
+                  background: cor ? `var(--${cor})` : 'var(--text-3)',
+                  border: '2px solid var(--surface, #fff)', boxShadow: '0 1px 3px rgba(0,0,0,.4)', cursor: 'pointer',
+                }}
+              />
+            )
+          })}
+        </div>
       </div>
 
       {novoPonto && (
