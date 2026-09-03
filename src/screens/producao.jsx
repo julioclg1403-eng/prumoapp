@@ -891,6 +891,9 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const [enviando, setEnviando] = useState(false)
   const [editando, setEditando] = useState(false)
   const [plantaAberta, setPlantaAberta] = useState(null)
+  const [plantaRenomeando, setPlantaRenomeando] = useState(null)
+  const [nomePlanta, setNomePlanta] = useState('')
+  const [salvandoNomePlanta, setSalvandoNomePlanta] = useState(false)
   /* Editar/excluir o Serviço mexe em empresa e contrato — coisa mais
      sensível que marcar na planta, então fica só pro admin, mesmo que
      o resto do módulo já libere pra gestão. */
@@ -967,19 +970,51 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
               {plantas.map((p) => {
                 const qtdeMarcadores = (dados.marcadoresProducao || []).filter((m) => m.plan_id === p.id && m.ativo !== false).length
                 return (
-                  <button key={p.id} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setPlantaAberta(p)}>
-                    <div className="row-between" style={{ alignItems: 'center' }}>
-                      <div>
-                        <div className="t-strong">{p.nome}</div>
-                        <div className="t-caption">{plural(qtdeMarcadores, 'marcação', 'marcações')} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
-                      </div>
-                      <Icon name="avancar" size={16} />
+                  <div key={p.id} className="card-flat row-between" style={{ alignItems: 'center', padding: 0 }}>
+                    <button
+                      className="card-tap" style={{ textAlign: 'left', flex: 1, border: 'none', background: 'none' }}
+                      onClick={() => setPlantaAberta(p)}
+                    >
+                      <div className="t-strong">{p.nome}</div>
+                      <div className="t-caption">{plural(qtdeMarcadores, 'marcação', 'marcações')} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
+                    </button>
+                    <div className="row-flex" style={{ gap: 4, paddingRight: 14, flex: 'none' }}>
+                      {podeEditar && (
+                        <button
+                          className="btn btn-ghost btn-sm" aria-label={`Editar nome de ${p.nome}`}
+                          onClick={() => { setPlantaRenomeando(p); setNomePlanta(p.nome) }}
+                        >
+                          <Icon name="editar" size={16} />
+                        </button>
+                      )}
+                      <button aria-label={`Abrir ${p.nome}`} style={{ border: 'none', background: 'none', display: 'flex' }} onClick={() => setPlantaAberta(p)}>
+                        <Icon name="avancar" size={16} />
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
           )}
+
+          <Sheet aberto={Boolean(plantaRenomeando)} titulo="Renomear local" onFechar={() => setPlantaRenomeando(null)}>
+            <div className="stack-2">
+              <Campo label="Nome do local">
+                <input className="ipt" value={nomePlanta} onChange={(e) => setNomePlanta(e.target.value)} autoFocus />
+              </Campo>
+              <button
+                className="btn btn-primary btn-block" disabled={salvandoNomePlanta || !nomePlanta.trim()}
+                onClick={async () => {
+                  setSalvandoNomePlanta(true)
+                  const ok = await dados.renomearPlanta(plantaRenomeando.id, nomePlanta)
+                  setSalvandoNomePlanta(false)
+                  if (ok) setPlantaRenomeando(null)
+                }}
+              >
+                {salvandoNomePlanta ? 'Salvando…' : 'Salvar'}
+              </button>
+            </div>
+          </Sheet>
         </div>
       )}
 

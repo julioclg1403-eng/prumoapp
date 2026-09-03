@@ -3360,6 +3360,21 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  const renomearPlanta = useCallback(
+    async (id, nome) => {
+      const nomeLimpo = (nome || '').trim()
+      if (!nomeLimpo) return false
+      const r = await supabase.from('production_plans').update({ nome: nomeLimpo }).eq('id', id)
+      if (r.error) { checar(r, 'renomear a planta'); return false }
+      setTudo((t) => t && ({
+        ...t,
+        plantasProducao: t.plantasProducao.map((p) => (p.id === id ? { ...p, nome: nomeLimpo } : p)),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   /* Marca um elemento na planta pela primeira vez: nasce o pino
      (production_markers) E o primeiro evento (production_marker_events)
      juntos, numa tacada só — o formulário de marcação já pede tudo
@@ -3720,7 +3735,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
       editarGeometriaMarcador,
       definirCorColaborador,
     }),
@@ -3761,7 +3776,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
       editarGeometriaMarcador,
       definirCorColaborador,
     ],
