@@ -590,10 +590,25 @@ function AbaDashboardRendimento({ dados }) {
     return { marcador, plan, servico }
   }
 
-  const eventosDoServico = useMemo(
-    () => (servicoFiltroId ? eventosDoPeriodo.filter((ev) => contextoDoEvento(ev).servico?.id === servicoFiltroId) : []),
-    [eventosDoPeriodo, servicoFiltroId, marcadorPorId, planPorId, servicoPorId],
-  )
+  /* Evento de marcador arquivado/excluído (o pino em si foi apagado
+     da planta) ou de colaborador arquivado/excluído não entra em
+     nada nesta aba — nem no total, nem na curva, nem em nenhum
+     ranking. É o mesmo cuidado que a Rendimento antiga (por serviço,
+     dentro de DetalheServico) já tomava — aqui tinha ficado faltando
+     o filtro do marcador. Evento sem colaborador vinculado continua
+     contando normalmente pro total/curva, só não aparece em "por
+     colaborador". */
+  const eventosDoServico = useMemo(() => {
+    if (!servicoFiltroId) return []
+    return eventosDoPeriodo.filter((ev) => {
+      const { marcador, servico } = contextoDoEvento(ev)
+      if (servico?.id !== servicoFiltroId) return false
+      if (!marcador || marcador.ativo === false) return false
+      if (!ev.worker_id) return true
+      const colaborador = dados.colaboradorPorId(ev.worker_id)
+      return Boolean(colaborador) && colaborador.ativo !== false
+    })
+  }, [eventosDoPeriodo, servicoFiltroId, marcadorPorId, planPorId, servicoPorId, dados])
 
   const servicoSelecionado = servicoFiltroId ? servicoPorId.get(servicoFiltroId) : null
   const tipoSelecionado = servicoSelecionado ? tipoPorId.get(servicoSelecionado.service_type_id) : null
@@ -611,7 +626,7 @@ function AbaDashboardRendimento({ dados }) {
     return [...mapa.entries()]
       .map(([workerId, info]) => {
         const colaborador = dados.colaboradorPorId(workerId)
-        if (!colaborador) return null
+        if (!colaborador || colaborador.ativo === false) return null
         return { chave: workerId, rotulo: colaborador.nome, valor: info.dias.size > 0 ? info.quantidade / info.dias.size : 0 }
       })
       .filter(Boolean)
@@ -2241,7 +2256,7 @@ function AbaRendimento({ servico, tipo, dados }) {
         dias: info.dias.size,
         rendimento: info.dias.size > 0 ? info.quantidade / info.dias.size : 0,
       }))
-      .filter((r) => r.colaborador)
+      .filter((r) => r.colaborador && r.colaborador.ativo !== false)
       .sort((a, b) => b.rendimento - a.rendimento)
   }, [eventosDoPeriodo, dados])
 

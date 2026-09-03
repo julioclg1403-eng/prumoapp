@@ -222,7 +222,7 @@ function consultarRendimento({ dados, perfil }, busca) {
   const ranking = [...mapa.entries()]
     .map(([workerId, info]) => {
       const colaborador = dados.colaboradorPorId(workerId)
-      if (!colaborador) return null
+      if (!colaborador || colaborador.ativo === false) return null
       return {
         nome: colaborador.nome,
         quantidade: Math.round(info.quantidade * 100) / 100,
