@@ -17,8 +17,8 @@ import { useMemo, useState } from 'react'
 import { Icon, Chip, Sheet, Campo, Vazio } from '../components'
 import { validarFormula } from '../lib/formulaProducao'
 
-const UNIDADES = ['m3', 'm2', 'ml', 'un']
-const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
+const UNIDADES = ['m3', 'm2', 'ml', 'un', 'kg']
+const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un', kg: 'kg' }
 const CORES = [
   { valor: '', rotulo: 'Neutro' },
   { valor: 'info', rotulo: 'Azul' },

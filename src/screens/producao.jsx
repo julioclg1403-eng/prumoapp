@@ -34,7 +34,7 @@ import { RankingBarras, GraficoColunas, GraficoDonut, CurvaProducao } from '../c
 const PALETA_GRAFICO = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)']
 const comCores = (itens) => itens.map((item, i) => ({ ...item, cor: PALETA_GRAFICO[i % PALETA_GRAFICO.length] }))
 
-const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
+const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un', kg: 'kg' }
 
 /* Cor estável por colaborador (hash do id → matiz), pra "colorir por
    colaborador" na planta — usada só quando a pessoa não escolheu uma
