@@ -667,11 +667,12 @@ function AbaDashboardRendimento({ dados }) {
       .sort((a, b) => b.valor - a.valor)
   }, [eventosDoServico, planPorId])
 
-  /* KPIs do topo: total executado, rendimento médio da equipe (média
-     do "por colaborador" acima, não soma — soma infla artificialmente
-     quando várias pessoas trabalham no mesmo dia) e dias trabalhados
-     (dias distintos com pelo menos um evento, não soma de "dias por
-     colaborador" — um dia com 3 pessoas trabalhando conta 1 dia). */
+  /* KPIs do topo: total executado, dias trabalhados (dias distintos
+     com pelo menos um evento — um dia com 3 pessoas trabalhando conta
+     1 dia, não 3) e rendimento médio da equipe = total ÷ dias, pra
+     bater exatamente com os dois números ao lado (não é média das
+     taxas individuais de cada colaborador, que dá um número diferente
+     quando as pessoas trabalham quantidades de dias diferentes). */
   const totalExecutado = useMemo(
     () => eventosDoServico.reduce((s, ev) => s + (Number(ev.quantidade) || 0), 0),
     [eventosDoServico],
@@ -680,10 +681,7 @@ function AbaDashboardRendimento({ dados }) {
     () => new Set(eventosDoServico.map((ev) => ev.data_execucao)).size,
     [eventosDoServico],
   )
-  const rendimentoMedioEquipe = useMemo(() => {
-    if (porColaborador.length === 0) return 0
-    return porColaborador.reduce((s, c) => s + c.valor, 0) / porColaborador.length
-  }, [porColaborador])
+  const rendimentoMedioEquipe = diasTrabalhados > 0 ? totalExecutado / diasTrabalhados : 0
 
   /* Avanço por etapa: em que estágio está cada elemento marcado
      desse serviço agora (não é "no período" — é o estado atual dos
