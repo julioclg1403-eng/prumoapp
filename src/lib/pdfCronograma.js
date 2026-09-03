@@ -42,8 +42,14 @@ const CABECALHOS = {
 }
 
 /* Dia da semana em três letras + data — "seg 06/07/26" — é o
-   formato do relatório. Aceita opcionalmente vírgula/espaço extra. */
-const RE_DATA = /\b(seg|ter|qua|qui|sex|s[áa]b|dom)\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/i
+   formato do relatório. Aceita opcionalmente vírgula/espaço extra.
+   Global: um relatório real veio com as 4 datas de uma linha
+   (meta início/término, início/término) coladas num fragmento só,
+   sem espaço nem posição própria pra cada uma — sem o /g aqui,
+   só a primeira data desse fragmento seria lida, a linha inteira
+   perdia 3 datas e podia deixar de bater o mínimo de 2 pra virar
+   âncora (ver datasDoTexto). */
+const RE_DATA_GLOBAL = /\b(seg|ter|qua|qui|sex|s[áa]b|dom)\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/gi
 
 function normalizar(s) {
   return String(s || '')
@@ -51,17 +57,24 @@ function normalizar(s) {
     .toUpperCase().trim()
 }
 
-function dataDoTexto(texto) {
-  const m = String(texto || '').match(RE_DATA)
-  if (!m) return null
-  const [, , d, mes, a] = m
-  const ano = a.length === 2 ? `20${a}` : a
-  const iso = `${ano}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`
-  const dt = new Date(Number(ano), Number(mes) - 1, Number(d))
-  if (dt.getFullYear() !== Number(ano) || dt.getMonth() !== Number(mes) - 1 || dt.getDate() !== Number(d)) {
-    return null
+/* Todas as datas válidas de um fragmento, na ordem em que aparecem
+   — normalmente é só uma, mas ver comentário do RE_DATA_GLOBAL. */
+function datasDoTexto(texto) {
+  const resultados = []
+  for (const m of String(texto || '').matchAll(RE_DATA_GLOBAL)) {
+    const [, , d, mes, a] = m
+    const ano = a.length === 2 ? `20${a}` : a
+    const iso = `${ano}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`
+    const dt = new Date(Number(ano), Number(mes) - 1, Number(d))
+    if (dt.getFullYear() === Number(ano) && dt.getMonth() === Number(mes) - 1 && dt.getDate() === Number(d)) {
+      resultados.push(iso)
+    }
   }
-  return iso
+  return resultados
+}
+
+function dataDoTexto(texto) {
+  return datasDoTexto(texto)[0] || null
 }
 
 /* ── Extração bruta: texto + posição de cada fragmento ──────── */
@@ -266,6 +279,14 @@ function remontarAtividades(linhas, cabecalho) {
     .filter((l) => l.y < cabecalho.y - 1)
     .sort((a, b) => b.y - a.y)
   const fimRegiaoDatas = (cabecalho.limites.duracao?.x1 || cabecalho.limites.termino.x1 + 200)
+  // Normalmente a região de datas começa em "início" — mas quando as
+  // 4 datas de uma linha (meta início/término, início/término) vêm
+  // coladas num fragmento só (ver RE_DATA_GLOBAL), esse fragmento
+  // nasce mais à esquerda, na posição da coluna "meta início" (que
+  // existe no relatório mas não é rastreada em `limites`). Sem
+  // alargar a fronteira até o fim do responsável, esse fragmento
+  // cai fora da varredura e a linha nunca vira âncora.
+  const inicioRegiaoDatas = Math.min(cabecalho.limites.inicio.x0, cabecalho.limites.responsavel.x1)
 
   // 1) Âncoras: linhas com pelo menos duas datas reconhecidas —
   //    cada uma marca o "centro de gravidade" de uma atividade.
@@ -280,9 +301,8 @@ function remontarAtividades(linhas, cabecalho) {
   for (const linha of abaixoDoCabecalho) {
     const datas = []
     for (const item of linha.itens) {
-      if (item.x >= cabecalho.limites.inicio.x0 && item.x < fimRegiaoDatas) {
-        const d = dataDoTexto(item.texto)
-        if (d) datas.push(d)
+      if (item.x >= inicioRegiaoDatas && item.x < fimRegiaoDatas) {
+        datas.push(...datasDoTexto(item.texto))
       }
     }
     if (datas.length >= 2) {
