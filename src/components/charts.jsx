@@ -22,7 +22,7 @@
    conjunto --chart-1..5 (ver index.css) em vez do laranja sozinho.
    ============================================================ */
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Icon } from './index'
 
 /* ── Ranking (magnitude) ──────────────────────────────────────
@@ -258,12 +258,13 @@ export function GraficoPareto({ itens, formatarValor = (v) => String(v), cor = '
    pensada pra produção física (m³, m², ml, un), não financeiro. */
 export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 'var(--primary)', vazio = 'Nada aqui ainda.' }) {
   const [selecionado, setSelecionado] = useState(null)
+  const idGradiente = useId()
   if (!pontos || pontos.length < 2) return <div className="t-caption">{vazio}</div>
 
   const max = Math.max(1, ...pontos.map((p) => p.valor))
   const W = 640
-  const H = 170
-  const PAD_TOP = 10
+  const H = 190
+  const PAD_TOP = 14
   const PAD_BOT = 28
   const areaUtil = H - PAD_TOP - PAD_BOT
   const x = (i) => (pontos.length > 1 ? (i / (pontos.length - 1)) * W : 0)
@@ -279,13 +280,22 @@ export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+        <defs>
+          <linearGradient id={idGradiente} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={cor} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={cor} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
         {[0, 0.5, 1].map((f) => (
           <line key={f} x1={0} x2={W} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth={1} />
         ))}
-        <polygon points={area} fill={cor} opacity={0.12} />
-        <polyline points={linha} fill="none" stroke={cor} strokeWidth={2} />
+        <polygon points={area} fill={`url(#${idGradiente})`} />
+        <polyline points={linha} fill="none" stroke={cor} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
         {pontos.map((p, i) => (
-          <circle key={`pt-${p.chave ?? i}`} cx={x(i)} cy={y(p.valor)} r={i === idxAtivo ? 4 : 2.5} fill={cor} />
+          <circle
+            key={`pt-${p.chave ?? i}`} cx={x(i)} cy={y(p.valor)} r={i === idxAtivo ? 5.5 : 3}
+            fill={i === idxAtivo ? '#fff' : cor} stroke={cor} strokeWidth={i === idxAtivo ? 2.5 : 0}
+          />
         ))}
         {pontos.map((p, i) => (
           mostrarRotulo(i) && (

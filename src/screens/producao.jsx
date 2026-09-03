@@ -29,7 +29,10 @@ import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
-import { RankingBarras, GraficoDonut, CurvaProducao } from '../components/charts'
+import { RankingBarras, GraficoColunas, GraficoDonut, CurvaProducao } from '../components/charts'
+
+const PALETA_GRAFICO = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)']
+const comCores = (itens) => itens.map((item, i) => ({ ...item, cor: PALETA_GRAFICO[i % PALETA_GRAFICO.length] }))
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
@@ -761,12 +764,12 @@ function AbaDashboardRendimento({ dados }) {
 
           <div className="card-flat">
             <div className="t-strong" style={{ marginBottom: 10 }}>Por colaborador — rendimento ({unidadeSelecionada}/dia)</div>
-            <RankingBarras itens={porColaborador} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
+            <GraficoColunas itens={comCores(porColaborador)} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
           </div>
 
           <div className="card-flat">
             <div className="t-strong" style={{ marginBottom: 10 }}>Por local — rendimento ({unidadeSelecionada}/dia)</div>
-            <RankingBarras itens={porLocal} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
+            <GraficoColunas itens={comCores(porLocal)} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
           </div>
 
           <PainelSinapi servico={servicoSelecionado} tipo={tipoSelecionado} unidade={unidadeSelecionada} porColaborador={porColaborador} servicoFiltroId={servicoFiltroId} />
