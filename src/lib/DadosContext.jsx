@@ -3337,9 +3337,9 @@ export function DadosProvider({ perfil, children }) {
 
   // ── Plantas, marcadores e eventos (Produtividade e Medição) ─
   const enviarPlanta = useCallback(
-    async ({ arquivo, nome, serviceId }) => {
+    async ({ arquivo, nome, serviceId, localId }) => {
       const { erro, planta } = await enviarPlantaProducao({
-        arquivo, organizationId: perfil.organization_id, obraId, nome, autorId: perfil.id, serviceId,
+        arquivo, organizationId: perfil.organization_id, obraId, nome, autorId: perfil.id, serviceId, localId,
       })
       if (erro) { avisarErro(erro); return null }
       setTudo((t) => t && ({ ...t, plantasProducao: [planta, ...t.plantasProducao] }))
@@ -3361,14 +3361,16 @@ export function DadosProvider({ perfil, children }) {
   )
 
   const renomearPlanta = useCallback(
-    async (id, nome) => {
+    async (id, nome, localId = undefined) => {
       const nomeLimpo = (nome || '').trim()
       if (!nomeLimpo) return false
-      const r = await supabase.from('production_plans').update({ nome: nomeLimpo }).eq('id', id)
+      const mudanca = { nome: nomeLimpo }
+      if (localId !== undefined) mudanca.local_id = localId || null
+      const r = await supabase.from('production_plans').update(mudanca).eq('id', id)
       if (r.error) { checar(r, 'renomear a planta'); return false }
       setTudo((t) => t && ({
         ...t,
-        plantasProducao: t.plantasProducao.map((p) => (p.id === id ? { ...p, nome: nomeLimpo } : p)),
+        plantasProducao: t.plantasProducao.map((p) => (p.id === id ? { ...p, ...mudanca } : p)),
       }))
       return true
     },

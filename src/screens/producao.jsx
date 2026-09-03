@@ -903,6 +903,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const [plantaAberta, setPlantaAberta] = useState(null)
   const [plantaRenomeando, setPlantaRenomeando] = useState(null)
   const [nomePlanta, setNomePlanta] = useState('')
+  const [localIdPlanta, setLocalIdPlanta] = useState('')
   const [salvandoNomePlanta, setSalvandoNomePlanta] = useState(false)
   /* Editar/excluir o Serviço mexe em empresa e contrato — coisa mais
      sensível que marcar na planta, então fica só pro admin, mesmo que
@@ -992,7 +993,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
                       {podeEditar && (
                         <button
                           className="btn btn-ghost btn-sm" aria-label={`Editar nome de ${p.nome}`}
-                          onClick={() => { setPlantaRenomeando(p); setNomePlanta(p.nome) }}
+                          onClick={() => { setPlantaRenomeando(p); setNomePlanta(p.nome); setLocalIdPlanta(p.local_id || '') }}
                         >
                           <Icon name="editar" size={16} />
                         </button>
@@ -1009,14 +1010,12 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
 
           <Sheet aberto={Boolean(plantaRenomeando)} titulo="Renomear local" onFechar={() => setPlantaRenomeando(null)}>
             <div className="stack-2">
-              <Campo label="Nome do local">
-                <input className="ipt" value={nomePlanta} onChange={(e) => setNomePlanta(e.target.value)} autoFocus />
-              </Campo>
+              <CampoLocalCadastro dados={dados} localId={localIdPlanta} setLocalId={setLocalIdPlanta} nome={nomePlanta} setNome={setNomePlanta} />
               <button
                 className="btn btn-primary btn-block" disabled={salvandoNomePlanta || !nomePlanta.trim()}
                 onClick={async () => {
                   setSalvandoNomePlanta(true)
-                  const ok = await dados.renomearPlanta(plantaRenomeando.id, nomePlanta)
+                  const ok = await dados.renomearPlanta(plantaRenomeando.id, nomePlanta, localIdPlanta || null)
                   setSalvandoNomePlanta(false)
                   if (ok) setPlantaRenomeando(null)
                 }}
@@ -1037,19 +1036,53 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   )
 }
 
+/* ── Escolher local (dos Cadastros) ou digitar um nome novo ────
+   Os "Locais" já cadastrados em Cadastros existem pra isso — em vez
+   de digitar de novo o nome toda vez que importa uma planta, vincula
+   direto ao cadastro (production_plans.local_id), do mesmo jeito que
+   Planejamento, Segurança e Projetos já fazem. Quem não achar o local
+   na lista ainda pode digitar um nome livre. */
+function CampoLocalCadastro({ dados, localId, setLocalId, nome, setNome }) {
+  const locais = (dados.locais || []).filter((l) => l.ativo !== false)
+  return (
+    <>
+      <Campo label="Local (dos cadastros)" dica="Vincula esta planta a um local já cadastrado em Cadastros — mantém o nome consistente com o resto do app.">
+        <select
+          className="sel" value={localId || ''}
+          onChange={(e) => {
+            const id = e.target.value
+            setLocalId(id)
+            const l = locais.find((x) => x.id === id)
+            if (l) setNome(l.nome)
+          }}
+        >
+          <option value="">Digitar nome manualmente…</option>
+          {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+        </select>
+      </Campo>
+      {!localId && (
+        <Campo label="Nome do local">
+          <input className="ipt" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pavimento térreo — estrutural" />
+        </Campo>
+      )}
+    </>
+  )
+}
+
 function EnviarPlantaSheet({ aberto, onFechar, dados, servico }) {
   const [nome, setNome] = useState('')
+  const [localId, setLocalId] = useState('')
   const [arquivo, setArquivo] = useState(null)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
 
-  const fechar = () => { setNome(''); setArquivo(null); setErro(''); onFechar() }
+  const fechar = () => { setNome(''); setLocalId(''); setArquivo(null); setErro(''); onFechar() }
 
   const enviar = async () => {
     if (!arquivo) return
     setEnviando(true)
     setErro('')
-    const r = await dados.enviarPlanta({ arquivo, nome: nome.trim() || arquivo.name, serviceId: servico.id })
+    const r = await dados.enviarPlanta({ arquivo, nome: nome.trim() || arquivo.name, serviceId: servico.id, localId: localId || null })
     setEnviando(false)
     if (r) fechar()
     else setErro('Não consegui enviar a planta. Tente de novo.')
@@ -1068,9 +1101,7 @@ function EnviarPlantaSheet({ aberto, onFechar, dados, servico }) {
       }
     >
       <div className="stack-2">
-        <Campo label="Nome do local" dica='Opcional — ex.: "3º pavimento". Se deixar em branco, usa o nome do arquivo.'>
-          <input className="ipt" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pavimento térreo — estrutural" />
-        </Campo>
+        <CampoLocalCadastro dados={dados} localId={localId} setLocalId={setLocalId} nome={nome} setNome={setNome} />
         <Campo label="Arquivo (PDF)">
           <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
             {arquivo ? arquivo.name : 'Escolher arquivo .pdf'}

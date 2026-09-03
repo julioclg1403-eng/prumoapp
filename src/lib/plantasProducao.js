@@ -10,7 +10,7 @@ import { supabase } from './supabase'
 
 export const TAMANHO_MAXIMO_BYTES = 20 * 1024 * 1024
 
-export async function enviarPlantaProducao({ arquivo, organizationId, obraId, nome, autorId = null, serviceId }) {
+export async function enviarPlantaProducao({ arquivo, organizationId, obraId, nome, autorId = null, serviceId, localId = null }) {
   if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
     return { erro: 'Este arquivo passa de 20 MB.' }
   }
@@ -37,6 +37,7 @@ export async function enviarPlantaProducao({ arquivo, organizationId, obraId, no
       nome: (nome || arquivo.name).trim(),
       caminho,
       enviado_por: autorId,
+      local_id: localId || null,
     })
     .select('*')
     .single()
