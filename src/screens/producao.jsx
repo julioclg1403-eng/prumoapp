@@ -157,18 +157,28 @@ function AbaServicos({ dados, perfil, podeEditar }) {
 
   /* Quanto cada Serviço produziu no período — soma a quantidade dos
      eventos cujo marcador pertence a uma planta deste serviço (o
-     evento não guarda o serviço direto, só o marcador → planta). */
+     evento não guarda o serviço direto, só o marcador → planta).
+     Evento de marcador arquivado/excluído (pino apagado da planta)
+     ou de colaborador arquivado/excluído não entra na conta — mesma
+     regra do Dashboard de rendimento, pra bater com o que está
+     demarcado de verdade. */
   const quantidadePorServico = useMemo(() => {
     const planPorId = new Map((dados.plantasProducao || []).map((p) => [p.id, p]))
     const marcadorPorId = new Map((dados.marcadoresProducao || []).map((m) => [m.id, m]))
     const mapa = new Map()
     for (const ev of eventosDoPeriodo) {
-      const plan = planPorId.get(marcadorPorId.get(ev.marker_id)?.plan_id)
+      const marcador = marcadorPorId.get(ev.marker_id)
+      if (!marcador || marcador.ativo === false) continue
+      const plan = planPorId.get(marcador.plan_id)
       if (!plan) continue
+      if (ev.worker_id) {
+        const colaborador = dados.colaboradorPorId(ev.worker_id)
+        if (!colaborador || colaborador.ativo === false) continue
+      }
       mapa.set(plan.service_id, (mapa.get(plan.service_id) || 0) + (Number(ev.quantidade) || 0))
     }
     return mapa
-  }, [eventosDoPeriodo, dados.plantasProducao, dados.marcadoresProducao])
+  }, [eventosDoPeriodo, dados])
 
   if (servicoAtual) {
     return (
@@ -1521,8 +1531,13 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
 
 function AvisoSaldoContrato({ contratoItem, quantidade, dados }) {
   if (!contratoItem || !quantidade) return null
+  const marcadorPorId = new Map((dados.marcadoresProducao || []).map((m) => [m.id, m]))
   const jaLancado = (dados.eventosProducao || [])
-    .filter((e) => e.contract_item_id === contratoItem.id)
+    .filter((e) => {
+      if (e.contract_item_id !== contratoItem.id) return false
+      const marcador = marcadorPorId.get(e.marker_id)
+      return Boolean(marcador) && marcador.ativo !== false
+    })
     .reduce((s, e) => s + (Number(e.quantidade) || 0), 0)
   const saldo = Number(contratoItem.qtde_item || 0) - jaLancado
   if (Number(quantidade) <= saldo) return null
@@ -2257,16 +2272,24 @@ function AbaRendimento({ servico, tipo, dados }) {
 
   /* Escopado a este Serviço — "controle apenas daquele serviço",
      pedido do Julio — só marcador de uma planta dele, e ativo (nem
-     ele nem o serviço arquivados). Já nasce no tipo certo (o do
-     Serviço), então não precisa mais escolher tipo nem comparar
-     "por serviço": aqui só existe um. */
+     ele nem o serviço arquivados). Também exclui evento de
+     colaborador arquivado/excluído (mesma regra do Dashboard de
+     rendimento — se não está demarcado/cadastrado de verdade, não
+     entra na conta). Já nasce no tipo certo (o do Serviço), então
+     não precisa mais escolher tipo nem comparar "por serviço": aqui
+     só existe um. */
   const eventosDoServico = useMemo(() => {
     const planIdsDoServico = new Set((dados.plantasProducao || []).filter((p) => p.service_id === servico.id).map((p) => p.id))
     const markerIdsValidos = new Set(
       (dados.marcadoresProducao || []).filter((m) => planIdsDoServico.has(m.plan_id) && m.ativo !== false).map((m) => m.id),
     )
-    return (dados.eventosProducao || []).filter((e) => markerIdsValidos.has(e.marker_id))
-  }, [dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao, servico.id])
+    return (dados.eventosProducao || []).filter((e) => {
+      if (!markerIdsValidos.has(e.marker_id)) return false
+      if (!e.worker_id) return true
+      const colaborador = dados.colaboradorPorId(e.worker_id)
+      return Boolean(colaborador) && colaborador.ativo !== false
+    })
+  }, [dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao, servico.id, dados])
 
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
