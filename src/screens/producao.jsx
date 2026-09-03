@@ -27,7 +27,9 @@ import { useDados } from '../lib/DadosContext'
 import { hojeISO, formatarData, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural } from '../lib/dominio'
 import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
+import { supabase } from '../lib/supabase'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
+import { RankingBarras, GraficoDonut } from '../components/charts'
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
@@ -113,11 +115,13 @@ export default function Producao({ voltar, perfil }) {
             opcoes={[
               { valor: 'servicos', rotulo: 'Serviços' },
               { valor: 'empresas', rotulo: 'Por empresa' },
+              { valor: 'dashboard', rotulo: 'Dashboard' },
             ]}
           />
 
           {aba === 'servicos' && <AbaServicos dados={dados} perfil={perfil} podeEditar={podeEditar} />}
           {aba === 'empresas' && <AbaServicosPorEmpresa dados={dados} perfil={perfil} podeEditar={podeEditar} />}
+          {aba === 'dashboard' && <AbaDashboardRendimento dados={dados} />}
         </div>
       </div>
     </>
@@ -532,6 +536,307 @@ function AbaServicosPorEmpresa({ dados, perfil, podeEditar }) {
               </div>
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Dashboard de rendimento: visão geral da obra, cruzando todos
+   os serviços — por colaborador, por empresa, por serviço, por
+   local — mais a comparação com o SINAPI.
+
+   Serviços diferentes têm unidades diferentes (m², m³, ml, un) —
+   somar quantidade entre eles não faz sentido. Por isso, sem um
+   serviço selecionado no filtro, os gráficos usam métricas que
+   independem de unidade (dias trabalhados, número de lançamentos).
+   Só quando um serviço específico é escolhido é que "rendimento"
+   (quantidade/dia) aparece de verdade, porque aí todo mundo está
+   na mesma unidade. */
+
+function AbaDashboardRendimento({ dados }) {
+  const hoje = hojeISO()
+  const [periodoModo, setPeriodoModo] = useState('mes')
+  const [periodoDia, setPeriodoDia] = useState(hoje)
+  const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
+  const [servicoFiltroId, setServicoFiltroId] = useState('')
+
+  const eventosDoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      dados.eventosProducao || [], periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (e) => e.data_execucao,
+    ),
+    [dados.eventosProducao, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+
+  const marcadorPorId = useMemo(() => new Map((dados.marcadoresProducao || []).map((m) => [m.id, m])), [dados.marcadoresProducao])
+  const planPorId = useMemo(() => new Map((dados.plantasProducao || []).map((p) => [p.id, p])), [dados.plantasProducao])
+  const servicoPorId = useMemo(() => new Map((dados.servicosProducao || []).map((s) => [s.id, s])), [dados.servicosProducao])
+  const tipoPorId = useMemo(() => new Map((dados.tiposServico || []).map((t) => [t.id, t])), [dados.tiposServico])
+
+  const contextoDoEvento = (ev) => {
+    const marcador = marcadorPorId.get(ev.marker_id)
+    const plan = marcador && planPorId.get(marcador.plan_id)
+    const servico = plan && servicoPorId.get(plan.service_id)
+    const tipo = servico && tipoPorId.get(servico.service_type_id)
+    return { marcador, plan, servico, tipo }
+  }
+
+  const eventosFiltrados = useMemo(() => (
+    servicoFiltroId ? eventosDoPeriodo.filter((ev) => contextoDoEvento(ev).servico?.id === servicoFiltroId) : eventosDoPeriodo
+  ), [eventosDoPeriodo, servicoFiltroId, marcadorPorId, planPorId, servicoPorId])
+
+  const servicoSelecionado = servicoFiltroId ? servicoPorId.get(servicoFiltroId) : null
+  const tipoSelecionado = servicoSelecionado ? tipoPorId.get(servicoSelecionado.service_type_id) : null
+  const unidadeSelecionada = tipoSelecionado ? (ROTULO_UNIDADE[tipoSelecionado.unidade_resultado] || tipoSelecionado.unidade_resultado) : ''
+
+  /* Por colaborador: com serviço filtrado, rendimento de verdade
+     (quantidade/dia, unidade única). Sem filtro, dias trabalhados —
+     a única coisa comparável entre gente que fez serviços diferentes. */
+  const porColaborador = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of eventosFiltrados) {
+      if (!ev.worker_id) continue
+      const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
+      atual.quantidade += Number(ev.quantidade) || 0
+      atual.dias.add(ev.data_execucao)
+      mapa.set(ev.worker_id, atual)
+    }
+    return [...mapa.entries()]
+      .map(([workerId, info]) => {
+        const colaborador = dados.colaboradorPorId(workerId)
+        if (!colaborador) return null
+        const valor = servicoFiltroId
+          ? (info.dias.size > 0 ? info.quantidade / info.dias.size : 0)
+          : info.dias.size
+        return { chave: workerId, rotulo: colaborador.nome, valor }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 12)
+  }, [eventosFiltrados, dados, servicoFiltroId])
+
+  /* Por local (planta): só com serviço filtrado — dentro de um único
+     serviço todas as plantas têm a mesma unidade, então rendimento
+     por local vira comparável de verdade. */
+  const porLocal = useMemo(() => {
+    if (!servicoFiltroId) return []
+    const mapa = new Map()
+    for (const ev of eventosFiltrados) {
+      const { plan } = contextoDoEvento(ev)
+      if (!plan) continue
+      const atual = mapa.get(plan.id) || { quantidade: 0, dias: new Set() }
+      atual.quantidade += Number(ev.quantidade) || 0
+      atual.dias.add(ev.data_execucao)
+      mapa.set(plan.id, atual)
+    }
+    return [...mapa.entries()]
+      .map(([planId, info]) => {
+        const plan = planPorId.get(planId)
+        if (!plan) return null
+        return { chave: planId, rotulo: plan.nome, valor: info.dias.size > 0 ? info.quantidade / info.dias.size : 0 }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.valor - a.valor)
+  }, [eventosFiltrados, servicoFiltroId, planPorId, marcadorPorId])
+
+  /* Por serviço e por empresa: sempre em número de lançamentos
+     (contagem de eventos), nunca em quantidade — é o único jeito de
+     comparar serviços/empresas que trabalham em unidades diferentes
+     sem inventar uma equivalência que não existe. */
+  const porServico = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of eventosDoPeriodo) {
+      const { servico } = contextoDoEvento(ev)
+      if (!servico) continue
+      mapa.set(servico.id, (mapa.get(servico.id) || 0) + 1)
+    }
+    return [...mapa.entries()]
+      .map(([id, valor]) => {
+        const servico = servicoPorId.get(id)
+        return servico ? { chave: id, rotulo: servico.nome, valor } : null
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.valor - a.valor)
+  }, [eventosDoPeriodo, servicoPorId, planPorId, marcadorPorId])
+
+  const porEmpresa = useMemo(() => {
+    const mapa = new Map()
+    for (const ev of eventosDoPeriodo) {
+      const { servico } = contextoDoEvento(ev)
+      if (!servico?.company_id) continue
+      mapa.set(servico.company_id, (mapa.get(servico.company_id) || 0) + 1)
+    }
+    return [...mapa.entries()]
+      .map(([id, valor]) => ({ chave: id, rotulo: dados.nomeDe(dados.empresas, id), valor }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 8)
+  }, [eventosDoPeriodo, dados, servicoPorId, planPorId, marcadorPorId])
+
+  const servicosParaFiltro = (dados.servicosProducao || []).filter((s) => s.ativo !== false)
+
+  return (
+    <div className="stack-2">
+      <SecaoRecolhivel
+        titulo="Período"
+        resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
+      >
+        <FiltroPeriodo
+          modo={periodoModo} onModo={setPeriodoModo}
+          dia={periodoDia} onDia={setPeriodoDia}
+          mes={periodoMes} onMes={setPeriodoMes}
+          inicio={periodoInicio} onInicio={setPeriodoInicio}
+          fim={periodoFim} onFim={setPeriodoFim}
+        />
+      </SecaoRecolhivel>
+
+      <Campo label="Serviço (opcional — escolha um pra ver rendimento por unidade, não só volume)">
+        <select className="sel" value={servicoFiltroId} onChange={(e) => setServicoFiltroId(e.target.value)}>
+          <option value="">Todos os serviços</option>
+          {servicosParaFiltro.map((s) => (
+            <option key={s.id} value={s.id}>{s.nome}</option>
+          ))}
+        </select>
+      </Campo>
+
+      <div className="card-flat">
+        <div className="t-strong" style={{ marginBottom: 10 }}>
+          Por colaborador {servicoFiltroId ? `— rendimento (${unidadeSelecionada}/dia)` : '— dias trabalhados'}
+        </div>
+        <RankingBarras
+          itens={porColaborador}
+          formatarValor={(v) => (servicoFiltroId ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : plural(v, 'dia', 'dias'))}
+        />
+      </div>
+
+      {servicoFiltroId ? (
+        <div className="card-flat">
+          <div className="t-strong" style={{ marginBottom: 10 }}>Por local — rendimento ({unidadeSelecionada}/dia)</div>
+          <RankingBarras
+            itens={porLocal}
+            formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="card-flat">
+            <div className="t-strong" style={{ marginBottom: 10 }}>Por serviço — lançamentos no período</div>
+            <RankingBarras itens={porServico} formatarValor={(v) => plural(v, 'lançamento', 'lançamentos')} />
+          </div>
+          <div className="card-flat">
+            <div className="t-strong" style={{ marginBottom: 10 }}>Por empresa — lançamentos no período</div>
+            <GraficoDonut itens={porEmpresa} formatarValor={(v) => plural(v, 'lançamento', 'lançamentos')} />
+          </div>
+        </>
+      )}
+
+      <PainelSinapi servico={servicoSelecionado} tipo={tipoSelecionado} unidade={unidadeSelecionada} porColaborador={porColaborador} servicoFiltroId={servicoFiltroId} />
+    </div>
+  )
+}
+
+/* ── Comparação com o SINAPI ────────────────────────────────────
+   Busca sob demanda (nunca automática — custa dinheiro e tempo):
+   pede pro assistente de IA (Claude com busca na web) achar a
+   composição SINAPI do serviço selecionado e devolver só um JSON,
+   sem prosa, pra virar gráfico. Fica em cache na tela enquanto o
+   filtro de serviço não muda — trocar de serviço limpa e exige
+   buscar de novo. */
+function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId }) {
+  const [buscando, setBuscando] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [erro, setErro] = useState('')
+
+  useEffect(() => { setResultado(null); setErro('') }, [servicoFiltroId])
+
+  const buscar = async () => {
+    if (!servico || !tipo) return
+    setBuscando(true)
+    setErro('')
+    try {
+      const prompt = `Busque a composição de referência do SINAPI mais atual pro serviço "${servico.nome}" `
+        + `(tipo: ${tipo.nome}, unidade de resultado: ${unidade}). Preciso do coeficiente de produtividade: `
+        + `quanto ${unidade} uma equipe/oficial produz por dia (jornada de 8h).\n\n`
+        + 'Responda SOMENTE com um JSON válido, sem nenhum texto antes ou depois, exatamente neste formato:\n'
+        + '{"encontrado": true ou false, "coeficiente_por_dia": número ou null, "codigo_composicao": string ou null, '
+        + '"revisao": string ou null, "fonte_url": string ou null, "observacao": string ou null}'
+
+      let historico = [{ role: 'user', content: prompt }]
+      let conteudoFinal = null
+      for (let i = 0; i < 4; i++) {
+        const { data, error } = await supabase.functions.invoke('prumo-chat', { body: { messages: historico, tools: [] } })
+        if (error) throw error
+        if (data?.error) throw new Error(data.error)
+        historico = [...historico, { role: 'assistant', content: data.content }]
+        if (data.stop_reason === 'pause_turn') continue
+        conteudoFinal = data.content
+        break
+      }
+      if (!conteudoFinal) throw new Error('Demorou demais pra responder.')
+
+      const texto = conteudoFinal.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim()
+      const bruto = texto.replace(/^```(json)?/i, '').replace(/```$/, '').trim()
+      const match = bruto.match(/\{[\s\S]*\}/)
+      const json = JSON.parse(match ? match[0] : bruto)
+      setResultado(json)
+    } catch {
+      setErro('Não consegui buscar a referência do SINAPI agora. Tenta de novo em instantes.')
+    } finally {
+      setBuscando(false)
+    }
+  }
+
+  const mediaReal = useMemo(() => {
+    if (porColaborador.length === 0) return null
+    const soma = porColaborador.reduce((s, c) => s + c.valor, 0)
+    return soma / porColaborador.length
+  }, [porColaborador])
+
+  return (
+    <div className="card-flat">
+      <div className="t-strong" style={{ marginBottom: 6 }}>Comparação com o SINAPI</div>
+      {!servico ? (
+        <div className="t-caption">Escolha um serviço no filtro acima pra comparar o rendimento com a referência do SINAPI.</div>
+      ) : (
+        <div className="stack-2">
+          {!resultado && !buscando && (
+            <button className="btn btn-secondary" onClick={buscar} style={{ alignSelf: 'flex-start' }}>
+              Buscar referência SINAPI pra «{servico.nome}»
+            </button>
+          )}
+          {buscando && <div className="t-caption">Buscando na web…</div>}
+          {erro && <div className="t-caption" style={{ color: 'var(--danger)' }}>{erro}</div>}
+
+          {resultado?.encontrado === false && (
+            <div className="t-caption">Não achei uma composição SINAPI clara pra esse serviço.{resultado.observacao ? ` ${resultado.observacao}` : ''}</div>
+          )}
+
+          {resultado?.encontrado && (
+            <>
+              {resultado.coeficiente_por_dia != null ? (
+                <RankingBarras
+                  itens={[
+                    { chave: 'sinapi', rotulo: `SINAPI${resultado.codigo_composicao ? ` (${resultado.codigo_composicao})` : ''}`, valor: resultado.coeficiente_por_dia, cor: 'var(--text-3)' },
+                    ...(mediaReal != null ? [{ chave: 'real', rotulo: 'Média real da obra', valor: mediaReal }] : []),
+                  ]}
+                  formatarValor={(v) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unidade}/dia`}
+                />
+              ) : (
+                <div className="t-caption">
+                  Achei a composição{resultado.codigo_composicao ? ` (${resultado.codigo_composicao})` : ''}, mas não consegui confirmar o coeficiente de produtividade exato — veja os detalhes abaixo.
+                </div>
+              )}
+              <div className="t-caption" style={{ color: 'var(--text-3)' }}>
+                {resultado.revisao && `Revisão ${resultado.revisao}. `}
+                {resultado.fonte_url && <>Fonte: <a href={resultado.fonte_url} target="_blank" rel="noreferrer">{resultado.fonte_url}</a>. </>}
+                {resultado.observacao}
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={buscar} style={{ alignSelf: 'flex-start' }}>Buscar de novo</button>
+            </>
+          )}
         </div>
       )}
     </div>
