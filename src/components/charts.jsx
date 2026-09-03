@@ -251,6 +251,69 @@ export function GraficoPareto({ itens, formatarValor = (v) => String(v), cor = '
   )
 }
 
+/* ── Curva de produção acumulada (série única no tempo) ───────────
+   Área + linha, com o acumulado até o ponto ativo destacado embaixo.
+   Diferente da CurvaSPrevision (que é sempre base/previsto/realizado
+   em %), esta é genérica: qualquer quantidade acumulando dia a dia —
+   pensada pra produção física (m³, m², ml, un), não financeiro. */
+export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 'var(--primary)', vazio = 'Nada aqui ainda.' }) {
+  const [selecionado, setSelecionado] = useState(null)
+  if (!pontos || pontos.length < 2) return <div className="t-caption">{vazio}</div>
+
+  const max = Math.max(1, ...pontos.map((p) => p.valor))
+  const W = 640
+  const H = 170
+  const PAD_TOP = 10
+  const PAD_BOT = 28
+  const areaUtil = H - PAD_TOP - PAD_BOT
+  const x = (i) => (pontos.length > 1 ? (i / (pontos.length - 1)) * W : 0)
+  const y = (v) => PAD_TOP + (1 - Math.min(1, v / max)) * areaUtil
+  const faixaW = pontos.length > 1 ? W / (pontos.length - 1) : W
+  const idxAtivo = selecionado ?? pontos.length - 1
+  const atual = pontos[idxAtivo]
+
+  const linha = pontos.map((p, i) => `${x(i)},${y(p.valor)}`).join(' ')
+  const area = `${x(0)},${y(0)} ${linha} ${x(pontos.length - 1)},${y(0)}`
+  const mostrarRotulo = (i) => pontos.length <= 10 || i === 0 || i === pontos.length - 1 || i === idxAtivo
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+        {[0, 0.5, 1].map((f) => (
+          <line key={f} x1={0} x2={W} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth={1} />
+        ))}
+        <polygon points={area} fill={cor} opacity={0.12} />
+        <polyline points={linha} fill="none" stroke={cor} strokeWidth={2} />
+        {pontos.map((p, i) => (
+          <circle key={`pt-${p.chave ?? i}`} cx={x(i)} cy={y(p.valor)} r={i === idxAtivo ? 4 : 2.5} fill={cor} />
+        ))}
+        {pontos.map((p, i) => (
+          mostrarRotulo(i) && (
+            <text
+              key={`lbl-${p.chave ?? i}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9"
+              fill={i === idxAtivo ? 'var(--text)' : 'var(--text-3)'} fontWeight={i === idxAtivo ? 700 : 400}
+            >
+              {p.rotulo}
+            </text>
+          )
+        ))}
+        {pontos.map((p, i) => (
+          <rect
+            key={`hit-${p.chave ?? i}`} x={x(i) - faixaW / 2} y={0} width={faixaW} height={H}
+            fill="transparent" onClick={() => setSelecionado(i)} onMouseEnter={() => setSelecionado(i)}
+            style={{ cursor: 'pointer' }}
+          />
+        ))}
+        <line x1={x(idxAtivo)} x2={x(idxAtivo)} y1={PAD_TOP} y2={H - PAD_BOT} stroke="var(--text-3)" strokeWidth={1} strokeDasharray="2,2" pointerEvents="none" />
+      </svg>
+      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+        <span className="t-strong">{atual.rotulo}</span>
+        <span style={{ color: cor }}>Acumulado: {formatarValor(atual.valor)}</span>
+      </div>
+    </div>
+  )
+}
+
 const dataCurta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
 
 /* ── Curva S completa da Prevision (base/previsto/realizado) ───────

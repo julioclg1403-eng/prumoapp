@@ -24,12 +24,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural } from '../lib/dominio'
 import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
-import { RankingBarras } from '../components/charts'
+import { RankingBarras, GraficoDonut, CurvaProducao } from '../components/charts'
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
@@ -639,6 +639,56 @@ function AbaDashboardRendimento({ dados }) {
       .sort((a, b) => b.valor - a.valor)
   }, [eventosDoServico, planPorId])
 
+  /* KPIs do topo: total executado, rendimento médio da equipe (média
+     do "por colaborador" acima, não soma — soma infla artificialmente
+     quando várias pessoas trabalham no mesmo dia) e dias trabalhados
+     (dias distintos com pelo menos um evento, não soma de "dias por
+     colaborador" — um dia com 3 pessoas trabalhando conta 1 dia). */
+  const totalExecutado = useMemo(
+    () => eventosDoServico.reduce((s, ev) => s + (Number(ev.quantidade) || 0), 0),
+    [eventosDoServico],
+  )
+  const diasTrabalhados = useMemo(
+    () => new Set(eventosDoServico.map((ev) => ev.data_execucao)).size,
+    [eventosDoServico],
+  )
+  const rendimentoMedioEquipe = useMemo(() => {
+    if (porColaborador.length === 0) return 0
+    return porColaborador.reduce((s, c) => s + c.valor, 0) / porColaborador.length
+  }, [porColaborador])
+
+  /* Avanço por etapa: em que estágio está cada elemento marcado
+     desse serviço agora (não é "no período" — é o estado atual dos
+     marcadores, tipo "quantas sapatas já foram concretadas"). */
+  const porEtapa = useMemo(() => {
+    if (!tipoSelecionado) return []
+    const planIdsDoServico = new Set((dados.plantasProducao || []).filter((p) => p.service_id === servicoFiltroId).map((p) => p.id))
+    const marcadoresDoServico = (dados.marcadoresProducao || []).filter((m) => planIdsDoServico.has(m.plan_id) && m.ativo !== false)
+    const contagem = new Map()
+    for (const m of marcadoresDoServico) {
+      contagem.set(m.etapa_atual, (contagem.get(m.etapa_atual) || 0) + 1)
+    }
+    return (tipoSelecionado.etapas || [])
+      .map((e) => ({ chave: e.chave, rotulo: e.rotulo, valor: contagem.get(e.chave) || 0, cor: e.cor ? `var(--${e.cor})` : undefined }))
+      .filter((e) => e.valor > 0)
+  }, [dados.plantasProducao, dados.marcadoresProducao, servicoFiltroId, tipoSelecionado])
+
+  /* Curva de produção acumulada: soma por dia, ordenado, acumulando —
+     a "curva S" física do serviço (não financeira), pra ver o ritmo
+     de produção ao longo do período escolhido. */
+  const curvaAcumulada = useMemo(() => {
+    const porDia = new Map()
+    for (const ev of eventosDoServico) {
+      porDia.set(ev.data_execucao, (porDia.get(ev.data_execucao) || 0) + (Number(ev.quantidade) || 0))
+    }
+    const dias = [...porDia.keys()].sort()
+    let acumulado = 0
+    return dias.map((data) => {
+      acumulado += porDia.get(data)
+      return { chave: data, rotulo: formatarDataCurta(data), valor: acumulado }
+    })
+  }, [eventosDoServico])
+
   return (
     <div className="stack-2">
       <SecaoRecolhivel
@@ -667,6 +717,33 @@ function AbaDashboardRendimento({ dados }) {
         <div className="card-flat"><Vazio titulo="Cadastre um serviço primeiro" texto="O dashboard mostra rendimento dentro de um serviço específico — cadastre um na aba Serviços." /></div>
       ) : (
         <>
+          <div className="row-wrap" style={{ gap: 10 }}>
+            <div style={{ flex: '1 1 140px' }}>
+              <Indicador rotulo="Executado no período" valor={`${totalExecutado.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unidadeSelecionada}`} />
+            </div>
+            <div style={{ flex: '1 1 140px' }}>
+              <Indicador rotulo="Rendimento médio da equipe" tom="info" valor={`${rendimentoMedioEquipe.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unidadeSelecionada}/dia`} />
+            </div>
+            <div style={{ flex: '1 1 140px' }}>
+              <Indicador rotulo="Dias trabalhados" valor={plural(diasTrabalhados, 'dia', 'dias')} />
+            </div>
+          </div>
+
+          {porEtapa.length > 0 && (
+            <div className="card-flat">
+              <div className="t-strong" style={{ marginBottom: 10 }}>Avanço por estágio — elementos marcados nesse serviço</div>
+              <GraficoDonut itens={porEtapa} formatarValor={(v) => plural(v, 'elemento', 'elementos')} />
+            </div>
+          )}
+
+          <div className="card-flat">
+            <div className="t-strong" style={{ marginBottom: 10 }}>Curva de produção acumulada ({unidadeSelecionada})</div>
+            <CurvaProducao
+              pontos={curvaAcumulada}
+              formatarValor={(v) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unidadeSelecionada}`}
+            />
+          </div>
+
           <div className="card-flat">
             <div className="t-strong" style={{ marginBottom: 10 }}>Por colaborador — rendimento ({unidadeSelecionada}/dia)</div>
             <RankingBarras itens={porColaborador} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
