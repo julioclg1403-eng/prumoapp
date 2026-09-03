@@ -29,7 +29,7 @@ import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
-import { RankingBarras, GraficoDonut } from '../components/charts'
+import { RankingBarras } from '../components/charts'
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un' }
 
@@ -542,17 +542,15 @@ function AbaServicosPorEmpresa({ dados, perfil, podeEditar }) {
   )
 }
 
-/* ── Dashboard de rendimento: visão geral da obra, cruzando todos
-   os serviços — por colaborador, por empresa, por serviço, por
-   local — mais a comparação com o SINAPI.
+/* ── Dashboard de rendimento: por colaborador e por local, sempre
+   dentro de UM serviço só (mais a comparação com o SINAPI).
 
    Serviços diferentes têm unidades diferentes (m², m³, ml, un) —
-   somar quantidade entre eles não faz sentido. Por isso, sem um
-   serviço selecionado no filtro, os gráficos usam métricas que
-   independem de unidade (dias trabalhados, número de lançamentos).
-   Só quando um serviço específico é escolhido é que "rendimento"
-   (quantidade/dia) aparece de verdade, porque aí todo mundo está
-   na mesma unidade. */
+   somar ou comparar quantidade entre eles não faz sentido nenhum
+   (nem "quem produz mais", nem "onde tem mais volume"). Por isso o
+   filtro de serviço aqui é obrigatório, não uma opção: todo gráfico
+   nesta aba vive dentro de um único serviço, nunca cruza serviços
+   diferentes entre si. */
 
 function AbaDashboardRendimento({ dados }) {
   const hoje = hojeISO()
@@ -561,7 +559,15 @@ function AbaDashboardRendimento({ dados }) {
   const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
-  const [servicoFiltroId, setServicoFiltroId] = useState('')
+
+  const servicosParaFiltro = useMemo(
+    () => (dados.servicosProducao || []).filter((s) => s.ativo !== false),
+    [dados.servicosProducao],
+  )
+  const [servicoFiltroId, setServicoFiltroId] = useState(servicosParaFiltro[0]?.id || '')
+  useEffect(() => {
+    if (!servicoFiltroId && servicosParaFiltro.length > 0) setServicoFiltroId(servicosParaFiltro[0].id)
+  }, [servicosParaFiltro, servicoFiltroId])
 
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
@@ -581,24 +587,21 @@ function AbaDashboardRendimento({ dados }) {
     const marcador = marcadorPorId.get(ev.marker_id)
     const plan = marcador && planPorId.get(marcador.plan_id)
     const servico = plan && servicoPorId.get(plan.service_id)
-    const tipo = servico && tipoPorId.get(servico.service_type_id)
-    return { marcador, plan, servico, tipo }
+    return { marcador, plan, servico }
   }
 
-  const eventosFiltrados = useMemo(() => (
-    servicoFiltroId ? eventosDoPeriodo.filter((ev) => contextoDoEvento(ev).servico?.id === servicoFiltroId) : eventosDoPeriodo
-  ), [eventosDoPeriodo, servicoFiltroId, marcadorPorId, planPorId, servicoPorId])
+  const eventosDoServico = useMemo(
+    () => (servicoFiltroId ? eventosDoPeriodo.filter((ev) => contextoDoEvento(ev).servico?.id === servicoFiltroId) : []),
+    [eventosDoPeriodo, servicoFiltroId, marcadorPorId, planPorId, servicoPorId],
+  )
 
   const servicoSelecionado = servicoFiltroId ? servicoPorId.get(servicoFiltroId) : null
   const tipoSelecionado = servicoSelecionado ? tipoPorId.get(servicoSelecionado.service_type_id) : null
   const unidadeSelecionada = tipoSelecionado ? (ROTULO_UNIDADE[tipoSelecionado.unidade_resultado] || tipoSelecionado.unidade_resultado) : ''
 
-  /* Por colaborador: com serviço filtrado, rendimento de verdade
-     (quantidade/dia, unidade única). Sem filtro, dias trabalhados —
-     a única coisa comparável entre gente que fez serviços diferentes. */
   const porColaborador = useMemo(() => {
     const mapa = new Map()
-    for (const ev of eventosFiltrados) {
+    for (const ev of eventosDoServico) {
       if (!ev.worker_id) continue
       const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
       atual.quantidade += Number(ev.quantidade) || 0
@@ -609,23 +612,16 @@ function AbaDashboardRendimento({ dados }) {
       .map(([workerId, info]) => {
         const colaborador = dados.colaboradorPorId(workerId)
         if (!colaborador) return null
-        const valor = servicoFiltroId
-          ? (info.dias.size > 0 ? info.quantidade / info.dias.size : 0)
-          : info.dias.size
-        return { chave: workerId, rotulo: colaborador.nome, valor }
+        return { chave: workerId, rotulo: colaborador.nome, valor: info.dias.size > 0 ? info.quantidade / info.dias.size : 0 }
       })
       .filter(Boolean)
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 12)
-  }, [eventosFiltrados, dados, servicoFiltroId])
+  }, [eventosDoServico, dados])
 
-  /* Por local (planta): só com serviço filtrado — dentro de um único
-     serviço todas as plantas têm a mesma unidade, então rendimento
-     por local vira comparável de verdade. */
   const porLocal = useMemo(() => {
-    if (!servicoFiltroId) return []
     const mapa = new Map()
-    for (const ev of eventosFiltrados) {
+    for (const ev of eventosDoServico) {
       const { plan } = contextoDoEvento(ev)
       if (!plan) continue
       const atual = mapa.get(plan.id) || { quantidade: 0, dias: new Set() }
@@ -641,42 +637,7 @@ function AbaDashboardRendimento({ dados }) {
       })
       .filter(Boolean)
       .sort((a, b) => b.valor - a.valor)
-  }, [eventosFiltrados, servicoFiltroId, planPorId, marcadorPorId])
-
-  /* Por serviço e por empresa: sempre em número de lançamentos
-     (contagem de eventos), nunca em quantidade — é o único jeito de
-     comparar serviços/empresas que trabalham em unidades diferentes
-     sem inventar uma equivalência que não existe. */
-  const porServico = useMemo(() => {
-    const mapa = new Map()
-    for (const ev of eventosDoPeriodo) {
-      const { servico } = contextoDoEvento(ev)
-      if (!servico) continue
-      mapa.set(servico.id, (mapa.get(servico.id) || 0) + 1)
-    }
-    return [...mapa.entries()]
-      .map(([id, valor]) => {
-        const servico = servicoPorId.get(id)
-        return servico ? { chave: id, rotulo: servico.nome, valor } : null
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.valor - a.valor)
-  }, [eventosDoPeriodo, servicoPorId, planPorId, marcadorPorId])
-
-  const porEmpresa = useMemo(() => {
-    const mapa = new Map()
-    for (const ev of eventosDoPeriodo) {
-      const { servico } = contextoDoEvento(ev)
-      if (!servico?.company_id) continue
-      mapa.set(servico.company_id, (mapa.get(servico.company_id) || 0) + 1)
-    }
-    return [...mapa.entries()]
-      .map(([id, valor]) => ({ chave: id, rotulo: dados.nomeDe(dados.empresas, id), valor }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 8)
-  }, [eventosDoPeriodo, dados, servicoPorId, planPorId, marcadorPorId])
-
-  const servicosParaFiltro = (dados.servicosProducao || []).filter((s) => s.ativo !== false)
+  }, [eventosDoServico, planPorId])
 
   return (
     <div className="stack-2">
@@ -693,47 +654,32 @@ function AbaDashboardRendimento({ dados }) {
         />
       </SecaoRecolhivel>
 
-      <Campo label="Serviço (opcional — escolha um pra ver rendimento por unidade, não só volume)">
+      <Campo label="Serviço">
         <select className="sel" value={servicoFiltroId} onChange={(e) => setServicoFiltroId(e.target.value)}>
-          <option value="">Todos os serviços</option>
+          {servicosParaFiltro.length === 0 && <option value="">Nenhum serviço cadastrado</option>}
           {servicosParaFiltro.map((s) => (
             <option key={s.id} value={s.id}>{s.nome}</option>
           ))}
         </select>
       </Campo>
 
-      <div className="card-flat">
-        <div className="t-strong" style={{ marginBottom: 10 }}>
-          Por colaborador {servicoFiltroId ? `— rendimento (${unidadeSelecionada}/dia)` : '— dias trabalhados'}
-        </div>
-        <RankingBarras
-          itens={porColaborador}
-          formatarValor={(v) => (servicoFiltroId ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : plural(v, 'dia', 'dias'))}
-        />
-      </div>
-
-      {servicoFiltroId ? (
-        <div className="card-flat">
-          <div className="t-strong" style={{ marginBottom: 10 }}>Por local — rendimento ({unidadeSelecionada}/dia)</div>
-          <RankingBarras
-            itens={porLocal}
-            formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-          />
-        </div>
+      {!servicoSelecionado ? (
+        <div className="card-flat"><Vazio titulo="Cadastre um serviço primeiro" texto="O dashboard mostra rendimento dentro de um serviço específico — cadastre um na aba Serviços." /></div>
       ) : (
         <>
           <div className="card-flat">
-            <div className="t-strong" style={{ marginBottom: 10 }}>Por serviço — lançamentos no período</div>
-            <RankingBarras itens={porServico} formatarValor={(v) => plural(v, 'lançamento', 'lançamentos')} />
+            <div className="t-strong" style={{ marginBottom: 10 }}>Por colaborador — rendimento ({unidadeSelecionada}/dia)</div>
+            <RankingBarras itens={porColaborador} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
           </div>
+
           <div className="card-flat">
-            <div className="t-strong" style={{ marginBottom: 10 }}>Por empresa — lançamentos no período</div>
-            <GraficoDonut itens={porEmpresa} formatarValor={(v) => plural(v, 'lançamento', 'lançamentos')} />
+            <div className="t-strong" style={{ marginBottom: 10 }}>Por local — rendimento ({unidadeSelecionada}/dia)</div>
+            <RankingBarras itens={porLocal} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
           </div>
+
+          <PainelSinapi servico={servicoSelecionado} tipo={tipoSelecionado} unidade={unidadeSelecionada} porColaborador={porColaborador} servicoFiltroId={servicoFiltroId} />
         </>
       )}
-
-      <PainelSinapi servico={servicoSelecionado} tipo={tipoSelecionado} unidade={unidadeSelecionada} porColaborador={porColaborador} servicoFiltroId={servicoFiltroId} />
     </div>
   )
 }
