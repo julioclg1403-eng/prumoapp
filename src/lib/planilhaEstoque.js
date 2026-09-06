@@ -16,7 +16,7 @@
    bloco de linhas em branco, a varredura cai pra milissegundos — o
    que sobra de demora é só o parse do arquivo em si. */
 
-import { carregarXLSX } from './xlsxCodepage'
+import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
 
 const ALIASES = {
   material: ['material', 'materia', 'nome', 'item', 'descricao', 'descrição'],
@@ -34,8 +34,7 @@ const LIMITE_LINHAS_VAZIAS = 200
 
 export async function lerPlanilhaEstoque(arquivo) {
   const XLSX = await carregarXLSX()
-  const buffer = await arquivo.arrayBuffer()
-  const wb = XLSX.read(buffer, { type: 'array' })
+  const wb = await lerWorkbook(arquivo)
 
   const nomeAba = wb.SheetNames.find((n) => normalizarTexto(n) === 'estoque') || wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]

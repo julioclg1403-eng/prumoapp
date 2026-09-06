@@ -8,7 +8,7 @@
    ID, sem depender do texto da descrição bater igualzinho.
    ============================================================ */
 
-import { carregarXLSX } from './xlsxCodepage'
+import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
 
 const ALIASES = {
   codigo: ['id'],
@@ -65,8 +65,7 @@ const LIMITE_LINHAS_VAZIAS = 100
 
 export async function lerCronogramaGlobal(arquivo) {
   const XLSX = await carregarXLSX()
-  const buffer = await arquivo.arrayBuffer()
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const wb = await lerWorkbook(arquivo, { cellDates: true })
 
   const nomeAba = wb.SheetNames.find((n) => normalizarTexto(n) === 'activities') || wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]

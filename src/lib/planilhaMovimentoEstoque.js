@@ -35,7 +35,7 @@
    nova, preservando o histórico de cada importação ao longo do
    tempo — não sobrescreve o que já foi importado antes. */
 
-import { carregarXLSX } from './xlsxCodepage'
+import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
 
 const LINHAS_PARA_ACHAR_CABECALHO = 15
 
@@ -74,8 +74,7 @@ function dataISO(texto) {
 
 export async function lerMovimentoEstoque(arquivo) {
   const XLSX = await carregarXLSX()
-  const buffer = await arquivo.arrayBuffer()
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const wb = await lerWorkbook(arquivo, { cellDates: true })
 
   const nomeAba = wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]
