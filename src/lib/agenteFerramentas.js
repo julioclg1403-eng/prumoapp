@@ -212,11 +212,18 @@ function consultarRendimento({ dados, perfil }, busca) {
 
   const mapa = new Map()
   for (const ev of eventos) {
-    if (!ev.worker_id) continue
-    const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
-    atual.quantidade += Number(ev.quantidade) || 0
-    atual.dias.add(ev.data_execucao)
-    mapa.set(ev.worker_id, atual)
+    const equipe = ev.worker_ids || []
+    if (equipe.length === 0) continue
+    // Evento com equipe (mais de um colaborador junto) divide a
+    // quantidade entre eles — cada um leva sua fatia do trabalho,
+    // não a quantidade inteira que o marcador registrou.
+    const fatia = (Number(ev.quantidade) || 0) / equipe.length
+    for (const workerId of equipe) {
+      const atual = mapa.get(workerId) || { quantidade: 0, dias: new Set() }
+      atual.quantidade += fatia
+      atual.dias.add(ev.data_execucao)
+      mapa.set(workerId, atual)
+    }
   }
 
   const ranking = [...mapa.entries()]

@@ -171,10 +171,11 @@ function AbaServicos({ dados, perfil, podeEditar }) {
       if (!marcador || marcador.ativo === false) continue
       const plan = planPorId.get(marcador.plan_id)
       if (!plan) continue
-      if (ev.worker_id) {
-        const colaborador = dados.colaboradorPorId(ev.worker_id)
-        if (!colaborador || colaborador.ativo === false) continue
-      }
+      const equipe = ev.worker_ids || []
+      if (equipe.length > 0 && !equipe.some((id) => {
+        const colaborador = dados.colaboradorPorId(id)
+        return Boolean(colaborador) && colaborador.ativo !== false
+      })) continue
       mapa.set(plan.service_id, (mapa.get(plan.service_id) || 0) + (Number(ev.quantidade) || 0))
     }
     return mapa
@@ -617,9 +618,16 @@ function AbaDashboardRendimento({ dados }) {
       const { marcador, servico } = contextoDoEvento(ev)
       if (servico?.id !== servicoFiltroId) return false
       if (!marcador || marcador.ativo === false) return false
-      if (!ev.worker_id) return true
-      const colaborador = dados.colaboradorPorId(ev.worker_id)
-      return Boolean(colaborador) && colaborador.ativo !== false
+      const equipe = ev.worker_ids || []
+      if (equipe.length === 0) return true
+      // Só descarta o evento inteiro se NINGUÉM da equipe ainda está
+      // ativo — com pelo menos um colaborador de verdade na equipe, a
+      // produção é real e conta no total/curva; "por colaborador"
+      // (mais abaixo) já cuida de não creditar quem está arquivado.
+      return equipe.some((id) => {
+        const colaborador = dados.colaboradorPorId(id)
+        return Boolean(colaborador) && colaborador.ativo !== false
+      })
     })
   }, [eventosDoPeriodo, servicoFiltroId, marcadorPorId, planPorId, servicoPorId, dados])
 
@@ -630,11 +638,17 @@ function AbaDashboardRendimento({ dados }) {
   const porColaborador = useMemo(() => {
     const mapa = new Map()
     for (const ev of eventosDoServico) {
-      if (!ev.worker_id) continue
-      const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
-      atual.quantidade += Number(ev.quantidade) || 0
-      atual.dias.add(ev.data_execucao)
-      mapa.set(ev.worker_id, atual)
+      const equipe = ev.worker_ids || []
+      if (equipe.length === 0) continue
+      // Evento com equipe (ex.: 3 armadores juntos) divide a quantidade
+      // pela equipe — cada um leva sua fatia, não a quantidade inteira.
+      const fatia = (Number(ev.quantidade) || 0) / equipe.length
+      for (const workerId of equipe) {
+        const atual = mapa.get(workerId) || { quantidade: 0, dias: new Set() }
+        atual.quantidade += fatia
+        atual.dias.add(ev.data_execucao)
+        mapa.set(workerId, atual)
+      }
     }
     return [...mapa.entries()]
       .map(([workerId, info]) => {
@@ -1580,70 +1594,92 @@ function AvisoSaldoContrato({ contratoItem, quantidade, dados }) {
 
 /* ── Buscar e escolher: colaborador ou item de contrato ────── */
 
-function BuscarColaborador({ dados, diarioDoDia, servico, valor, onEscolher }) {
-  const [busca, setBusca] = useState('')
-  const selecionado = valor ? dados.colaboradorPorId(valor) : null
+/* Escolhe um ou mais colaboradores pra um evento de produção
+   (marcação nova ou troca de estágio) — pode ser mais de um quando
+   uma equipe inteira fez o serviço junto (ex.: "3 armadores"): nesse
+   caso, o rendimento de cada um é a quantidade dividida pelo tamanho
+   da equipe, não a quantidade inteira pra cada um (ver cálculo de
+   rendimento no Dashboard/agenteFerramentas — ambos já dividem por
+   `worker_ids.length`).
 
-  /* Time do Serviço tem prioridade — é pra isso que ele existe
-     ("controle" do Julio: só quem tá registrado no serviço aparece).
-     Sem time registrado mas com empresa vinculada, já vale só puxar
-     os colaboradores daquela empresa (não faz sentido oferecer gente
-     de outras empreiteiras). Sem nada disso, cai pro efetivo do dia,
-     e sem diário ainda, todo mundo ativo. */
+   Prioridade de quem aparece pra escolher: time fixo do Serviço
+   (funcionarios_ids) primeiro — é pra isso que ele existe. Sem time
+   fixo, cruza empresa do serviço COM presença no diário do dia (só
+   quem é da empreiteira certa E realmente veio trabalhar naquele
+   dia); com só um dos dois cadastrado, usa esse sozinho; sem nenhum,
+   todo mundo ativo. A lista já aparece ao focar o campo — não precisa
+   digitar nada pra ver as opções. */
+function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
+  const [busca, setBusca] = useState('')
+  const [aberto, setAberto] = useState(false)
+  const selecionados = valores.map((id) => dados.colaboradorPorId(id)).filter(Boolean)
+
   const disponiveis = useMemo(() => {
     const ativos = (dados.colaboradores || []).filter((c) => c.ativo !== false)
     if (servico?.funcionarios_ids?.length) {
       const permitidos = new Set(servico.funcionarios_ids)
       return ativos.filter((c) => permitidos.has(c.id))
     }
-    if (servico?.company_id) {
-      return ativos.filter((c) => c.company_id === servico.company_id)
+    const daEmpresa = servico?.company_id ? ativos.filter((c) => c.company_id === servico.company_id) : null
+    const presentesHoje = diarioDoDia
+      ? ativos.filter((c) => (diarioDoDia.presencas || []).some((p) => p.presente && p.worker_id === c.id))
+      : null
+    if (daEmpresa && presentesHoje) {
+      const idsPresentes = new Set(presentesHoje.map((c) => c.id))
+      return daEmpresa.filter((c) => idsPresentes.has(c.id))
     }
-    if (diarioDoDia) {
-      const presentes = new Set((diarioDoDia.presencas || []).filter((p) => p.presente).map((p) => p.worker_id))
-      return ativos.filter((c) => presentes.has(c.id))
-    }
-    return ativos
+    return daEmpresa || presentesHoje || ativos
   }, [diarioDoDia, dados.colaboradores, servico])
 
   const resultados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
-    if (!termo) return []
-    return disponiveis.filter((c) => c.nome.toLowerCase().includes(termo)).slice(0, 8)
-  }, [busca, disponiveis])
+    const escolhidos = new Set(valores)
+    const restantes = disponiveis.filter((c) => !escolhidos.has(c.id))
+    const filtrados = termo ? restantes.filter((c) => c.nome.toLowerCase().includes(termo)) : restantes
+    return filtrados.slice(0, 8)
+  }, [busca, disponiveis, valores])
+
+  const placeholder = servico?.funcionarios_ids?.length ? 'Buscar no time do serviço…'
+    : servico?.company_id && diarioDoDia ? 'Buscar na empresa, presente hoje…'
+      : servico?.company_id ? 'Buscar na empresa do serviço…'
+        : diarioDoDia ? 'Buscar no efetivo do dia…' : 'Buscar colaborador…'
 
   return (
     <div className="stack-1">
-      {selecionado && (
-        <Chip>
-          {selecionado.nome}
-          <button onClick={() => onEscolher('')} aria-label="Remover" style={{ border: 0, background: 'none', cursor: 'pointer', marginLeft: 4, padding: 0, display: 'inline-flex' }}>
-            <Icon name="x" size={12} />
-          </button>
-        </Chip>
+      {selecionados.length > 0 && (
+        <div className="row-wrap" style={{ gap: 6 }}>
+          {selecionados.map((c) => (
+            <Chip key={c.id}>
+              {c.nome}
+              <button
+                onClick={() => onMudar(valores.filter((id) => id !== c.id))} aria-label={`Remover ${c.nome}`}
+                style={{ border: 0, background: 'none', cursor: 'pointer', marginLeft: 4, padding: 0, display: 'inline-flex' }}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </Chip>
+          ))}
+        </div>
       )}
-      {!selecionado && (
-        <>
-          <input
-            className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
-            placeholder={
-              servico?.funcionarios_ids?.length ? 'Buscar no time do serviço…'
-                : servico?.company_id ? 'Buscar na empresa do serviço…'
-                  : diarioDoDia ? 'Buscar no efetivo do dia…' : 'Buscar colaborador…'
-            }
-          />
-          {resultados.length > 0 && (
-            <div className="stack-1">
-              {resultados.map((c) => (
-                <button key={c.id} type="button" className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => { onEscolher(c.id); setBusca('') }}>
-                  {c.nome}
-                </button>
-              ))}
-            </div>
-          )}
-          {busca.trim() && resultados.length === 0 && <div className="t-caption">Ninguém com esse nome.</div>}
-        </>
+      <input
+        className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)}
+        onFocus={() => setAberto(true)} onBlur={() => setTimeout(() => setAberto(false), 150)}
+        placeholder={placeholder}
+      />
+      {aberto && resultados.length > 0 && (
+        <div className="stack-1">
+          {resultados.map((c) => (
+            <button
+              key={c.id} type="button" className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onMudar([...valores, c.id]); setBusca('') }}
+            >
+              {c.nome}
+            </button>
+          ))}
+        </div>
       )}
+      {aberto && busca.trim() && resultados.length === 0 && <div className="t-caption">Ninguém com esse nome.</div>}
     </div>
   )
 }
@@ -1704,7 +1740,7 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
   const [elemento, setElemento] = useState('')
   const [dimensoes, setDimensoes] = useState(() => Object.fromEntries((tipo?.campos_dimensao || []).map((c) => [c.chave, ''])))
   const [etapa, setEtapa] = useState(tipo?.etapas?.[0]?.chave || '')
-  const [workerId, setWorkerId] = useState('')
+  const [workerIds, setWorkerIds] = useState([])
   const [dataExecucao, setDataExecucao] = useState(hoje)
   const [contractItemId, setContractItemId] = useState('')
   const [quantidade, setQuantidade] = useState('')
@@ -1726,7 +1762,7 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
       dimensoes: Object.fromEntries(Object.entries(dimensoes).map(([k, v]) => [k, Number(v) || 0])),
       quantidade_calculada: quantidadeCalculada,
       evento: {
-        etapa, worker_id: workerId || null, data_execucao: dataExecucao,
+        etapa, worker_ids: workerIds, data_execucao: dataExecucao,
         contract_item_id: contractItemId || null,
         quantidade: quantidadeEvento,
         observacao: observacao.trim() || null,
@@ -1788,9 +1824,9 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
           )}
         </Campo>
 
-        <Campo label="Colaborador" dica="Opcional.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
-          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerId} /></div>
+        <Campo label="Colaborador(es)" dica="Opcional — escolha mais de um se o serviço foi feito por uma equipe; o rendimento de cada um é dividido pela equipe.">
+          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
         <Campo label="Item de contrato" dica="Opcional — pode vincular depois, no detalhe da marcação.">
@@ -1905,7 +1941,9 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
                       </div>
                     </div>
                     <div className="t-caption" style={{ marginTop: 4 }}>
-                      {ev.worker_id ? dados.colaboradorPorId(ev.worker_id)?.nome || '—' : 'Sem colaborador vinculado'}
+                      {(ev.worker_ids || []).length > 0
+                        ? ev.worker_ids.map((id) => dados.colaboradorPorId(id)?.nome || '—').join(', ')
+                        : 'Sem colaborador vinculado'}
                       {ev.a_posteriori && <span style={{ marginLeft: 6 }}><Chip tom="info">a posteriori</Chip></span>}
                     </div>
                     {contratoItem && (
@@ -2009,7 +2047,7 @@ function EditarMarcadorSheet({ marcador, tipo, dados, onFechar }) {
 function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
   const hoje = hojeISO()
   const [etapa, setEtapa] = useState(marcador.etapa_atual || tipo?.etapas?.[0]?.chave || '')
-  const [workerId, setWorkerId] = useState('')
+  const [workerIds, setWorkerIds] = useState([])
   const [dataExecucao, setDataExecucao] = useState(hoje)
   const [contractItemId, setContractItemId] = useState('')
   const [quantidade, setQuantidade] = useState('')
@@ -2025,7 +2063,7 @@ function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
   const salvar = async () => {
     setSalvando(true)
     const ok = await dados.registrarEventoMarcador(marcador.id, {
-      etapa, worker_id: workerId || null, data_execucao: dataExecucao,
+      etapa, worker_ids: workerIds, data_execucao: dataExecucao,
       contract_item_id: contractItemId || null,
       quantidade: quantidadeEvento,
       observacao: observacao.trim() || null,
@@ -2060,9 +2098,9 @@ function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
           )}
         </Campo>
 
-        <Campo label="Colaborador" dica="Opcional.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
-          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerId} /></div>
+        <Campo label="Colaborador(es)" dica="Opcional — escolha mais de um se o serviço foi feito por uma equipe; o rendimento de cada um é dividido pela equipe.">
+          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
         <Campo label="Item de contrato" dica="Opcional — caso a caso: este estágio pode ser de um contrato diferente do estágio anterior.">
@@ -2095,7 +2133,7 @@ function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
    a-posteriori são recalculados igual um evento novo. */
 function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar }) {
   const [etapa, setEtapa] = useState(evento.etapa)
-  const [workerId, setWorkerId] = useState(evento.worker_id || '')
+  const [workerIds, setWorkerIds] = useState(evento.worker_ids?.length ? evento.worker_ids : (evento.worker_id ? [evento.worker_id] : []))
   const [dataExecucao, setDataExecucao] = useState(evento.data_execucao)
   const [contractItemId, setContractItemId] = useState(evento.contract_item_id || '')
   const [quantidade, setQuantidade] = useState(evento.quantidade != null ? String(evento.quantidade) : '')
@@ -2111,7 +2149,7 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
   const salvar = async () => {
     setSalvando(true)
     const ok = await dados.editarEventoMarcador(evento.id, {
-      etapa, worker_id: workerId || null, data_execucao: dataExecucao,
+      etapa, worker_ids: workerIds, data_execucao: dataExecucao,
       contract_item_id: contractItemId || null,
       quantidade: quantidadeEvento,
       observacao: observacao.trim() || null,
@@ -2146,9 +2184,9 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
           )}
         </Campo>
 
-        <Campo label="Colaborador" dica="Opcional.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valor={workerId} onEscolher={setWorkerId} />
-          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerId} /></div>
+        <Campo label="Colaborador(es)" dica="Opcional — escolha mais de um se o serviço foi feito por uma equipe; o rendimento de cada um é dividido pela equipe.">
+          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
         <Campo label="Item de contrato" dica="Opcional — caso a caso: este estágio pode ser de um contrato diferente do estágio anterior.">
@@ -2314,9 +2352,12 @@ function AbaRendimento({ servico, tipo, dados }) {
     )
     return (dados.eventosProducao || []).filter((e) => {
       if (!markerIdsValidos.has(e.marker_id)) return false
-      if (!e.worker_id) return true
-      const colaborador = dados.colaboradorPorId(e.worker_id)
-      return Boolean(colaborador) && colaborador.ativo !== false
+      const equipe = e.worker_ids || []
+      if (equipe.length === 0) return true
+      return equipe.some((id) => {
+        const colaborador = dados.colaboradorPorId(id)
+        return Boolean(colaborador) && colaborador.ativo !== false
+      })
     })
   }, [dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao, servico.id, dados])
 
@@ -2332,11 +2373,15 @@ function AbaRendimento({ servico, tipo, dados }) {
   const porColaborador = useMemo(() => {
     const mapa = new Map()
     for (const ev of eventosDoPeriodo) {
-      if (!ev.worker_id) continue
-      const atual = mapa.get(ev.worker_id) || { quantidade: 0, dias: new Set() }
-      atual.quantidade += Number(ev.quantidade) || 0
-      atual.dias.add(ev.data_execucao)
-      mapa.set(ev.worker_id, atual)
+      const equipe = ev.worker_ids || []
+      if (equipe.length === 0) continue
+      const fatia = (Number(ev.quantidade) || 0) / equipe.length
+      for (const workerId of equipe) {
+        const atual = mapa.get(workerId) || { quantidade: 0, dias: new Set() }
+        atual.quantidade += fatia
+        atual.dias.add(ev.data_execucao)
+        mapa.set(workerId, atual)
+      }
     }
     return [...mapa.entries()]
       .map(([workerId, info]) => ({
@@ -2409,7 +2454,7 @@ function AbaRendimento({ servico, tipo, dados }) {
       {colaboradorAberto && (
         <DetalheColaboradorRendimentoSheet
           colaborador={colaboradorAberto.colaborador}
-          eventos={eventosDoPeriodo.filter((e) => e.worker_id === colaboradorAberto.workerId)}
+          eventos={eventosDoPeriodo.filter((e) => (e.worker_ids || []).includes(colaboradorAberto.workerId))}
           unidade={unidade}
           dados={dados}
           onFechar={() => setColaboradorAberto(null)}

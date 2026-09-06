@@ -35,6 +35,22 @@ import { enviarPlantaProducao } from './plantasProducao'
 
 const Ctx = createContext(null)
 
+/* Um evento de produção pode ter uma equipe inteira (vários
+   colaboradores marcaram junto, ex.: "3 armadores"), não só um
+   colaborador — production_marker_event_workers guarda essa lista.
+   `worker_id` continua existindo na linha do evento só pro caso de
+   evento antigo (de antes dessa tabela existir) ou evento de um só
+   colaborador — nesse caso `worker_ids` vira um array de 1 item, pra
+   quem já lê `worker_ids` não precisar tratar os dois formatos. */
+function normalizarEquipeDosEventos(eventos) {
+  return eventos.map((e) => {
+    const daEquipe = (e.equipe || []).map((x) => x.worker_id)
+    const worker_ids = daEquipe.length > 0 ? daEquipe : (e.worker_id ? [e.worker_id] : [])
+    const { equipe, ...resto } = e
+    return { ...resto, worker_ids }
+  })
+}
+
 /* Nome do cadastro na tela -> nome da tabela no banco */
 const TABELA = {
   empresas: 'companies',
@@ -244,7 +260,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('production_services').select('*').order('created_at', { ascending: false })),
       buscarPaginado(() => supabase.from('production_plans').select('*').order('created_at', { ascending: false })),
       buscarPaginado(() => supabase.from('production_markers').select('*')),
-      buscarPaginado(() => supabase.from('production_marker_events').select('*').order('data_execucao', { ascending: false })),
+      buscarPaginado(() => supabase.from('production_marker_events').select('*, equipe:production_marker_event_workers(worker_id)').order('data_execucao', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -337,7 +353,7 @@ export function DadosProvider({ perfil, children }) {
       servicosProducao: servicosProducao.data || [],
       plantasProducao: plantasProducao.data || [],
       marcadoresProducao: marcadoresProducao.data || [],
-      eventosProducao: eventosProducao.data || [],
+      eventosProducao: normalizarEquipeDosEventos(eventosProducao.data || []),
     })
   }, [perfil.worksite_id, perfil.role, perfil.obras_permitidas, avisarErro])
 
@@ -3377,6 +3393,21 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Grava a equipe (1+ colaboradores) de um evento recém-criado —
+     production_marker_events.worker_id guarda só o primeiro, pra
+     quem ainda lê o campo antigo continuar funcionando; a lista
+     completa mora só na tabela de equipe. Erro aqui não desfaz o
+     evento — pior caso, o evento fica sem equipe registrada. */
+  const salvarEquipeDoEvento = useCallback(
+    async (eventId, organizationId, workerIds) => {
+      if (!workerIds?.length) return
+      await supabase.from('production_marker_event_workers').insert(
+        workerIds.map((worker_id) => ({ event_id: eventId, worker_id, organization_id: organizationId })),
+      )
+    },
+    [],
+  )
+
   /* Marca um elemento na planta pela primeira vez: nasce o pino
      (production_markers) E o primeiro evento (production_marker_events)
      juntos, numa tacada só — o formulário de marcação já pede tudo
@@ -3401,11 +3432,12 @@ export function DadosProvider({ perfil, children }) {
          fechamento normal do dia. */
       const diario = evento.data_execucao ? diarioDaData(tudo?.diarios || [], evento.data_execucao, worksite_id) : null
       const aPosteriori = !diario || diario.status === 'finalizado'
+      const workerIds = evento.worker_ids?.length ? evento.worker_ids : (evento.worker_id ? [evento.worker_id] : [])
 
       const eventoSalvo = checar(
         await supabase.from('production_marker_events').insert({
           organization_id, worksite_id, marker_id: marcador.id,
-          etapa: evento.etapa, worker_id: evento.worker_id || null,
+          etapa: evento.etapa, worker_id: workerIds[0] || null,
           data_execucao: evento.data_execucao, diario_id: diario?.id || null,
           a_posteriori: aPosteriori, contract_item_id: evento.contract_item_id || null,
           quantidade: evento.quantidade ?? quantidade_calculada, observacao: evento.observacao || null,
@@ -3418,15 +3450,16 @@ export function DadosProvider({ perfil, children }) {
         await supabase.from('production_markers').delete().eq('id', marcador.id)
         return null
       }
+      await salvarEquipeDoEvento(eventoSalvo.id, organization_id, workerIds)
 
       setTudo((t) => t && ({
         ...t,
         marcadoresProducao: [...t.marcadoresProducao, marcador],
-        eventosProducao: [eventoSalvo, ...t.eventosProducao],
+        eventosProducao: [{ ...eventoSalvo, worker_ids: workerIds }, ...t.eventosProducao],
       }))
       return marcador
     },
-    [escopo, checar, perfil.id, tudo],
+    [escopo, checar, perfil.id, tudo, salvarEquipeDoEvento],
   )
 
   /* Muda o estágio de um pino já existente: acrescenta um evento
@@ -3440,11 +3473,12 @@ export function DadosProvider({ perfil, children }) {
 
       const diario = evento.data_execucao ? diarioDaData(tudo?.diarios || [], evento.data_execucao, worksite_id) : null
       const aPosteriori = !diario || diario.status === 'finalizado'
+      const workerIds = evento.worker_ids?.length ? evento.worker_ids : (evento.worker_id ? [evento.worker_id] : [])
 
       const eventoSalvo = checar(
         await supabase.from('production_marker_events').insert({
           organization_id, worksite_id, marker_id: markerId,
-          etapa: evento.etapa, worker_id: evento.worker_id || null,
+          etapa: evento.etapa, worker_id: workerIds[0] || null,
           data_execucao: evento.data_execucao, diario_id: diario?.id || null,
           a_posteriori: aPosteriori, contract_item_id: evento.contract_item_id || null,
           quantidade: evento.quantidade ?? marcadorAtual.quantidade_calculada, observacao: evento.observacao || null,
@@ -3453,6 +3487,7 @@ export function DadosProvider({ perfil, children }) {
         'registrar o novo estágio',
       )
       if (!eventoSalvo) return null
+      await salvarEquipeDoEvento(eventoSalvo.id, organization_id, workerIds)
 
       const marcadorAtualizado = checar(
         await supabase.from('production_markers').update({ etapa_atual: evento.etapa }).eq('id', markerId).select('*').single(),
@@ -3461,14 +3496,14 @@ export function DadosProvider({ perfil, children }) {
 
       setTudo((t) => t && ({
         ...t,
-        eventosProducao: [eventoSalvo, ...t.eventosProducao],
+        eventosProducao: [{ ...eventoSalvo, worker_ids: workerIds }, ...t.eventosProducao],
         marcadoresProducao: marcadorAtualizado
           ? t.marcadoresProducao.map((m) => (m.id === markerId ? marcadorAtualizado : m))
           : t.marcadoresProducao,
       }))
       return eventoSalvo
     },
-    [escopo, checar, perfil.id, tudo],
+    [escopo, checar, perfil.id, tudo, salvarEquipeDoEvento],
   )
 
   const arquivarMarcador = useCallback(
@@ -3490,13 +3525,14 @@ export function DadosProvider({ perfil, children }) {
      igual a um evento novo, pra não ficar desalinhado. */
   const editarEventoMarcador = useCallback(
     async (eventoId, campos) => {
-      const { worksite_id } = escopo()
+      const { organization_id, worksite_id } = escopo()
       const diario = campos.data_execucao ? diarioDaData(tudo?.diarios || [], campos.data_execucao, worksite_id) : null
       const aPosteriori = !diario || diario.status === 'finalizado'
+      const workerIds = campos.worker_ids?.length ? campos.worker_ids : (campos.worker_id ? [campos.worker_id] : [])
 
       const eventoSalvo = checar(
         await supabase.from('production_marker_events').update({
-          etapa: campos.etapa, worker_id: campos.worker_id || null,
+          etapa: campos.etapa, worker_id: workerIds[0] || null,
           data_execucao: campos.data_execucao, diario_id: diario?.id || null,
           a_posteriori: aPosteriori, contract_item_id: campos.contract_item_id || null,
           quantidade: campos.quantidade, observacao: campos.observacao || null,
@@ -3505,29 +3541,35 @@ export function DadosProvider({ perfil, children }) {
       )
       if (!eventoSalvo) return false
 
+      // Substitui a equipe inteira — mais simples e seguro que tentar
+      // calcular a diferença (quem entrou/saiu) entre a lista antiga e a nova.
+      await supabase.from('production_marker_event_workers').delete().eq('event_id', eventoId)
+      await salvarEquipeDoEvento(eventoId, organization_id, workerIds)
+      const eventoComEquipe = { ...eventoSalvo, worker_ids: workerIds }
+
       const eventosDoMarcador = (tudo?.eventosProducao || [])
-        .map((e) => (e.id === eventoId ? eventoSalvo : e))
-        .filter((e) => e.marker_id === eventoSalvo.marker_id)
+        .map((e) => (e.id === eventoId ? eventoComEquipe : e))
+        .filter((e) => e.marker_id === eventoComEquipe.marker_id)
       const maisRecente = eventosDoMarcador.reduce(
         (a, b) => (!a || b.data_execucao > a.data_execucao ? b : a), null,
       )
       const marcadorAtualizado = maisRecente?.etapa
         ? checar(
-          await supabase.from('production_markers').update({ etapa_atual: maisRecente.etapa }).eq('id', eventoSalvo.marker_id).select('*').single(),
+          await supabase.from('production_markers').update({ etapa_atual: maisRecente.etapa }).eq('id', eventoComEquipe.marker_id).select('*').single(),
           'atualizar o estágio da marcação',
         )
         : null
 
       setTudo((t) => t && ({
         ...t,
-        eventosProducao: t.eventosProducao.map((e) => (e.id === eventoId ? eventoSalvo : e)),
+        eventosProducao: t.eventosProducao.map((e) => (e.id === eventoId ? eventoComEquipe : e)),
         marcadoresProducao: marcadorAtualizado
-          ? t.marcadoresProducao.map((m) => (m.id === eventoSalvo.marker_id ? marcadorAtualizado : m))
+          ? t.marcadoresProducao.map((m) => (m.id === eventoComEquipe.marker_id ? marcadorAtualizado : m))
           : t.marcadoresProducao,
       }))
       return true
     },
-    [escopo, checar, tudo],
+    [escopo, checar, tudo, salvarEquipeDoEvento],
   )
 
   /* Corrige o pino já marcado (nome, dimensões) — diferente de um
