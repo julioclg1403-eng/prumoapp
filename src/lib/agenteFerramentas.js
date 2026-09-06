@@ -14,6 +14,7 @@ import {
   saldoEstoqueImportado,
   statusTreinamento,
   pendentesDeRevisao,
+  equipeDoEvento,
 } from './dominio'
 
 export const FERRAMENTAS = [
@@ -212,7 +213,7 @@ function consultarRendimento({ dados, perfil }, busca) {
 
   const mapa = new Map()
   for (const ev of eventos) {
-    const equipe = ev.worker_ids || []
+    const equipe = equipeDoEvento(ev)
     if (equipe.length === 0) continue
     // Evento com equipe (mais de um colaborador junto) divide a
     // quantidade entre eles — cada um leva sua fatia do trabalho,

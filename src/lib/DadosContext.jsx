@@ -3401,9 +3401,15 @@ export function DadosProvider({ perfil, children }) {
   const salvarEquipeDoEvento = useCallback(
     async (eventId, organizationId, workerIds) => {
       if (!workerIds?.length) return
-      await supabase.from('production_marker_event_workers').insert(
+      const r = await supabase.from('production_marker_event_workers').insert(
         workerIds.map((worker_id) => ({ event_id: eventId, worker_id, organization_id: organizationId })),
       )
+      // Não desfaz o evento por isto ter falhado — pior caso, o
+      // evento fica sem equipe registrada (worker_id sozinho ainda
+      // salvou certo). Mas o erro precisa aparecer em algum lugar,
+      // não sumir calado — foi isto que escondeu um bug de verdade
+      // antes (equipe nunca gravava, rendimento sumia sem aviso).
+      if (r.error) console.error('[Prumo] salvar equipe do evento:', r.error)
     },
     [],
   )

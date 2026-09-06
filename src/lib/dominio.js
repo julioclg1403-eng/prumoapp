@@ -1121,6 +1121,20 @@ export function diasSemDiarioEtapa(item, diarios, hoje = hojeISO()) {
    espaço ou hífen (não deixa "Reboco" casar com "Reboco externo e
    fachada" por acaso — precisa ser a etapa inteira, não uma palavra
    solta dentro dela). */
+/* Equipe de um evento de produção: normalmente já vem em
+   `worker_ids` (a normalização em DadosContext.jsx já resolve isso a
+   partir de production_marker_event_workers, com fallback pro
+   worker_id antigo) — mas recalcular aqui de novo, no ponto de uso,
+   é uma segunda camada de segurança: se por qualquer motivo um
+   evento chegar sem essa normalização (um caminho de código que
+   ainda não passou por ela, um formato inesperado vindo do banco),
+   o rendimento nunca some silenciosamente, só volta a tratar como
+   "um colaborador só", que é sempre seguro. */
+export function equipeDoEvento(ev) {
+  if (Array.isArray(ev?.worker_ids) && ev.worker_ids.length > 0) return ev.worker_ids
+  return ev?.worker_id ? [ev.worker_id] : []
+}
+
 export function normalizarParaCasar(s) {
   return String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
 }

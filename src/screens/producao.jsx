@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento } from '../lib/dominio'
 import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
@@ -171,7 +171,7 @@ function AbaServicos({ dados, perfil, podeEditar }) {
       if (!marcador || marcador.ativo === false) continue
       const plan = planPorId.get(marcador.plan_id)
       if (!plan) continue
-      const equipe = ev.worker_ids || []
+      const equipe = equipeDoEvento(ev)
       if (equipe.length > 0 && !equipe.some((id) => {
         const colaborador = dados.colaboradorPorId(id)
         return Boolean(colaborador) && colaborador.ativo !== false
@@ -618,7 +618,7 @@ function AbaDashboardRendimento({ dados }) {
       const { marcador, servico } = contextoDoEvento(ev)
       if (servico?.id !== servicoFiltroId) return false
       if (!marcador || marcador.ativo === false) return false
-      const equipe = ev.worker_ids || []
+      const equipe = equipeDoEvento(ev)
       if (equipe.length === 0) return true
       // Só descarta o evento inteiro se NINGUÉM da equipe ainda está
       // ativo — com pelo menos um colaborador de verdade na equipe, a
@@ -638,7 +638,7 @@ function AbaDashboardRendimento({ dados }) {
   const porColaborador = useMemo(() => {
     const mapa = new Map()
     for (const ev of eventosDoServico) {
-      const equipe = ev.worker_ids || []
+      const equipe = equipeDoEvento(ev)
       if (equipe.length === 0) continue
       // Evento com equipe (ex.: 3 armadores juntos) divide a quantidade
       // pela equipe — cada um leva sua fatia, não a quantidade inteira.
@@ -1941,8 +1941,8 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
                       </div>
                     </div>
                     <div className="t-caption" style={{ marginTop: 4 }}>
-                      {(ev.worker_ids || []).length > 0
-                        ? ev.worker_ids.map((id) => dados.colaboradorPorId(id)?.nome || '—').join(', ')
+                      {equipeDoEvento(ev).length > 0
+                        ? equipeDoEvento(ev).map((id) => dados.colaboradorPorId(id)?.nome || '—').join(', ')
                         : 'Sem colaborador vinculado'}
                       {ev.a_posteriori && <span style={{ marginLeft: 6 }}><Chip tom="info">a posteriori</Chip></span>}
                     </div>
@@ -2352,7 +2352,7 @@ function AbaRendimento({ servico, tipo, dados }) {
     )
     return (dados.eventosProducao || []).filter((e) => {
       if (!markerIdsValidos.has(e.marker_id)) return false
-      const equipe = e.worker_ids || []
+      const equipe = equipeDoEvento(e)
       if (equipe.length === 0) return true
       return equipe.some((id) => {
         const colaborador = dados.colaboradorPorId(id)
@@ -2373,7 +2373,7 @@ function AbaRendimento({ servico, tipo, dados }) {
   const porColaborador = useMemo(() => {
     const mapa = new Map()
     for (const ev of eventosDoPeriodo) {
-      const equipe = ev.worker_ids || []
+      const equipe = equipeDoEvento(ev)
       if (equipe.length === 0) continue
       const fatia = (Number(ev.quantidade) || 0) / equipe.length
       for (const workerId of equipe) {
@@ -2454,7 +2454,7 @@ function AbaRendimento({ servico, tipo, dados }) {
       {colaboradorAberto && (
         <DetalheColaboradorRendimentoSheet
           colaborador={colaboradorAberto.colaborador}
-          eventos={eventosDoPeriodo.filter((e) => (e.worker_ids || []).includes(colaboradorAberto.workerId))}
+          eventos={eventosDoPeriodo.filter((e) => equipeDoEvento(e).includes(colaboradorAberto.workerId))}
           unidade={unidade}
           dados={dados}
           onFechar={() => setColaboradorAberto(null)}
