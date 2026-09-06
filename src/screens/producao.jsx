@@ -1617,21 +1617,26 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
   const [aberto, setAberto] = useState(false)
   const selecionados = valores.map((id) => dados.colaboradorPorId(id)).filter(Boolean)
 
+  /* Presença no diário daquele dia é o filtro que manda, sempre que
+     existe diário — time fixo do serviço e empresa só ESTREITAM
+     ainda mais dentro de quem realmente está lançado como presente
+     naquela data, nunca contornam essa exigência. Sem isso, o time
+     fixo (servico.funcionarios_ids) trazia gente que nem tinha
+     presença lançada no dia da marcação — pedido do Julio pra
+     corrigir. Sem diário nenhum ainda pra essa data, cai pros ativos
+     (não trava quem está marcando antes do diário existir). */
   const disponiveis = useMemo(() => {
     const ativos = (dados.colaboradores || []).filter((c) => c.ativo !== false)
+    const base = diarioDoDia
+      ? ativos.filter((c) => (diarioDoDia.presencas || []).some((p) => p.presente && p.worker_id === c.id))
+      : ativos
+
     if (servico?.funcionarios_ids?.length) {
       const permitidos = new Set(servico.funcionarios_ids)
-      return ativos.filter((c) => permitidos.has(c.id))
+      return base.filter((c) => permitidos.has(c.id))
     }
-    const daEmpresa = servico?.company_id ? ativos.filter((c) => c.company_id === servico.company_id) : null
-    const presentesHoje = diarioDoDia
-      ? ativos.filter((c) => (diarioDoDia.presencas || []).some((p) => p.presente && p.worker_id === c.id))
-      : null
-    if (daEmpresa && presentesHoje) {
-      const idsPresentes = new Set(presentesHoje.map((c) => c.id))
-      return daEmpresa.filter((c) => idsPresentes.has(c.id))
-    }
-    return daEmpresa || presentesHoje || ativos
+    if (servico?.company_id) return base.filter((c) => c.company_id === servico.company_id)
+    return base
   }, [diarioDoDia, dados.colaboradores, servico])
 
   const resultados = useMemo(() => {
@@ -1642,10 +1647,10 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
     return filtrados.slice(0, 8)
   }, [busca, disponiveis, valores])
 
-  const placeholder = servico?.funcionarios_ids?.length ? 'Buscar no time do serviço…'
-    : servico?.company_id && diarioDoDia ? 'Buscar na empresa, presente hoje…'
-      : servico?.company_id ? 'Buscar na empresa do serviço…'
-        : diarioDoDia ? 'Buscar no efetivo do dia…' : 'Buscar colaborador…'
+  const placeholder = !diarioDoDia ? (servico?.company_id ? 'Buscar na empresa do serviço…' : 'Buscar colaborador…')
+    : servico?.funcionarios_ids?.length ? 'Buscar no time do serviço, presente no dia…'
+      : servico?.company_id ? 'Buscar na empresa, presente no dia…'
+        : 'Buscar no efetivo do dia…'
 
   return (
     <div className="stack-1">
