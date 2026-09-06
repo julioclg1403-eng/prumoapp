@@ -25,7 +25,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { hojeISO, formatarData, formatarDataCurta, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento } from '../lib/dominio'
-import { calcularQuantidade } from '../lib/formulaProducao'
+import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import {
@@ -2219,6 +2219,7 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
 
 function AbaMedicao({ servico, dados }) {
   const hoje = hojeISO()
+  const tipo = dados.tiposServico?.find((t) => t.id === servico.service_type_id)
   const [periodoModo, setPeriodoModo] = useState('mes')
   const [periodoDia, setPeriodoDia] = useState(hoje)
   const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
@@ -2280,6 +2281,7 @@ function AbaMedicao({ servico, dados }) {
         elemento: marcador?.elemento || '—',
         data: ev.data_execucao,
         quantidade: Number(ev.quantidade) || 0,
+        dimensoes: marcador?.dimensoes || null,
       })
       locais.set(chaveLocal, atual)
     }
@@ -2385,9 +2387,10 @@ function AbaMedicao({ servico, dados }) {
                 Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}
               </div>
               <TabelaRelatorio
-                colunas={['Quantidade medida', 'Valor', 'Saldo do contrato']}
+                colunas={['Quantidade medida', 'Valor unitário', 'Valor', 'Saldo do contrato']}
                 linhas={[[
                   `${quantidadePeriodo.toLocaleString('pt-BR')} ${item.unidade}`,
+                  `${formatarDinheiro(Number(item.preco_item || 0))}/${item.unidade}`,
                   formatarDinheiro(valorPeriodo),
                   `${saldo.toLocaleString('pt-BR')} ${item.unidade}${saldo < 0 ? ' (estourado)' : ''}`,
                 ]]}
@@ -2395,9 +2398,11 @@ function AbaMedicao({ servico, dados }) {
             </SecaoRelatorio>
             <div style={{ fontSize: 12, fontWeight: 700, margin: '10px 0 4px' }}>Locais considerados</div>
             <TabelaRelatorio
-              colunas={['Local', 'Elemento', 'Data', 'Quantidade']}
+              colunas={['Local', 'Elemento', 'Data', 'Fórmula', 'Quantidade']}
               linhas={locais.flatMap((l) => l.elementos.map((e) => [
-                l.nome, e.elemento, formatarData(e.data), `${e.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
+                l.nome, e.elemento, formatarData(e.data),
+                formulaComValores(tipo?.formula, e.dimensoes) || '—',
+                `${e.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
               ]))}
             />
           </div>

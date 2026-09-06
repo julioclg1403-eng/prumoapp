@@ -105,3 +105,28 @@ export function calcularQuantidade(formula, dimensoes) {
     return null
   }
 }
+
+/* Mesma fórmula, mas devolvendo o texto com os NÚMEROS de verdade no
+   lugar de cada identificador — "1,2 × 0,8 × 0,6" em vez de
+   "largura * comprimento * altura". Usado no boletim de medição pra
+   mostrar de onde veio a quantidade de cada marcação, não só o
+   resultado final. Sem as dimensões do marcador (evento antigo,
+   marcador removido), devolve null — a coluna fica em branco em vez
+   de mostrar uma fórmula sem sentido. */
+export function formulaComValores(formula, dimensoes) {
+  if (!formula || !dimensoes) return null
+  try {
+    return tokenizar(formula).map((t) => {
+      if (t.tipo === 'numero') return t.valor.toLocaleString('pt-BR')
+      if (t.tipo === 'identificador') {
+        const v = Number(dimensoes[t.valor])
+        return Number.isNaN(v) ? t.valor : v.toLocaleString('pt-BR')
+      }
+      if (t.tipo === '*') return '×'
+      if (t.tipo === '/') return '÷'
+      return t.tipo
+    }).join(' ')
+  } catch {
+    return null
+  }
+}
