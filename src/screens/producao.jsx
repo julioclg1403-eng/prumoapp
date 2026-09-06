@@ -2368,19 +2368,31 @@ function AbaMedicao({ servico, dados }) {
           </div>
         </SecaoRelatorio>
 
+        {/* Cada item vira dois blocos: um cabeçalho curto (título,
+           contrato, mini-tabela) que não pode quebrar no meio — e a
+           tabela de locais À PARTE, fora do "break-inside: avoid".
+           Com tudo dentro de uma SecaoRelatorio só, um item com muitos
+           locais virava um bloco alto demais pra terminar de imprimir
+           na página atual, e o navegador pulava a página INTEIRA pra
+           não quebrá-lo — sobrando papel em branco embaixo do que já
+           tinha. Separado assim, só o cabeçalho fica "grudado"; a
+           tabela de locais flui e quebra normalmente entre páginas,
+           repetindo o cabeçalho da tabela em cada uma. */}
         {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => (
-          <SecaoRelatorio key={item.id} titulo={item.descricao_item}>
-            <div style={{ fontSize: 12, color: '#52525B', marginBottom: 6 }}>
-              Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}
-            </div>
-            <TabelaRelatorio
-              colunas={['Quantidade medida', 'Valor', 'Saldo do contrato']}
-              linhas={[[
-                `${quantidadePeriodo.toLocaleString('pt-BR')} ${item.unidade}`,
-                formatarDinheiro(valorPeriodo),
-                `${saldo.toLocaleString('pt-BR')} ${item.unidade}${saldo < 0 ? ' (estourado)' : ''}`,
-              ]]}
-            />
+          <div key={item.id} style={{ marginTop: 18 }}>
+            <SecaoRelatorio titulo={item.descricao_item}>
+              <div style={{ fontSize: 12, color: '#52525B', marginBottom: 6 }}>
+                Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}
+              </div>
+              <TabelaRelatorio
+                colunas={['Quantidade medida', 'Valor', 'Saldo do contrato']}
+                linhas={[[
+                  `${quantidadePeriodo.toLocaleString('pt-BR')} ${item.unidade}`,
+                  formatarDinheiro(valorPeriodo),
+                  `${saldo.toLocaleString('pt-BR')} ${item.unidade}${saldo < 0 ? ' (estourado)' : ''}`,
+                ]]}
+              />
+            </SecaoRelatorio>
             <div style={{ fontSize: 12, fontWeight: 700, margin: '10px 0 4px' }}>Locais considerados</div>
             <TabelaRelatorio
               colunas={['Local', 'Elemento', 'Data', 'Quantidade']}
@@ -2388,7 +2400,7 @@ function AbaMedicao({ servico, dados }) {
                 l.nome, e.elemento, formatarData(e.data), `${e.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
               ]))}
             />
-          </SecaoRelatorio>
+          </div>
         ))}
       </RelatorioFolha>
     </div>
