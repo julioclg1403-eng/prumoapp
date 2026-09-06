@@ -193,6 +193,9 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
   const [importandoPDF, setImportandoPDF] = useState(false)
   const [agrupamento, setAgrupamento] = useState('nome')
   const [busca, setBusca] = useState('')
+  const [mesclando, setMesclando] = useState(null)
+  const [buscaMesclagem, setBuscaMesclagem] = useState('')
+  const [mesclandoOcupado, setMesclandoOcupado] = useState(false)
 
   /* O banco só deixa a gestão ALTERAR e ARQUIVAR cadastro — e uma
      gravação barrada pela permissão não dá erro, simplesmente não
@@ -274,6 +277,30 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
     if (ok) setEditando(null)
   }
 
+  /* Mesclar: junta um colaborador duplicado (ativo ou já inativo) num
+     outro, sem perder o histórico — mesma função usada na fila de
+     revisão do Efetivo (mesclarColaborador em DadosContext), só que
+     aqui dá pra mesclar QUALQUER dois cadastros, não só provisório
+     pendente. Existe porque duplicata pode aparecer de outros jeitos
+     (ex.: alguém recriado do zero depois de inativado por engano) e a
+     gestão precisa conseguir corrigir sozinha, sem depender de mexer
+     direto no banco. */
+  const buscaMesclagemNormalizada = normalizarParaCasar(buscaMesclagem.trim())
+  const candidatosMesclagem = mesclando
+    ? dados.colaboradores
+      .filter((c) => c.id !== mesclando.id && c.ativo !== false)
+      .filter((c) => !buscaMesclagemNormalizada || normalizarParaCasar(c.nome || '').includes(buscaMesclagemNormalizada))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    : []
+
+  const confirmarMesclagem = async (mantido) => {
+    setMesclandoOcupado(true)
+    await dados.mesclarColaborador(mesclando.id, mantido.id)
+    setMesclandoOcupado(false)
+    setMesclando(null)
+    setBuscaMesclagem('')
+  }
+
   const rotuloArquivar = def.statusPessoa ? 'Inativar' : 'Arquivar'
   const rotuloReativar = def.statusPessoa ? 'Ativar' : 'Reativar'
   const rotuloArquivado = def.statusPessoa ? 'Inativo' : 'Arquivado'
@@ -312,6 +339,16 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
           {item.ativo === false && <Chip>{rotuloArquivado}</Chip>}
           {podeEditar && (
             <>
+              {tipo === 'colaboradores' && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMesclando(item)}
+                  aria-label="Mesclar com outro cadastro"
+                  title="É duplicado de outro colaborador — mesclar sem perder o histórico"
+                >
+                  Mesclar
+                </button>
+              )}
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => setEditando({ ...item })}
@@ -558,6 +595,41 @@ export default function Cadastros({ voltar, perfil, params = {} }) {
               )}
             </Campo>
           )}
+        </div>
+      </Sheet>
+
+      <Sheet
+        aberto={Boolean(mesclando)}
+        titulo="Mesclar cadastro duplicado"
+        onFechar={() => { setMesclando(null); setBuscaMesclagem('') }}
+      >
+        <div className="stack-2">
+          <div className="t-caption" style={{ lineHeight: 1.5 }}>
+            Escolha o cadastro <strong>correto</strong>. Todo o histórico de «{mesclando?.nome}»
+            (presenças, rendimento, treinamentos…) passa para ele, e «{mesclando?.nome}» vira{' '}
+            {rotuloArquivado.toLowerCase()} — nada é apagado.
+          </div>
+          <div className="row-flex" style={{ alignItems: 'center', gap: 6 }}>
+            <Icon name="busca" size={16} />
+            <input
+              className="ipt" value={buscaMesclagem} onChange={(e) => setBuscaMesclagem(e.target.value)}
+              placeholder="Buscar por nome…" autoFocus
+            />
+          </div>
+          <div className="stack-1">
+            {candidatosMesclagem.length === 0 ? (
+              <Vazio titulo="Nenhum candidato" texto="Nenhum outro colaborador ativo encontrado com esse nome." />
+            ) : (
+              candidatosMesclagem.map((c) => (
+                <ItemLista
+                  key={c.id}
+                  titulo={c.nome}
+                  sub={[c.funcao, dados.nomeDe(dados.empresas, c.company_id)].filter(Boolean).join(' · ')}
+                  onClick={() => !mesclandoOcupado && confirmarMesclagem(c)}
+                />
+              ))
+            )}
+          </div>
         </div>
       </Sheet>
 
