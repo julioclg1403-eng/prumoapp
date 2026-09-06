@@ -221,6 +221,11 @@ html, body, #root {
   padding-bottom: max(18px, env(safe-area-inset-bottom)); box-sizing: border-box; }
 .app[data-desktop="1"] .sheet { border-radius: 16px; max-height: 84vh; }
 
+@keyframes prumo-pulso {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 /* ── Barra de etapas do assistente ── */
 .steps { display: flex; gap: 6px; }
 .steps > div { flex: 1; height: 4px; border-radius: 2px; background: var(--border); }
