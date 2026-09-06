@@ -2273,6 +2273,7 @@ function AbaMedicao({ servico, dados }) {
   const porItem = useMemo(() => {
     const noPeriodo = new Map()
     const locaisPorItem = new Map()
+    const colaboradoresPorItem = new Map()
     for (const ev of eventosDoPeriodo) {
       noPeriodo.set(ev.contract_item_id, (noPeriodo.get(ev.contract_item_id) || 0) + (Number(ev.quantidade) || 0))
       const marcador = marcadorPorId.get(ev.marker_id)
@@ -2289,6 +2290,21 @@ function AbaMedicao({ servico, dados }) {
         dimensoes: marcador?.dimensoes || null,
       })
       locais.set(chaveLocal, atual)
+
+      /* Mesma regra do Rendimento: evento feito por equipe divide a
+         quantidade entre quem participou, em vez de contar inteira
+         pra cada um. */
+      const equipe = equipeDoEvento(ev)
+      if (equipe.length > 0) {
+        if (!colaboradoresPorItem.has(ev.contract_item_id)) colaboradoresPorItem.set(ev.contract_item_id, new Map())
+        const colaboradores = colaboradoresPorItem.get(ev.contract_item_id)
+        const fatia = (Number(ev.quantidade) || 0) / equipe.length
+        for (const workerId of equipe) {
+          const c = colaboradores.get(workerId) || { workerId, quantidade: 0 }
+          c.quantidade += fatia
+          colaboradores.set(workerId, c)
+        }
+      }
     }
     /* Saldo é sempre o histórico completo — mesma regra do saldo de
        Almoxarifado: o período é só um recorte de exibição, nunca do
@@ -2305,11 +2321,15 @@ function AbaMedicao({ servico, dados }) {
         const locais = [...(locaisPorItem.get(itemId)?.values() || [])]
           .map((l) => ({ ...l, elementos: l.elementos.sort((a, b) => (a.data < b.data ? 1 : -1)) }))
           .sort((a, b) => b.quantidade - a.quantidade)
-        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais }
+        const colaboradores = [...(colaboradoresPorItem.get(itemId)?.values() || [])]
+          .map((c) => ({ ...c, colaborador: dados.colaboradorPorId(c.workerId) }))
+          .filter((c) => c.colaborador)
+          .sort((a, b) => b.quantidade - a.quantidade)
+        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais, colaboradores }
       })
       .filter(Boolean)
       .sort((a, b) => b.valorPeriodo - a.valorPeriodo)
-  }, [eventosDoPeriodo, eventosComContrato, dados.contratos, marcadorPorId, plantaPorId])
+  }, [eventosDoPeriodo, eventosComContrato, dados.contratos, marcadorPorId, plantaPorId, dados])
 
   const totalValorPeriodo = porItem.reduce((s, x) => s + x.valorPeriodo, 0)
 
@@ -2385,7 +2405,7 @@ function AbaMedicao({ servico, dados }) {
            tinha. Separado assim, só o cabeçalho fica "grudado"; a
            tabela de locais flui e quebra normalmente entre páginas,
            repetindo o cabeçalho da tabela em cada uma. */}
-        {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => (
+        {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais, colaboradores }) => (
           <div key={item.id} style={{ marginTop: 18 }}>
             <SecaoRelatorio titulo={item.descricao_item}>
               <div style={{ fontSize: 12, color: '#52525B', marginBottom: 6 }}>
@@ -2409,6 +2429,13 @@ function AbaMedicao({ servico, dados }) {
                 formulaComValores(tipo?.formula, e.dimensoes) || '—',
                 `${e.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
               ]))}
+            />
+            <div style={{ fontSize: 12, fontWeight: 700, margin: '10px 0 4px' }}>Por colaborador</div>
+            <TabelaRelatorio
+              colunas={['Colaborador', 'Quantidade']}
+              linhas={colaboradores.map((c) => [
+                c.colaborador.nome, `${c.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
+              ])}
             />
           </div>
         ))}
