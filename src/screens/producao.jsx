@@ -2300,8 +2300,9 @@ function AbaMedicao({ servico, dados }) {
         const colaboradores = colaboradoresPorItem.get(ev.contract_item_id)
         const fatia = (Number(ev.quantidade) || 0) / equipe.length
         for (const workerId of equipe) {
-          const c = colaboradores.get(workerId) || { workerId, quantidade: 0 }
+          const c = colaboradores.get(workerId) || { workerId, quantidade: 0, elementos: new Set() }
           c.quantidade += fatia
+          if (marcador?.elemento) c.elementos.add(marcador.elemento)
           colaboradores.set(workerId, c)
         }
       }
@@ -2322,7 +2323,7 @@ function AbaMedicao({ servico, dados }) {
           .map((l) => ({ ...l, elementos: l.elementos.sort((a, b) => (a.data < b.data ? 1 : -1)) }))
           .sort((a, b) => b.quantidade - a.quantidade)
         const colaboradores = [...(colaboradoresPorItem.get(itemId)?.values() || [])]
-          .map((c) => ({ ...c, colaborador: dados.colaboradorPorId(c.workerId) }))
+          .map((c) => ({ ...c, colaborador: dados.colaboradorPorId(c.workerId), elementos: [...c.elementos].sort() }))
           .filter((c) => c.colaborador)
           .sort((a, b) => b.quantidade - a.quantidade)
         return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais, colaboradores }
@@ -2432,9 +2433,9 @@ function AbaMedicao({ servico, dados }) {
             />
             <div style={{ fontSize: 12, fontWeight: 700, margin: '10px 0 4px' }}>Por colaborador</div>
             <TabelaRelatorio
-              colunas={['Colaborador', 'Quantidade']}
+              colunas={['Colaborador', 'Elementos', 'Quantidade']}
               linhas={colaboradores.map((c) => [
-                c.colaborador.nome, `${c.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
+                c.colaborador.nome, c.elementos.join(', ') || '—', `${c.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
               ])}
             />
           </div>
