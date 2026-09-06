@@ -28,7 +28,10 @@ import { hojeISO, formatarData, formatarDataCurta, formatarDinheiro, diarioDaDat
 import { calcularQuantidade } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel } from '../components'
+import {
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
+  BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+} from '../components'
 import { RankingBarras, GraficoColunas, GraficoDonut, CurvaProducao } from '../components/charts'
 
 const PALETA_GRAFICO = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)']
@@ -2250,10 +2253,35 @@ function AbaMedicao({ servico, dados }) {
     [eventosComContrato, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
   )
 
+  /* Pra rastrear "em quais locais" cada item foi medido — o boletim
+     completo precisa disso, não só o total por item de contrato. */
+  const marcadorPorId = useMemo(
+    () => new Map((dados.marcadoresProducao || []).map((m) => [m.id, m])),
+    [dados.marcadoresProducao],
+  )
+  const plantaPorId = useMemo(
+    () => new Map((dados.plantasProducao || []).map((p) => [p.id, p])),
+    [dados.plantasProducao],
+  )
+
   const porItem = useMemo(() => {
     const noPeriodo = new Map()
+    const locaisPorItem = new Map()
     for (const ev of eventosDoPeriodo) {
       noPeriodo.set(ev.contract_item_id, (noPeriodo.get(ev.contract_item_id) || 0) + (Number(ev.quantidade) || 0))
+      const marcador = marcadorPorId.get(ev.marker_id)
+      const planta = marcador ? plantaPorId.get(marcador.plan_id) : null
+      if (!locaisPorItem.has(ev.contract_item_id)) locaisPorItem.set(ev.contract_item_id, new Map())
+      const locais = locaisPorItem.get(ev.contract_item_id)
+      const chaveLocal = planta?.id || 'sem-local'
+      const atual = locais.get(chaveLocal) || { nome: planta?.nome || 'Local não identificado', quantidade: 0, elementos: [] }
+      atual.quantidade += Number(ev.quantidade) || 0
+      atual.elementos.push({
+        elemento: marcador?.elemento || '—',
+        data: ev.data_execucao,
+        quantidade: Number(ev.quantidade) || 0,
+      })
+      locais.set(chaveLocal, atual)
     }
     /* Saldo é sempre o histórico completo — mesma regra do saldo de
        Almoxarifado: o período é só um recorte de exibição, nunca do
@@ -2267,11 +2295,14 @@ function AbaMedicao({ servico, dados }) {
         const item = (dados.contratos || []).find((i) => i.id === itemId)
         if (!item) return null
         const saldo = Number(item.qtde_item || 0) - (totalHistorico.get(itemId) || 0)
-        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo }
+        const locais = [...(locaisPorItem.get(itemId)?.values() || [])]
+          .map((l) => ({ ...l, elementos: l.elementos.sort((a, b) => (a.data < b.data ? 1 : -1)) }))
+          .sort((a, b) => b.quantidade - a.quantidade)
+        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais }
       })
       .filter(Boolean)
       .sort((a, b) => b.valorPeriodo - a.valorPeriodo)
-  }, [eventosDoPeriodo, eventosComContrato, dados.contratos])
+  }, [eventosDoPeriodo, eventosComContrato, dados.contratos, marcadorPorId, plantaPorId])
 
   const totalValorPeriodo = porItem.reduce((s, x) => s + x.valorPeriodo, 0)
 
@@ -2294,6 +2325,10 @@ function AbaMedicao({ servico, dados }) {
         <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Valor medido no período" valor={formatarDinheiro(totalValorPeriodo)} /></div>
         <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato medidos" valor={String(porItem.length)} /></div>
       </div>
+
+      {porItem.length > 0 && (
+        <div><BotaoRelatorio rotulo="Boletim de medição" /></div>
+      )}
 
       {porItem.length === 0 ? (
         <div className="card-flat">
@@ -2320,6 +2355,42 @@ function AbaMedicao({ servico, dados }) {
           ))}
         </div>
       )}
+
+      <RelatorioFolha
+        titulo="Boletim de medição"
+        sub={`${servico.nome} · ${rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}`}
+        obra={dados.obra.nome} org={dados.org.nome}
+      >
+        <SecaoRelatorio titulo="Resumo do período">
+          <div style={{ fontSize: 13 }}>
+            Valor medido: <strong>{formatarDinheiro(totalValorPeriodo)}</strong> ·
+            Itens de contrato medidos: <strong>{porItem.length}</strong>
+          </div>
+        </SecaoRelatorio>
+
+        {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => (
+          <SecaoRelatorio key={item.id} titulo={item.descricao_item}>
+            <div style={{ fontSize: 12, color: '#52525B', marginBottom: 6 }}>
+              Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}
+            </div>
+            <TabelaRelatorio
+              colunas={['Quantidade medida', 'Valor', 'Saldo do contrato']}
+              linhas={[[
+                `${quantidadePeriodo.toLocaleString('pt-BR')} ${item.unidade}`,
+                formatarDinheiro(valorPeriodo),
+                `${saldo.toLocaleString('pt-BR')} ${item.unidade}${saldo < 0 ? ' (estourado)' : ''}`,
+              ]]}
+            />
+            <div style={{ fontSize: 12, fontWeight: 700, margin: '10px 0 4px' }}>Locais considerados</div>
+            <TabelaRelatorio
+              colunas={['Local', 'Elemento', 'Data', 'Quantidade']}
+              linhas={locais.flatMap((l) => l.elementos.map((e) => [
+                l.nome, e.elemento, formatarData(e.data), `${e.quantidade.toLocaleString('pt-BR')} ${item.unidade}`,
+              ]))}
+            />
+          </SecaoRelatorio>
+        ))}
+      </RelatorioFolha>
     </div>
   )
 }
