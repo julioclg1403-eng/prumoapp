@@ -11,14 +11,15 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, formatarDataCurta, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos,
+  hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos,
   insumoCorrespondeMaterial, filtrarPorPeriodo, rotuloPeriodo,
 } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
-  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista,
-  RelatorioFolha, SecaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, Indicador,
+  RelatorioFolha, SecaoRelatorio, TabelaRelatorio, BotaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
+import { RankingBarras } from '../components/charts'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
   const csv = [cabecalho, ...linhas]
@@ -156,6 +157,14 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const abaixoDoMinimo = saldos.filter((s) => s.abaixoDoMinimo).length
 
   const emEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo > 0), [saldosFiltrados])
+
+  /* Sem o filtro de busca da aba Estoque Atual — Dashboard e Relatório
+     sempre olham pra tudo que está em estoque. */
+  const emEstoqueTudo = useMemo(
+    () => [...saldos].filter((s) => s.saldo > 0).sort((a, b) => b.custoTotal - a.custoTotal),
+    [saldos],
+  )
+  const valorTotalEstoque = useMemo(() => emEstoqueTudo.reduce((s, x) => s + x.custoTotal, 0), [emEstoqueTudo])
 
   const entradas = useMemo(
     () => [...(dados.entradasEpi || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -563,6 +572,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
       <Segmentos
         valor={aba} onChange={setAba}
         opcoes={[
+          { valor: 'dashboard', rotulo: 'Dashboard' },
           { valor: 'estoqueAtual', rotulo: 'Estoque Atual', contador: emEstoque.length },
           { valor: 'entradas', rotulo: 'Entradas', contador: entradas.length },
           { valor: 'saidas', rotulo: 'Saídas', contador: saidas.length },
@@ -571,7 +581,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
         ]}
       />
 
-      {aba !== 'porColaborador' && (
+      {aba !== 'porColaborador' && aba !== 'dashboard' && (
         <div className="row-between">
           <div className="t-caption">
             {aba === 'estoqueAtual' && `${plural(emEstoque.length, 'EPI', 'EPIs')} nesta lista`}
@@ -582,6 +592,62 @@ export default function SegurancaEpi({ perfil, params = {} }) {
           <button className="btn btn-secondary btn-sm" onClick={baixarPlanilha}>
             <Icon name="baixar" size={15} /> Baixar planilha
           </button>
+        </div>
+      )}
+
+      {aba === 'dashboard' && (
+        <div className="stack-2">
+          <div className="row-wrap" style={{ gap: 10 }}>
+            <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Valor total em estoque" valor={formatarDinheiro(valorTotalEstoque)} /></div>
+            <div style={{ flex: '1 1 160px' }}><Indicador rotulo="EPIs em estoque" valor={String(emEstoqueTudo.length)} /></div>
+            <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Abaixo do mínimo" valor={String(abaixoDoMinimo)} tom={abaixoDoMinimo > 0 ? 'danger' : undefined} /></div>
+          </div>
+
+          <div><BotaoRelatorio rotulo="Relatório de estoque" /></div>
+
+          {emEstoqueTudo.length === 0 ? (
+            <div className="card-flat">
+              <Vazio titulo="Nada em estoque ainda" texto="Lance uma entrada de EPI pra começar a ver valor aqui." />
+            </div>
+          ) : (
+            <div>
+              <div className="t-micro" style={{ marginBottom: 10 }}>Maior valor parado em estoque</div>
+              <div className="card-flat chart-panel">
+                <RankingBarras
+                  itens={emEstoqueTudo.slice(0, 10).map((s) => ({
+                    chave: s.material.id, rotulo: s.material.nome, valor: s.custoTotal,
+                    contador: `${s.saldo.toLocaleString('pt-BR')} ${s.material.unidade}`,
+                  }))}
+                  formatarValor={(v) => formatarDinheiro(v)}
+                  cor="var(--graphite)"
+                />
+              </div>
+            </div>
+          )}
+
+          <RelatorioFolha
+            titulo="Relatório de estoque de EPI"
+            sub={`${plural(emEstoqueTudo.length, 'EPI', 'EPIs')} · gerado em ${formatarData(hoje)}`}
+            obra={dados.obra.nome} org={dados.org.nome}
+          >
+            <SecaoRelatorio titulo="Resumo">
+              <div style={{ fontSize: 13 }}>
+                Valor total em estoque: <strong>{formatarDinheiro(valorTotalEstoque)}</strong> ·
+                EPIs em estoque: <strong>{emEstoqueTudo.length}</strong>
+                {abaixoDoMinimo > 0 && <> · Abaixo do mínimo: <strong>{abaixoDoMinimo}</strong></>}
+              </div>
+            </SecaoRelatorio>
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 18, marginBottom: 8 }}>EPIs em estoque</div>
+            <TabelaRelatorio
+              colunas={['EPI', 'Quantidade', 'Custo unitário médio', 'Valor total']}
+              linhas={emEstoqueTudo.map((s) => [
+                s.material.nome,
+                `${s.saldo.toLocaleString('pt-BR')} ${s.material.unidade}`,
+                formatarDinheiro(s.custoMedio),
+                formatarDinheiro(s.custoTotal),
+              ])}
+            />
+          </RelatorioFolha>
         </div>
       )}
 
