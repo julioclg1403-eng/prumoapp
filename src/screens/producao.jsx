@@ -938,6 +938,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const [enviando, setEnviando] = useState(false)
   const [editando, setEditando] = useState(false)
   const [plantaAberta, setPlantaAberta] = useState(null)
+  const [abrirPendencia, setAbrirPendencia] = useState(null)
   const [plantaRenomeando, setPlantaRenomeando] = useState(null)
   const [nomePlanta, setNomePlanta] = useState('')
   const [localIdPlanta, setLocalIdPlanta] = useState('')
@@ -951,11 +952,40 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const plantaAtual = plantaAberta && plantas.find((p) => p.id === plantaAberta.id)
   const tipo = dados.tiposServico?.find((t) => t.id === servico.service_type_id)
 
+  /* Notificação de marcação incompleta — pedido repetido do Julio:
+     achar isso hoje exigia abrir marcador por marcador até topar com
+     um sem colaborador ou sem contrato, e é assim que a conta do
+     executado deixa de bater com a soma "por colaborador" (evento sem
+     ninguém vinculado conta no total, mas não credita ninguém). Olha
+     TODO evento de TODO marcador ativo deste serviço, não só o mais
+     recente de cada um — um marcador pode ter um evento certo e outro
+     com problema. */
+  const pendenciasMarcadores = useMemo(() => {
+    const planIds = new Set(plantas.map((p) => p.id))
+    const plantaPorId = new Map(plantas.map((p) => [p.id, p]))
+    const marcadorPorId = new Map(
+      (dados.marcadoresProducao || []).filter((m) => planIds.has(m.plan_id) && m.ativo !== false).map((m) => [m.id, m]),
+    )
+    const pendencias = []
+    for (const ev of (dados.eventosProducao || [])) {
+      const marcador = marcadorPorId.get(ev.marker_id)
+      if (!marcador) continue
+      const semColaborador = equipeDoEvento(ev).length === 0
+      const semContrato = !ev.contract_item_id
+      if (!semColaborador && !semContrato) continue
+      pendencias.push({ evento: ev, marcador, planta: plantaPorId.get(marcador.plan_id), semColaborador, semContrato })
+    }
+    return pendencias.sort((a, b) => (a.evento.data_execucao < b.evento.data_execucao ? 1 : -1))
+  }, [plantas, dados.marcadoresProducao, dados.eventosProducao])
+  const semColaboradorCount = pendenciasMarcadores.filter((p) => p.semColaborador).length
+  const semContratoCount = pendenciasMarcadores.filter((p) => p.semContrato).length
+
   if (plantaAtual) {
     return (
       <VisualizarPlanta
         planta={plantaAtual} servico={servico} tipo={tipo} dados={dados} perfil={perfil} podeEditar={podeEditar}
-        voltar={() => setPlantaAberta(null)}
+        marcadorParaAbrir={abrirPendencia?.marcador}
+        voltar={() => { setPlantaAberta(null); setAbrirPendencia(null) }}
       />
     )
   }
@@ -1003,6 +1033,42 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
             <button className="btn btn-primary" onClick={() => setEnviando(true)} style={{ alignSelf: 'flex-start' }}>
               <Icon name="baixar" size={16} style={{ transform: 'rotate(180deg)' }} /> Importar local (planta)
             </button>
+          )}
+
+          {pendenciasMarcadores.length > 0 && (
+            <div className="alert danger stack-1">
+              <div className="t-strong">
+                {plural(pendenciasMarcadores.length, 'marcação precisa de atenção', 'marcações precisam de atenção')}
+              </div>
+              <div className="t-caption">
+                {[
+                  semColaboradorCount > 0 ? `${semColaboradorCount} sem colaborador vinculado` : null,
+                  semContratoCount > 0 ? `${semContratoCount} sem item de contrato vinculado` : null,
+                ].filter(Boolean).join(' · ')}
+              </div>
+              <div className="stack-1" style={{ marginTop: 6 }}>
+                {pendenciasMarcadores.map((item) => (
+                  <button
+                    key={item.evento.id}
+                    className="card-tap row-between"
+                    style={{ padding: 8, alignItems: 'center', width: '100%', textAlign: 'left', background: 'var(--surface)' }}
+                    onClick={() => { setAbrirPendencia(item); setPlantaAberta(item.planta) }}
+                    disabled={!item.planta}
+                  >
+                    <div>
+                      <div className="t-strong" style={{ fontSize: 13 }}>
+                        {item.marcador?.elemento || '—'} · {item.planta?.nome || 'Local removido'}
+                      </div>
+                      <div className="t-caption">{formatarData(item.evento.data_execucao)}</div>
+                    </div>
+                    <div className="row-flex" style={{ gap: 4, flex: 'none' }}>
+                      {item.semColaborador && <Chip tom="danger">Sem colaborador</Chip>}
+                      {item.semContrato && <Chip>Sem contrato</Chip>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {plantas.length === 0 ? (
@@ -1160,11 +1226,11 @@ const ZOOM_MIN = 0.5
 const ZOOM_MAX = 10
 const ZOOM_PASSO = 0.5
 
-function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, voltar }) {
+function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, voltar, marcadorParaAbrir }) {
   const [pdfDoc, setPdfDoc] = useState(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
-  const [pagina, setPagina] = useState(1)
+  const [pagina, setPagina] = useState(marcadorParaAbrir?.pagina || 1)
   const [zoom, setZoom] = useState(1)
   const [alturaRenderizada, setAlturaRenderizada] = useState(0)
   const [larguraRenderizada, setLarguraRenderizada] = useState(0)
@@ -1192,7 +1258,7 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
   const renderTaskRef = useRef(null)
   const [novoPonto, setNovoPonto] = useState(null)
   const [areaEmDesenho, setAreaEmDesenho] = useState(null)
-  const [marcadorAberto, setMarcadorAberto] = useState(null)
+  const [marcadorAberto, setMarcadorAberto] = useState(marcadorParaAbrir || null)
   /* Redesenhar um marcador já existente: em vez de abrir "Nova
      marcação", o próximo toque/arrasto substitui o x/y/x2/y2 (e a
      forma, se trocar Ponto/Área) desse marcador — desenhar certinho
