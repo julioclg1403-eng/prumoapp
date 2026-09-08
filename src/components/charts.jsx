@@ -325,14 +325,15 @@ export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 
 }
 
 /* ── Curva acumulada, várias séries (ex.: produção por colaborador) ──
-   Mesma ideia da CurvaProducao (área+linha, acumulado), só que com uma
-   linha por série sobre o MESMO eixo X (todas as datas que aparecem em
-   qualquer série, unidas e ordenadas) — cada série "segura" o último
-   valor acumulado nos dias em que não teve evento, em vez de cair pra
-   zero. Sem destaque de ponto ativo/clique (a CurvaProducao tem isso
-   porque só existe UMA linha pra focar; com várias, a legenda com o
-   total de cada uma já cumpre esse papel). */
+   Mesma ideia da CurvaProducao (área+linha, acumulado, passa o mouse
+   e vê o valor de cada dia), só que com uma linha por série sobre o
+   MESMO eixo X (todas as datas que aparecem em qualquer série, unidas
+   e ordenadas) — cada série "segura" o último valor acumulado nos
+   dias em que não teve evento, em vez de cair pra zero. A legenda
+   embaixo mostra o valor de cada colaborador NO PONTO em que o mouse
+   está (ou no último dia, sem interação nenhuma ainda). */
 export function CurvaMultipla({ series, formatarValor = (v) => String(v), vazio = 'Nada aqui ainda.' }) {
+  const [selecionado, setSelecionado] = useState(null)
   if (!series || series.length === 0) return <div className="t-caption">{vazio}</div>
   const todasDatas = [...new Set(series.flatMap((s) => s.pontos.map((p) => p.data)))].sort()
   if (todasDatas.length < 2) return <div className="t-caption">{vazio}</div>
@@ -341,10 +342,12 @@ export function CurvaMultipla({ series, formatarValor = (v) => String(v), vazio 
   const W = 640
   const H = 200
   const PAD_TOP = 14
-  const PAD_BOT = 24
+  const PAD_BOT = 28
   const areaUtil = H - PAD_TOP - PAD_BOT
   const x = (i) => (todasDatas.length > 1 ? (i / (todasDatas.length - 1)) * W : 0)
   const y = (v) => PAD_TOP + (1 - Math.min(1, v / max)) * areaUtil
+  const faixaW = todasDatas.length > 1 ? W / (todasDatas.length - 1) : W
+  const idxAtivo = selecionado ?? todasDatas.length - 1
 
   const alinhadas = series.map((s) => {
     const porData = new Map(s.pontos.map((p) => [p.data, p.valor]))
@@ -355,6 +358,8 @@ export function CurvaMultipla({ series, formatarValor = (v) => String(v), vazio 
     })
     return { ...s, valores }
   })
+
+  const mostrarRotulo = (i) => todasDatas.length <= 10 || i === 0 || i === todasDatas.length - 1 || i === idxAtivo
 
   return (
     <div>
@@ -371,20 +376,34 @@ export function CurvaMultipla({ series, formatarValor = (v) => String(v), vazio 
         ))}
         {alinhadas.map((s) => (
           <circle
-            key={`${s.chave}-fim`} cx={x(todasDatas.length - 1)} cy={y(s.valores[s.valores.length - 1])}
-            r={3.5} fill="#fff" stroke={s.cor} strokeWidth={2}
+            key={`${s.chave}-pt`} cx={x(idxAtivo)} cy={y(s.valores[idxAtivo])}
+            r={4.5} fill="#fff" stroke={s.cor} strokeWidth={2.4}
           />
         ))}
-        <text x={x(0)} y={H - PAD_BOT + 15} textAnchor="start" fontSize="9" fill="var(--text-3)">{dataCurta(todasDatas[0])}</text>
-        <text x={x(todasDatas.length - 1)} y={H - PAD_BOT + 15} textAnchor="end" fontSize="9" fill="var(--text-3)">
-          {dataCurta(todasDatas[todasDatas.length - 1])}
-        </text>
+        {todasDatas.map((d, i) => (
+          mostrarRotulo(i) && (
+            <text
+              key={`lbl-${d}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9"
+              fill={i === idxAtivo ? 'var(--text)' : 'var(--text-3)'} fontWeight={i === idxAtivo ? 700 : 400}
+            >
+              {dataCurta(d)}
+            </text>
+          )
+        ))}
+        {todasDatas.map((d, i) => (
+          <rect
+            key={`hit-${d}`} x={x(i) - faixaW / 2} y={0} width={faixaW} height={H}
+            fill="transparent" onClick={() => setSelecionado(i)} onMouseEnter={() => setSelecionado(i)}
+            style={{ cursor: 'pointer' }}
+          />
+        ))}
+        <line x1={x(idxAtivo)} x2={x(idxAtivo)} y1={PAD_TOP} y2={H - PAD_BOT} stroke="var(--text-3)" strokeWidth={1} strokeDasharray="2,2" pointerEvents="none" />
       </svg>
-      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 4 }}>
+      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 4, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
         {alinhadas.map((s) => (
           <span key={s.chave} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.cor, display: 'inline-block', flex: 'none' }} />
-            {s.rotulo} · <span className="t-strong">{formatarValor(s.valores[s.valores.length - 1])}</span>
+            {s.rotulo} · <span className="t-strong">{formatarValor(s.valores[idxAtivo])}</span>
           </span>
         ))}
       </div>
