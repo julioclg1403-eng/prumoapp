@@ -32,7 +32,7 @@ import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
-import { RankingBarras, GraficoColunas, GraficoDonut, CurvaProducao } from '../components/charts'
+import { RankingBarras, GraficoColunas, CurvaProducao, CurvaMultipla } from '../components/charts'
 
 const PALETA_GRAFICO = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)']
 const comCores = (itens) => itens.map((item, i) => ({ ...item, cor: PALETA_GRAFICO[i % PALETA_GRAFICO.length] }))
@@ -700,22 +700,6 @@ function AbaDashboardRendimento({ dados }) {
   )
   const rendimentoMedioEquipe = diasTrabalhados > 0 ? totalExecutado / diasTrabalhados : 0
 
-  /* Avanço por etapa: em que estágio está cada elemento marcado
-     desse serviço agora (não é "no período" — é o estado atual dos
-     marcadores, tipo "quantas sapatas já foram concretadas"). */
-  const porEtapa = useMemo(() => {
-    if (!tipoSelecionado) return []
-    const planIdsDoServico = new Set((dados.plantasProducao || []).filter((p) => p.service_id === servicoFiltroId).map((p) => p.id))
-    const marcadoresDoServico = (dados.marcadoresProducao || []).filter((m) => planIdsDoServico.has(m.plan_id) && m.ativo !== false)
-    const contagem = new Map()
-    for (const m of marcadoresDoServico) {
-      contagem.set(m.etapa_atual, (contagem.get(m.etapa_atual) || 0) + 1)
-    }
-    return (tipoSelecionado.etapas || [])
-      .map((e) => ({ chave: e.chave, rotulo: e.rotulo, valor: contagem.get(e.chave) || 0, cor: e.cor ? `var(--${e.cor})` : undefined }))
-      .filter((e) => e.valor > 0)
-  }, [dados.plantasProducao, dados.marcadoresProducao, servicoFiltroId, tipoSelecionado])
-
   /* Curva de produção acumulada: soma por dia, ordenado, acumulando —
      a "curva S" física do serviço (não financeira), pra ver o ritmo
      de produção ao longo do período escolhido. */
@@ -731,6 +715,43 @@ function AbaDashboardRendimento({ dados }) {
       return { chave: data, rotulo: formatarDataCurta(data), valor: acumulado }
     })
   }, [eventosDoServico])
+
+  /* Mesma curva acumulada, mas uma linha por colaborador — "quanto
+     ele já produziu" ao longo do tempo, não só o total do serviço.
+     Mesma divisão por equipe do "por colaborador" (evento com mais de
+     um colaborador reparte a quantidade, não credita inteira pra cada
+     um). Só os 6 com mais produção no período entram na curva — mais
+     que isso e a linha vira um emaranhado ilegível; o ranking "Por
+     colaborador" logo abaixo já cobre todo mundo. */
+  const curvaPorColaborador = useMemo(() => {
+    const porColaboradorDia = new Map()
+    for (const ev of eventosDoServico) {
+      const equipe = equipeDoEvento(ev)
+      if (equipe.length === 0) continue
+      const fatia = (Number(ev.quantidade) || 0) / equipe.length
+      for (const workerId of equipe) {
+        if (!porColaboradorDia.has(workerId)) porColaboradorDia.set(workerId, new Map())
+        const porDia = porColaboradorDia.get(workerId)
+        porDia.set(ev.data_execucao, (porDia.get(ev.data_execucao) || 0) + fatia)
+      }
+    }
+    const series = [...porColaboradorDia.entries()]
+      .map(([workerId, porDia]) => {
+        const colaborador = dados.colaboradorPorId(workerId)
+        if (!colaborador || colaborador.ativo === false) return null
+        const dias = [...porDia.keys()].sort()
+        let acumulado = 0
+        const pontos = dias.map((data) => {
+          acumulado += porDia.get(data)
+          return { data, valor: acumulado }
+        })
+        return { chave: workerId, rotulo: colaborador.nome, total: acumulado, pontos }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6)
+    return series.map((s, i) => ({ ...s, cor: PALETA_GRAFICO[i % PALETA_GRAFICO.length] }))
+  }, [eventosDoServico, dados])
 
   return (
     <div className="stack-2">
@@ -772,17 +793,18 @@ function AbaDashboardRendimento({ dados }) {
             </div>
           </div>
 
-          {porEtapa.length > 0 && (
-            <div className="card-flat">
-              <div className="t-strong" style={{ marginBottom: 10 }}>Avanço por estágio — elementos marcados nesse serviço</div>
-              <GraficoDonut itens={porEtapa} formatarValor={(v) => plural(v, 'elemento', 'elementos')} />
-            </div>
-          )}
-
           <div className="card-flat">
             <div className="t-strong" style={{ marginBottom: 10 }}>Curva de produção acumulada ({unidadeSelecionada})</div>
             <CurvaProducao
               pontos={curvaAcumulada}
+              formatarValor={(v) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unidadeSelecionada}`}
+            />
+          </div>
+
+          <div className="card-flat">
+            <div className="t-strong" style={{ marginBottom: 10 }}>Produção acumulada por colaborador ({unidadeSelecionada})</div>
+            <CurvaMultipla
+              series={curvaPorColaborador}
               formatarValor={(v) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unidadeSelecionada}`}
             />
           </div>

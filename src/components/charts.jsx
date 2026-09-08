@@ -324,6 +324,74 @@ export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 
   )
 }
 
+/* ── Curva acumulada, várias séries (ex.: produção por colaborador) ──
+   Mesma ideia da CurvaProducao (área+linha, acumulado), só que com uma
+   linha por série sobre o MESMO eixo X (todas as datas que aparecem em
+   qualquer série, unidas e ordenadas) — cada série "segura" o último
+   valor acumulado nos dias em que não teve evento, em vez de cair pra
+   zero. Sem destaque de ponto ativo/clique (a CurvaProducao tem isso
+   porque só existe UMA linha pra focar; com várias, a legenda com o
+   total de cada uma já cumpre esse papel). */
+export function CurvaMultipla({ series, formatarValor = (v) => String(v), vazio = 'Nada aqui ainda.' }) {
+  if (!series || series.length === 0) return <div className="t-caption">{vazio}</div>
+  const todasDatas = [...new Set(series.flatMap((s) => s.pontos.map((p) => p.data)))].sort()
+  if (todasDatas.length < 2) return <div className="t-caption">{vazio}</div>
+
+  const max = Math.max(1, ...series.flatMap((s) => s.pontos.map((p) => p.valor)))
+  const W = 640
+  const H = 200
+  const PAD_TOP = 14
+  const PAD_BOT = 24
+  const areaUtil = H - PAD_TOP - PAD_BOT
+  const x = (i) => (todasDatas.length > 1 ? (i / (todasDatas.length - 1)) * W : 0)
+  const y = (v) => PAD_TOP + (1 - Math.min(1, v / max)) * areaUtil
+
+  const alinhadas = series.map((s) => {
+    const porData = new Map(s.pontos.map((p) => [p.data, p.valor]))
+    let ultimo = 0
+    const valores = todasDatas.map((d) => {
+      if (porData.has(d)) ultimo = porData.get(d)
+      return ultimo
+    })
+    return { ...s, valores }
+  })
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+        {[0, 0.5, 1].map((f) => (
+          <line key={f} x1={0} x2={W} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth={1} />
+        ))}
+        {alinhadas.map((s) => (
+          <polyline
+            key={s.chave}
+            points={s.valores.map((v, i) => `${x(i)},${y(v)}`).join(' ')}
+            fill="none" stroke={s.cor} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round"
+          />
+        ))}
+        {alinhadas.map((s) => (
+          <circle
+            key={`${s.chave}-fim`} cx={x(todasDatas.length - 1)} cy={y(s.valores[s.valores.length - 1])}
+            r={3.5} fill="#fff" stroke={s.cor} strokeWidth={2}
+          />
+        ))}
+        <text x={x(0)} y={H - PAD_BOT + 15} textAnchor="start" fontSize="9" fill="var(--text-3)">{dataCurta(todasDatas[0])}</text>
+        <text x={x(todasDatas.length - 1)} y={H - PAD_BOT + 15} textAnchor="end" fontSize="9" fill="var(--text-3)">
+          {dataCurta(todasDatas[todasDatas.length - 1])}
+        </text>
+      </svg>
+      <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 4 }}>
+        {alinhadas.map((s) => (
+          <span key={s.chave} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.cor, display: 'inline-block', flex: 'none' }} />
+            {s.rotulo} · <span className="t-strong">{formatarValor(s.valores[s.valores.length - 1])}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const dataCurta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
 
 /* ── Curva S completa da Prevision (base/previsto/realizado) ───────
