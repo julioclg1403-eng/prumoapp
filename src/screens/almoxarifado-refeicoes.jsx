@@ -19,7 +19,7 @@
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
-  hojeISO, formatarData, formatarDataCurta, somarMeses, rotuloMes, plural,
+  hojeISO, formatarData, formatarDataCurta, formatarDinheiro, somarMeses, rotuloMes, plural,
   resumoRefeicoesDoMes, resumoRefeicoesPorPeriodo, diarioDaData,
 } from '../lib/dominio'
 import {
@@ -323,6 +323,18 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const [relatorioInicio, setRelatorioInicio] = useState(() => `${hoje.slice(0, 7)}-01`)
   const [relatorioFim, setRelatorioFim] = useState(hoje)
   const [tiposRelatorio, setTiposRelatorio] = useState(() => new Set(TIPOS_RELATORIO.map((t) => t.valor)))
+  const [editandoPreco, setEditandoPreco] = useState(false)
+  const [precoInput, setPrecoInput] = useState('')
+  const [salvandoPreco, setSalvandoPreco] = useState(false)
+
+  const precoRefeicao = Number(dados.obra.preco_refeicao) || 0
+
+  const salvarPreco = async () => {
+    setSalvandoPreco(true)
+    await dados.salvarPrecoRefeicao(precoInput === '' ? null : Number(precoInput))
+    setSalvandoPreco(false)
+    setEditandoPreco(false)
+  }
 
   const alternarTipoRelatorio = (valor) => {
     setTiposRelatorio((atual) => {
@@ -576,6 +588,31 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
         >
           <Icon name="relatorio" size={17} /> Imprimir / baixar PDF ({plural(diasDoRelatorio.length, 'dia', 'dias')})
         </button>
+
+        <div className="card-flat" style={{ padding: 10 }}>
+          <div className="row-between" style={{ alignItems: 'center' }}>
+            <div>
+              <div className="t-micro">Preço da refeição</div>
+              <div className="t-strong" style={{ fontSize: 15 }}>
+                {precoRefeicao > 0 ? `${formatarDinheiro(precoRefeicao)}/refeição` : 'Não cadastrado'}
+              </div>
+            </div>
+            {podeExcluir && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => { setPrecoInput(precoRefeicao > 0 ? String(precoRefeicao) : ''); setEditandoPreco(true) }}
+              >
+                <Icon name="editar" size={15} /> {precoRefeicao > 0 ? 'Editar' : 'Cadastrar'}
+              </button>
+            )}
+          </div>
+          {precoRefeicao > 0 && (
+            <div className="t-caption" style={{ marginTop: 6 }}>
+              Valor estimado no período: <strong>{formatarDinheiro(resumoPeriodo.totalGeral * precoRefeicao)}</strong>
+              {' '}({resumoPeriodo.totalGeral} refeições lançadas × {formatarDinheiro(precoRefeicao)})
+            </div>
+          )}
+        </div>
 
         {resumoPeriodo.totalVinculado > 0 && (
           <div className="stack-2">
@@ -991,6 +1028,31 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
         onCancelar={() => setConfirmar(null)}
       />
 
+      <Sheet
+        aberto={editandoPreco}
+        titulo="Preço da refeição"
+        onFechar={() => setEditandoPreco(false)}
+        rodape={
+          <div className="row-flex">
+            <button className="btn btn-secondary grow" onClick={() => setEditandoPreco(false)}>Cancelar</button>
+            <button className="btn btn-primary grow" onClick={salvarPreco} disabled={salvandoPreco}>
+              {salvandoPreco ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        }
+      >
+        <Campo
+          label="Preço por refeição"
+          dica="Estimativa pra saber quanto está sendo gasto — Refeições não controla nota fiscal como Estoque e EPI, então multiplica esse valor pela quantidade lançada no período."
+        >
+          <input
+            className="ipt" type="number" inputMode="decimal" min="0" step="any"
+            value={precoInput} onChange={(e) => setPrecoInput(e.target.value)}
+            placeholder="R$"
+          />
+        </Campo>
+      </Sheet>
+
       <RelatorioFolha
         titulo="Refeições"
         sub={periodoIni === periodoFim ? formatarData(periodoIni) : `${formatarData(periodoIni)} a ${formatarData(periodoFim)}`}
@@ -1002,6 +1064,17 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           </SecaoRelatorio>
         ) : (
           <>
+            <SecaoRelatorio titulo="Resumo">
+              <div style={{ fontSize: 13 }}>
+                Refeições lançadas: <strong>{resumoPeriodo.totalGeral}</strong>
+                {precoRefeicao > 0 && (
+                  <>
+                    {' '}· Preço por refeição: <strong>{formatarDinheiro(precoRefeicao)}</strong>
+                    {' '}· Valor estimado: <strong>{formatarDinheiro(resumoPeriodo.totalGeral * precoRefeicao)}</strong>
+                  </>
+                )}
+              </div>
+            </SecaoRelatorio>
             {tiposRelatorio.has('colaborador') && (
               <SecaoRelatorio titulo={`Por colaborador (${resumoPeriodo.totalVinculado} vinculado(s))`}>
                 <TabelaRelatorio

@@ -818,6 +818,27 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Preço fixo por refeição, usado só pra multiplicar pela quantidade
+     de refeições no período e chegar no valor gasto — Refeições não
+     tem controle de compra/nota fiscal como Estoque e EPI, então isso
+     é uma estimativa (o Julio confirmou que é o suficiente), não um
+     valor de verdade rastreado por entrada. Fica no worksite porque
+     cada obra pode negociar um preço diferente com o fornecedor. */
+  const salvarPrecoRefeicao = useCallback(
+    async (preco) => {
+      const atualizado = checar(
+        await supabase.from('worksites').update({ preco_refeicao: preco }).eq('id', obraId).select('*').single(),
+        'salvar o preço da refeição',
+      )
+      if (!atualizado) return
+      setTudo((t) => t && ({
+        ...t,
+        obras: t.obras.map((o) => (o.id === obraId ? atualizado : o)),
+      }))
+    },
+    [checar, obraId],
+  )
+
   /* Mexe em três tabelas — vai inteira para o banco, numa função
      que roda em transação. Ou faz tudo, ou não faz nada. */
   const mesclarColaborador = useCallback(
@@ -3753,7 +3774,7 @@ export function DadosProvider({ perfil, children }) {
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario,
       adicionarFoto, removerFoto, fotosDaObra,
-      criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, mesclarColaborador,
+      criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, mesclarColaborador, salvarPrecoRefeicao,
       salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia, adicionarAnexoPendencia, removerAnexoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
@@ -3793,7 +3814,7 @@ export function DadosProvider({ perfil, children }) {
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
       salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
-      criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador,
+      criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, salvarPrecoRefeicao,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia, adicionarAnexoPendencia, removerAnexoPendencia,
       salvarOcorrenciaSeguranca, excluirOcorrenciaSeguranca,
