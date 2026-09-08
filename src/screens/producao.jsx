@@ -1696,12 +1696,20 @@ function BuscarItemContrato({ dados, servico, valor, onEscolher }) {
   const [busca, setBusca] = useState('')
   const selecionado = valor ? (dados.contratos || []).find((i) => i.id === valor) : null
 
-  /* Contrato já vem fixo do Serviço (o Julio vincula na hora de
-     cadastrar) — aqui só resta escolher QUAL item daquele contrato,
-     já que um contrato tem vários. */
+  /* Nunca pode oferecer item de contrato de OUTRA empresa — aconteceu
+     de escolher sem querer um contrato de outro fornecedor porque o
+     Serviço não tinha cod_contrato fixo ainda, e sem esse filtro caía
+     pra "mostra tudo". Empresa é o vínculo confiável (contract_items.
+     company_id, ligado em Cadastros → Contratos, não vem pronto da
+     planilha) — filtra por ela sempre que o Serviço tiver empresa
+     definida; cod_contrato, quando também existe, estreita mais ainda
+     dentro dela. Sem empresa nenhuma no Serviço, aí sim mostra tudo —
+     não tem como restringir com segurança. */
   const baseContratos = useMemo(() => {
-    const todos = dados.contratos || []
-    return servico?.cod_contrato ? todos.filter((i) => i.cod_contrato === servico.cod_contrato) : todos
+    let base = dados.contratos || []
+    if (servico?.company_id) base = base.filter((i) => i.company_id === servico.company_id)
+    if (servico?.cod_contrato) base = base.filter((i) => i.cod_contrato === servico.cod_contrato)
+    return base
   }, [dados.contratos, servico])
 
   const resultados = useMemo(() => {
