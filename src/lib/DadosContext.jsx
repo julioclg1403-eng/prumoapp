@@ -705,6 +705,40 @@ export function DadosProvider({ perfil, children }) {
     [perfil.id, checar],
   )
 
+  /* Exclui uma frente de serviço direto do diário — reservado a
+     admin (ver diario-editor.jsx), porque apaga registro de trabalho
+     já lançado, não arquiva. A equipe da frente (daily_activity_
+     workers) e as fotos dela têm ON DELETE CASCADE no banco; ocorrência
+     vinculada tem ON DELETE SET NULL — continua no diário, só perde o
+     vínculo com a frente apagada. As fotos precisam ser removidas do
+     Storage à mão primeiro (apagarFoto cuida disso), porque o cascade
+     do banco só apaga a LINHA, não o arquivo no bucket. */
+  const excluirAtividadeDiario = useCallback(
+    async (reportId, activityId) => {
+      const diario = tudo?.diarios.find((d) => d.id === reportId)
+      const fotosDaFrente = (diario?.fotos || []).filter((f) => f.activity_id === activityId)
+      for (const foto of fotosDaFrente) {
+        const { erro } = await apagarFoto(foto)
+        if (erro) { avisarErro(erro); return false }
+      }
+
+      const r = await supabase.from('daily_activities').delete().eq('id', activityId)
+      if (r.error) { checar(r, 'excluir a frente'); return false }
+
+      setTudo((t) => t && ({
+        ...t,
+        diarios: t.diarios.map((d) => (d.id !== reportId ? d : {
+          ...d,
+          atividades: d.atividades.filter((a) => a.id !== activityId),
+          ocorrencias: (d.ocorrencias || []).map((o) => (o.activity_id === activityId ? { ...o, activity_id: null } : o)),
+          fotos: (d.fotos || []).filter((f) => f.activity_id !== activityId),
+        })),
+      }))
+      return true
+    },
+    [tudo, checar, avisarErro],
+  )
+
   // ── Fotos ─────────────────────────────────────────────────
   /* O arquivo sobe para o Storage e só o endereço dele volta para
      cá. Repare que salvarDiario NÃO mexe em fotos: ele apaga e
@@ -3772,7 +3806,7 @@ export function DadosProvider({ perfil, children }) {
       trocarObra,
       perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
-      salvarDiario, reabrirDiario,
+      salvarDiario, reabrirDiario, excluirAtividadeDiario,
       adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, mesclarColaborador, salvarPrecoRefeicao,
       salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
@@ -3813,7 +3847,7 @@ export function DadosProvider({ perfil, children }) {
     [
       tudo, daObra, obrasPermitidas, trocarObra, perfil, erro, salvando, avisarErro, recarregar,
       nomeDe, rotuloAtividade, colaboradorPorId, perfilPorId, materialEstoquePorId, materialEpiPorId,
-      salvarDiario, reabrirDiario, adicionarFoto, removerFoto, fotosDaObra,
+      salvarDiario, reabrirDiario, excluirAtividadeDiario, adicionarFoto, removerFoto, fotosDaObra,
       criarColaboradorRapido, revisarColaborador, definirAdministrativoColaborador, salvarPrecoRefeicao,
       mesclarColaborador, salvarPendencia, salvarPendenciasEmLote, salvarEstruturaCustosEmLote, confirmarPendenciasTaticasDaSemana, alternarPendencia, mudarStatusPendencia, excluirPendencia,
       adicionarFotoPendencia, removerFotoPendencia, adicionarAnexoPendencia, removerAnexoPendencia,

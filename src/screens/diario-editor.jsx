@@ -184,7 +184,7 @@ export default function DiarioEditor({ data, id, voltar, perfil }) {
         )}
 
         {etapa === 0 && <EtapaPresencas diario={diario} alterar={alterar} bloqueado={somenteLeitura} />}
-        {etapa === 1 && <EtapaFrentes diario={diario} alterar={alterar} bloqueado={somenteLeitura} pedirConfirmacao={setConfirmacao} fotos={fotos} />}
+        {etapa === 1 && <EtapaFrentes diario={diario} alterar={alterar} bloqueado={somenteLeitura} pedirConfirmacao={setConfirmacao} fotos={fotos} perfil={perfil} />}
         {etapa === 2 && <EtapaOcorrencias diario={diario} alterar={alterar} bloqueado={somenteLeitura} />}
         {etapa === 3 && <EtapaRevisao diario={diario} alterar={alterar} bloqueado={somenteLeitura} irPara={setEtapa} fotos={fotos} />}
       </div>
@@ -476,8 +476,9 @@ function EtapaPresencas({ diario, alterar, bloqueado }) {
    Etapa 2 — Frentes de serviço
    ============================================================ */
 
-function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
+function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos, perfil }) {
   const dados = useDados()
+  const podeExcluirFrente = perfil?.role === 'admin'
   const [equipeDe, setEquipeDe] = useState(null)   // atividade cuja equipe está sendo escolhida
   const [nova, setNova] = useState(null)
   const [visao, setVisao] = useState('lista')   // 'lista' | 'porLocal'
@@ -553,6 +554,35 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
     setNova(null)
   }
 
+  /* Exclui uma frente do diário — reservada a admin (o Julio pediu
+     essa opção pra tirar frente lançada errada). Frente ainda não
+     salva (id "da-...", nasceu nesta mesma edição) só sai da tela;
+     frente já gravada precisa apagar no banco primeiro — junto vão
+     equipe e fotos dela, e qualquer ocorrência vinculada perde só o
+     vínculo, continua no diário (ver excluirAtividadeDiario). */
+  const excluirFrente = (a) => {
+    const jaSalva = !String(a.id).startsWith('da-')
+    const tirarDaTela = () => alterar({
+      atividades: diario.atividades.filter((x) => x.id !== a.id),
+      ocorrencias: (diario.ocorrencias || []).map((o) => (o.activity_id === a.id ? { ...o, activity_id: null } : o)),
+      fotos: (diario.fotos || []).filter((f) => f.activity_id !== a.id),
+    })
+    const r = dados.rotuloAtividade(a.planned_id)
+    pedirConfirmacao({
+      titulo: 'Excluir esta frente?',
+      texto: `«${r.servico} — ${r.local}» sai do diário${jaSalva ? ', junto com a equipe e as fotos vinculadas a ela' : ''}. Isso não tem volta.`,
+      rotuloOk: 'Excluir', perigo: true,
+      onOk: async () => {
+        pedirConfirmacao(null)
+        if (jaSalva) {
+          const ok = await dados.excluirAtividadeDiario(diario.id, a.id)
+          if (!ok) return
+        }
+        tirarDaTela()
+      },
+    })
+  }
+
   const ativAtual = diario.atividades.find((a) => a.id === equipeDe) || null
 
   const observacaoMudou = (id, valor) =>
@@ -576,6 +606,8 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
         onObservacao={observacaoMudou}
         fotos={fotos}
         dataAtual={diario.data}
+        podeExcluir={podeExcluirFrente}
+        onExcluir={() => excluirFrente(a)}
       />
     )
   }
@@ -764,6 +796,7 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos }) {
 function CardFrente({
   a, r, equipe, aberto, onToggle, bloqueado, presentes,
   onTrocarStatus, onEscolherEquipe, onObservacao, fotos, dataAtual,
+  podeExcluir, onExcluir,
 }) {
   return (
     <div className="card" style={{ padding: 0 }}>
@@ -848,6 +881,16 @@ function CardFrente({
               }
             />
           </div>
+
+          {podeExcluir && !bloqueado && (
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ color: 'var(--danger)', marginTop: 12 }}
+              onClick={onExcluir}
+            >
+              <Icon name="x" size={15} /> Excluir esta frente
+            </button>
+          )}
         </div>
       )}
     </div>
