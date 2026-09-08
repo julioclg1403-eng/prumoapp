@@ -215,14 +215,34 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
     const sais = saidas
       .filter((s) => s.material_id === editandoMaterial.id)
       .map((s) => ({ tipo: 'saida', data: s.data, quantidade: s.quantidade, detalhe: s.destino || '' }))
-    const importacoes = (dados.movimentosEstoque || [])
+    /* Cada reimportação da planilha vira uma linha aqui — mas a
+       planilha é reimportada toda semana e o saldo desse material
+       pode não ter mudado nada de um período pro outro, aí "Importação"
+       toda vez virava ruído (3 linhas iguais dizendo "saldo 27149",
+       sem informação nova nenhuma). Em vez de mostrar o saldo cru,
+       compara com a importação anterior (por período_fim, cronológica)
+       e só entra na história quando o saldo realmente mudou — Subiu ou
+       Desceu, com a diferença, igual Entrada/Saída já mostram. A
+       primeira importação de todas não tem "anterior" pra comparar, aí
+       continua mostrando o saldo inicial. */
+    const cronologica = [...(dados.movimentosEstoque || [])]
       .filter((mov) => mov.material_id === editandoMaterial.id)
-      .map((mov) => ({
+      .sort((a, b) => (a.periodo_fim < b.periodo_fim ? -1 : 1))
+    let saldoAnterior = null
+    const importacoes = []
+    for (const mov of cronologica) {
+      const saldo = Number(mov.saldo)
+      const variacao = saldoAnterior == null ? null : saldo - saldoAnterior
+      saldoAnterior = saldo
+      if (variacao === 0) continue
+      importacoes.push({
         tipo: 'importacao',
         data: mov.periodo_fim,
-        quantidade: Number(mov.saldo),
+        quantidade: saldo,
+        variacao,
         detalhe: `período ${formatarDataCurta(mov.periodo_inicio)}–${formatarDataCurta(mov.periodo_fim)} · entrada ${mov.qtde_entrada} · baixa ${mov.qtde_baixa}`,
-      }))
+      })
+    }
     return [...ents, ...sais, ...importacoes].sort((a, b) => (a.data < b.data ? 1 : -1))
   }, [editandoMaterial, entradas, saidas, dados.movimentosEstoque])
 
@@ -1240,8 +1260,12 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                   {historicoFiltrado.map((h, i) => (
                     <div key={i} className="card-flat row-between" style={{ padding: 10, alignItems: 'center' }}>
                       <div className="row-flex" style={{ gap: 8, alignItems: 'center' }}>
-                        <Chip tom={h.tipo === 'entrada' ? 'success' : h.tipo === 'saida' ? 'danger' : 'info'}>
-                          {h.tipo === 'entrada' ? 'Entrada' : h.tipo === 'saida' ? 'Saída' : 'Importação'}
+                        <Chip tom={
+                          h.tipo === 'entrada' ? 'success' : h.tipo === 'saida' ? 'danger'
+                            : h.variacao > 0 ? 'success' : h.variacao < 0 ? 'danger' : 'info'
+                        }>
+                          {h.tipo === 'entrada' ? 'Entrada' : h.tipo === 'saida' ? 'Saída'
+                            : h.variacao > 0 ? 'Subiu' : h.variacao < 0 ? 'Desceu' : 'Importação'}
                         </Chip>
                         <div>
                           <div className="t-caption">{formatarDataCurta(h.data)}</div>
@@ -1249,7 +1273,11 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                         </div>
                       </div>
                       <span className="t-strong" style={{ fontSize: 14 }}>
-                        {h.tipo === 'entrada' ? `+${h.quantidade}` : h.tipo === 'saida' ? `−${h.quantidade}` : `saldo ${h.quantidade}`} {editandoMaterial.unidade}
+                        {h.tipo === 'entrada' ? `+${h.quantidade}`
+                          : h.tipo === 'saida' ? `−${h.quantidade}`
+                            : h.variacao == null ? `saldo ${h.quantidade}`
+                              : h.variacao > 0 ? `+${h.variacao.toLocaleString('pt-BR')}` : `−${Math.abs(h.variacao).toLocaleString('pt-BR')}`}
+                        {' '}{editandoMaterial.unidade}
                       </span>
                     </div>
                   ))}
