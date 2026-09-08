@@ -608,17 +608,23 @@ export default function AlmoxarifadoEstoque({ perfil, params = {} }) {
                 {abaixoDoMinimo > 0 && <> · Abaixo do mínimo: <strong>{abaixoDoMinimo}</strong></>}
               </div>
             </SecaoRelatorio>
-            <SecaoRelatorio titulo="Materiais em estoque">
-              <TabelaRelatorio
-                colunas={['Material', 'Quantidade', 'Custo unitário médio', 'Valor total']}
-                linhas={emEstoqueTudo.map((s) => [
-                  s.material.nome,
-                  `${s.saldo.toLocaleString('pt-BR')} ${s.material.unidade}`,
-                  formatarDinheiro(s.custoMedio),
-                  formatarDinheiro(s.custoTotal),
-                ])}
-              />
-            </SecaoRelatorio>
+            {/* Fora do "break-inside: avoid" do SecaoRelatorio de propósito
+               — com muitos materiais, a tabela inteira não cabia no resto
+               da página e o navegador pulava a página INTEIRA pra não
+               quebrá-la, sobrando papel em branco embaixo do resumo. Solta
+               assim, ela flui e quebra normalmente entre páginas, repetindo
+               o cabeçalho da tabela em cada uma — mesmo ajuste já feito no
+               Boletim de medição. */}
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 18, marginBottom: 8 }}>Materiais em estoque</div>
+            <TabelaRelatorio
+              colunas={['Material', 'Quantidade', 'Custo unitário médio', 'Valor total']}
+              linhas={emEstoqueTudo.map((s) => [
+                s.material.nome,
+                `${s.saldo.toLocaleString('pt-BR')} ${s.material.unidade}`,
+                formatarDinheiro(s.custoMedio),
+                formatarDinheiro(s.custoTotal),
+              ])}
+            />
           </RelatorioFolha>
         </div>
       )}
