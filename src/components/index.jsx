@@ -605,9 +605,9 @@ export function PainelColapsavel({ titulo, contador, aberto: abertoControlado, o
    não existe "gerar" separado, porque não existe segunda consulta.
    ============================================================ */
 
-export function BotaoRelatorio({ onClick, rotulo = 'Relatório' }) {
+export function BotaoRelatorio({ onClick, rotulo = 'Relatório', disabled }) {
   return (
-    <button className="btn btn-secondary" onClick={onClick || (() => window.print())}>
+    <button className="btn btn-secondary" onClick={onClick || (() => window.print())} disabled={disabled}>
       <Icon name="relatorio" size={17} /> {rotulo}
     </button>
   )

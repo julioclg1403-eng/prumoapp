@@ -189,6 +189,19 @@ export default function Projetos({ goto, voltar, perfil }) {
     return eventos.sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
   }, [editando])
   const linksRelatorio = useLinksDeAnexos(useMemo(() => linhaDoTempo.flatMap((e) => e.anexos), [linhaDoTempo]))
+  /* As fotos do relatório só terminam de carregar (link assinado do
+     Storage, pedido nesse mesmo hook acima) depois de um vai-e-volta
+     de rede — se o botão chamasse window.print() na hora do clique
+     (como BotaoRelatorio faz por padrão), a pessoa abria o apontamento
+     e já clicava, e a folha ia pra impressão com <img src> ainda vazio:
+     foto sumia do PDF inteira, sem erro nenhum pra avisar. O botão
+     fica desabilitado até toda foto que vai entrar no relatório ter
+     link pronto. */
+  const imagensDoRelatorio = useMemo(
+    () => linhaDoTempo.flatMap((e) => e.anexos).filter((a) => (a.tipo_mime || '').startsWith('image/')),
+    [linhaDoTempo],
+  )
+  const fotosDoRelatorioProntas = imagensDoRelatorio.every((a) => linksRelatorio[a.caminho])
 
   const abrir = async () => {
     const fresco = await dados.abrirApontamento(editando.id)
@@ -360,7 +373,14 @@ export default function Projetos({ goto, voltar, perfil }) {
               </div>
             )}
 
-            {editando.id && <div><BotaoRelatorio rotulo="Relatório do chamado" /></div>}
+            {editando.id && (
+              <div>
+                <BotaoRelatorio
+                  rotulo={fotosDoRelatorioProntas ? 'Relatório do chamado' : 'Carregando fotos do relatório…'}
+                  disabled={!fotosDoRelatorioProntas}
+                />
+              </div>
+            )}
 
             {editando.id && !travado && (
               <div className="row-flex" style={{ flexWrap: 'wrap' }}>
