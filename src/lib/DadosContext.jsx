@@ -30,7 +30,7 @@ import {
   enviarFotoOcorrencia, apagarFotoOcorrencia, enviarFotoAdvertencia, apagarFotoAdvertencia,
   enviarFotoEquipamento, apagarFotoEquipamento,
 } from './fotos'
-import { enviarAnexoApontamento, apagarAnexoApontamento, enviarAnexoPendencia, apagarAnexoPendencia } from './anexos'
+import { enviarAnexoApontamento, apagarAnexoApontamento, enviarAnexoPendencia, apagarAnexoPendencia, enviarAnexoComentario } from './anexos'
 import { enviarPlantaProducao } from './plantasProducao'
 
 const Ctx = createContext(null)
@@ -1627,6 +1627,35 @@ export function DadosProvider({ perfil, children }) {
       return fresco
     },
     [escopo, perfil.id, checar, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
+  )
+
+  /* Anexo adicionado DEPOIS, num comentário que já existe — pedido do
+     Julio: às vezes o arquivo (nota fiscal, laudo) só chega depois do
+     texto que já explica do que se trata ("segue as estacas
+     atualizadas..."), e virar um comentário novo separado perdia essa
+     referência. Mesmo bucket/caminho de sempre (enviarAnexoComentario
+     não amarra o arquivo ao comment_id — só ao note_id —, então dá
+     pra subir e só decidir o comment_id na hora de gravar a linha). */
+  const adicionarAnexoComentario = useCallback(
+    async (noteId, comentarioId, arquivo) => {
+      const { caminho, nome, tipo, tamanho, erro } = await enviarAnexoComentario({ arquivo, obraId, noteId })
+      if (erro) { avisarErro(erro); return null }
+
+      const { organization_id, worksite_id } = escopo()
+      const r = await supabase.from('project_note_comment_attachments').insert({
+        organization_id, worksite_id, comment_id: comentarioId,
+        caminho, nome_arquivo: nome, tipo_mime: tipo, tamanho_bytes: tamanho, autor_id: perfil.id,
+      })
+      if (r.error) { checar(r, 'anexar ao comentário'); return null }
+
+      await registrarHistoricoApontamento(noteId, {
+        tipo: 'anexo', descricao: `anexou "${nome}" a um comentário`,
+      })
+      const fresco = await relerApontamento(noteId)
+      atualizarApontamentoLocal(fresco)
+      return fresco
+    },
+    [obraId, escopo, perfil.id, checar, avisarErro, relerApontamento, atualizarApontamentoLocal, registrarHistoricoApontamento],
   )
 
   const apagarComentarioApontamento = useCallback(
@@ -3844,7 +3873,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntregaEquipamento, excluirEntregaEquipamento,
       salvarApontamento, mudarStatusApontamento, abrirApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
-      salvarComentarioApontamento, apagarComentarioApontamento,
+      salvarComentarioApontamento, apagarComentarioApontamento, adicionarAnexoComentario,
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque, importarMovimentoEstoque,
@@ -3884,7 +3913,7 @@ export function DadosProvider({ perfil, children }) {
       salvarEntregaEquipamento, excluirEntregaEquipamento,
       salvarApontamento, mudarStatusApontamento, abrirApontamento, excluirApontamento,
       salvarDisciplinaApontamento, removerDisciplinaApontamento,
-      salvarComentarioApontamento, apagarComentarioApontamento,
+      salvarComentarioApontamento, apagarComentarioApontamento, adicionarAnexoComentario,
       adicionarAnexoApontamento, removerAnexoApontamento,
       salvarCadastro, arquivarCadastro, cadastroDeOutraObra,
       salvarEntradaEstoque, excluirEntradaEstoque, salvarSaidaEstoque, excluirSaidaEstoque, importarMovimentoEstoque,

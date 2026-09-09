@@ -787,6 +787,25 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
     if (fresco) setEditando(fresco)
   }
 
+  /* Anexo adicionado depois, num comentário que já existe — pedido do
+     Julio: o arquivo (nota fiscal, laudo) às vezes só chega depois do
+     texto que já explica do que se trata, e virar um comentário novo
+     separado perdia essa referência. */
+  const [anexandoEm, setAnexandoEm] = useState(null)
+  const anexarDepois = async (comentarioId, arquivos) => {
+    setAnexandoEm(comentarioId)
+    try {
+      let fresco = null
+      for (const arquivo of arquivos) {
+        fresco = await dados.adicionarAnexoComentario(editando.id, comentarioId, arquivo)
+        if (!fresco) break
+      }
+      if (fresco) setEditando(fresco)
+    } finally {
+      setAnexandoEm(null)
+    }
+  }
+
   return (
     <div className="stack-2">
       {editando.comentarios.length === 0 ? (
@@ -814,7 +833,24 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
                   ))}
                 </div>
               )}
-              <div className="t-caption" style={{ marginTop: 6 }}>{formatarData(c.created_at?.slice(0, 10))}</div>
+              <div className="row-between" style={{ marginTop: 6, alignItems: 'center' }}>
+                <div className="t-caption">{formatarData(c.created_at?.slice(0, 10))}</div>
+                <label
+                  className="btn btn-ghost btn-sm" style={{ cursor: anexandoEm === c.id ? 'default' : 'pointer' }}
+                  title="Anexar um arquivo a este comentário depois — quando o arquivo se refere ao que já foi escrito aqui."
+                >
+                  <Icon name="anexo" size={13} /> {anexandoEm === c.id ? 'Enviando…' : 'Anexar depois'}
+                  <input
+                    type="file" accept="application/pdf,image/*" multiple style={{ display: 'none' }}
+                    disabled={anexandoEm === c.id}
+                    onChange={(e) => {
+                      const novos = [...(e.target.files || [])]
+                      e.target.value = ''
+                      if (novos.length) anexarDepois(c.id, novos)
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           ))}
         </div>
