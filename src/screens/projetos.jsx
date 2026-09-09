@@ -839,7 +839,7 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
                   className="btn btn-ghost btn-sm" style={{ cursor: anexandoEm === c.id ? 'default' : 'pointer' }}
                   title="Anexar um arquivo a este comentário depois — quando o arquivo se refere ao que já foi escrito aqui."
                 >
-                  <Icon name="anexo" size={13} /> {anexandoEm === c.id ? 'Enviando…' : 'Anexar depois'}
+                  <Icon name="anexo" size={13} /> {anexandoEm === c.id ? 'Enviando…' : 'Anexar'}
                   <input
                     type="file" accept="application/pdf,image/*" multiple style={{ display: 'none' }}
                     disabled={anexandoEm === c.id}
