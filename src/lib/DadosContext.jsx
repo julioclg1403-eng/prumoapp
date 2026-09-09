@@ -208,6 +208,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
       estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
       tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao,
+      medicoesProgramadas,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -261,6 +262,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('production_plans').select('*').order('created_at', { ascending: false })),
       buscarPaginado(() => supabase.from('production_markers').select('*')),
       buscarPaginado(() => supabase.from('production_marker_events').select('*, equipe:production_marker_event_workers(worker_id)').order('data_execucao', { ascending: false })),
+      buscarPaginado(() => supabase.from('contract_measurement_dates').select('*').order('data')),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -273,7 +275,7 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
       movimentosEstoque, isencoesTreinamento, regrasNotificacao,
-      tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao].find((r) => r.error)
+      tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao, medicoesProgramadas].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -338,6 +340,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos: suprimentos.data || [],
       entregasEquipamento: entregasEquipamento.data || [],
       contratos: contratos.data || [],
+      medicoesProgramadas: medicoesProgramadas.data || [],
       previsionProjectLinks: previsionProjectLinks.data || [],
       motivosNaoExecutado: motivosNaoExecutado.data || [],
       metasMensais: metasMensais.data || [],
@@ -478,6 +481,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos: filtrar(tudo.suprimentos),
       entregasEquipamento: filtrar(tudo.entregasEquipamento),
       contratos: filtrar(tudo.contratos),
+      medicoesProgramadas: filtrar(tudo.medicoesProgramadas),
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
       metasMensais: filtrar(tudo.metasMensais),
@@ -2556,6 +2560,52 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, recarregar],
   )
 
+  // ── Controle de medição (Contratos) ─────────────────────────
+  /* Agenda de quando cada empresa mede — não é o registro da medição
+     em si (isso é o módulo Produtividade > Medição, que lê os eventos
+     de produção vinculados a item de contrato), é só o planejamento
+     de QUANDO. Uma linha por empresa+data; mudar a data é editar essa
+     mesma linha (não apaga e recria), pra não perder o autor/criado
+     em original à toa. */
+  const salvarMedicaoProgramada = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id,
+        data: item.data, company_id: item.company_id,
+        observacao: (item.observacao || '').trim() || null,
+      }
+      if (item.id) linha.id = item.id
+      else linha.autor_id = perfil.id
+      const salvo = checar(
+        await supabase.from('contract_measurement_dates').upsert(linha).select('*').single(),
+        'salvar a medição programada',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({
+        ...t,
+        medicoesProgramadas: t.medicoesProgramadas.some((x) => x.id === salvo.id)
+          ? t.medicoesProgramadas.map((x) => (x.id === salvo.id ? salvo : x))
+          : [...t.medicoesProgramadas, salvo],
+      }))
+      return salvo
+    },
+    [escopo, perfil.id, checar],
+  )
+
+  const excluirMedicaoProgramada = useCallback(
+    async (id) => {
+      const r = await supabase.from('contract_measurement_dates').delete().eq('id', id)
+      if (r.error) { checar(r, 'retirar a medição programada'); return false }
+      setTudo((t) => t && ({
+        ...t,
+        medicoesProgramadas: t.medicoesProgramadas.filter((x) => x.id !== id),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -3882,6 +3932,7 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
+      salvarMedicaoProgramada, excluirMedicaoProgramada,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal,
@@ -3922,6 +3973,7 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
+      salvarMedicaoProgramada, excluirMedicaoProgramada,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal, definirPapel,

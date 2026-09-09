@@ -20,10 +20,10 @@
    última importação ao lado.
    ============================================================ */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { formatarData, formatarDinheiro, plural } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador } from '../components'
+import { hojeISO, formatarData, formatarDinheiro, plural } from '../lib/dominio'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador, Campo, Confirmar } from '../components'
 import { RankingBarras, GraficoDonut } from '../components/charts'
 
 const TOM_STATUS = { '1 - Aprovado': 'success', '2 - Em Aditivo': 'info', '0 - Não Aprovado': 'danger' }
@@ -95,6 +95,7 @@ export default function Contratos({ voltar, perfil, params = {} }) {
             opcoes={[
               { valor: 'dados', rotulo: 'Todos os dados', contador: itens.length },
               { valor: 'dashboard', rotulo: 'Dashboard' },
+              { valor: 'medicao', rotulo: 'Controle de Medição', contador: (dados.medicoesProgramadas || []).length },
             ]}
           />
 
@@ -116,6 +117,7 @@ export default function Contratos({ voltar, perfil, params = {} }) {
               {aba === 'dashboard' && (
                 <AbaDashboard itens={itens} contratosUnicos={contratosUnicos} ultimaImportacao={ultimaImportacao} />
               )}
+              {aba === 'medicao' && <AbaControleMedicao dados={dados} podeEditar={podeEditar} />}
             </>
           )}
         </div>
@@ -694,6 +696,175 @@ function GrupoCruzamento({ titulo, subtitulo, grupos, vazio }) {
         </div>
       )}
     </div>
+  )
+}
+
+/* ── Controle de Medição ────────────────────────────────────── */
+
+/* Data programada de medição por empresa. O saldo/andamento de
+   verdade continua vindo do módulo Produtividade (eventos de marcação
+   ligados a um item de contrato) — aqui só cruzamos: pra cada empresa
+   agendada numa data, somamos quantidade × preço dos eventos daquele
+   mês cujo item de contrato pertence a essa empresa. Como um mesmo
+   mês pode ter itens de unidades diferentes (m³, kg, m²…), o
+   cruzamento é sempre reportado em R$ — nunca em quantidade "crua". */
+function AbaControleMedicao({ dados, podeEditar }) {
+  const [novaAberta, setNovaAberta] = useState(false)
+  const [editando, setEditando] = useState(null)
+  const [excluindo, setExcluindo] = useState(null)
+
+  const medicoes = dados.medicoesProgramadas || []
+
+  const porData = useMemo(() => {
+    const mapa = new Map()
+    for (const m of medicoes) {
+      if (!mapa.has(m.data)) mapa.set(m.data, [])
+      mapa.get(m.data).push(m)
+    }
+    return [...mapa.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+  }, [medicoes])
+
+  /* "empresa|AAAA-MM" -> valor medido no módulo Produtividade naquele mês. */
+  const { medidoPorEmpresaMes, empresasComItens } = useMemo(() => {
+    const itensPorId = new Map((dados.contratos || []).map((i) => [i.id, i]))
+    const empresasComItens = new Set((dados.contratos || []).filter((i) => i.company_id).map((i) => i.company_id))
+    const medidoPorEmpresaMes = new Map()
+    for (const ev of dados.eventosProducao || []) {
+      if (!ev.contract_item_id || !ev.data_execucao) continue
+      const item = itensPorId.get(ev.contract_item_id)
+      if (!item?.company_id) continue
+      const chave = `${item.company_id}|${ev.data_execucao.slice(0, 7)}`
+      const valor = (Number(ev.quantidade) || 0) * (Number(item.preco_item) || 0)
+      medidoPorEmpresaMes.set(chave, (medidoPorEmpresaMes.get(chave) || 0) + valor)
+    }
+    return { medidoPorEmpresaMes, empresasComItens }
+  }, [dados.contratos, dados.eventosProducao])
+
+  return (
+    <div className="stack-2">
+      {podeEditar && (
+        <button className="btn btn-primary" onClick={() => { setEditando(null); setNovaAberta(true) }}>
+          Nova medição programada
+        </button>
+      )}
+
+      {porData.length === 0 ? (
+        <div className="card-flat">
+          <Vazio
+            titulo="Nenhuma data de medição programada ainda"
+            texto="Cadastre as datas em que cada empresa faz medição, pra controlar o calendário."
+          />
+        </div>
+      ) : (
+        <div className="stack-2">
+          {porData.map(([data, lista]) => (
+            <div key={data} className="card-flat stack-1">
+              <div className="t-strong" style={{ fontSize: 14 }}>{formatarData(data)}</div>
+              <div className="stack-1">
+                {lista.map((m) => {
+                  const nomeEmpresa = dados.nomeDe(dados.empresas, m.company_id)
+                  const valorMedido = medidoPorEmpresaMes.get(`${m.company_id}|${data.slice(0, 7)}`) || 0
+                  const temItens = empresasComItens.has(m.company_id)
+                  return (
+                    <div
+                      key={m.id} className="row-between"
+                      style={{ alignItems: 'flex-start', borderTop: '1px solid var(--border)', paddingTop: 8 }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div className="t-strong" style={{ fontSize: 13 }}>{nomeEmpresa}</div>
+                        {m.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{m.observacao}</div>}
+                        <div className="t-caption" style={{ marginTop: 2 }}>
+                          {temItens
+                            ? <>Medido no mês (Produtividade): <strong>{formatarDinheiro(valorMedido)}</strong></>
+                            : 'Sem item de contrato vinculado a essa empresa ainda'}
+                        </div>
+                      </div>
+                      {podeEditar && (
+                        <div className="row-flex" style={{ gap: 6, flex: 'none' }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => { setEditando(m); setNovaAberta(true) }}>Mudar</button>
+                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setExcluindo(m)}>Retirar</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <SheetMedicaoProgramada
+        aberto={novaAberta}
+        item={editando}
+        dados={dados}
+        onFechar={() => { setNovaAberta(false); setEditando(null) }}
+      />
+
+      <Confirmar
+        aberto={Boolean(excluindo)}
+        titulo="Retirar esta medição programada?"
+        texto={excluindo ? `${dados.nomeDe(dados.empresas, excluindo.company_id)} — ${formatarData(excluindo.data)}` : ''}
+        perigo
+        onCancelar={() => setExcluindo(null)}
+        onOk={async () => {
+          await dados.excluirMedicaoProgramada(excluindo.id)
+          setExcluindo(null)
+        }}
+      />
+    </div>
+  )
+}
+
+function SheetMedicaoProgramada({ aberto, item, dados, onFechar }) {
+  const [companyId, setCompanyId] = useState('')
+  const [data, setData] = useState('')
+  const [observacao, setObservacao] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => {
+    if (!aberto) return
+    setCompanyId(item?.company_id || '')
+    setData(item?.data || hojeISO())
+    setObservacao(item?.observacao || '')
+  }, [aberto, item])
+
+  const salvar = async () => {
+    if (!companyId || !data) return
+    setSalvando(true)
+    try {
+      const salvo = await dados.salvarMedicaoProgramada({ id: item?.id, company_id: companyId, data, observacao })
+      if (salvo) onFechar()
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo={item ? 'Mudar data da medição' : 'Nova medição programada'} onFechar={onFechar}>
+      <div className="stack-2">
+        <Campo label="Empresa">
+          <select className="sel" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+            <option value="">Selecione…</option>
+            {(dados.empresas || []).filter((e) => e.ativo !== false).map((e) => (
+              <option key={e.id} value={e.id}>{e.nome}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo label="Data da medição">
+          <input type="date" className="ipt" value={data} onChange={(e) => setData(e.target.value)} />
+        </Campo>
+        <Campo label="Observação (opcional)">
+          <input
+            className="ipt" value={observacao} onChange={(e) => setObservacao(e.target.value)}
+            placeholder="Ex.: medição parcial, aditivo…"
+          />
+        </Campo>
+        <button className="btn btn-primary btn-block" disabled={!companyId || !data || salvando} onClick={salvar}>
+          {salvando ? 'Salvando…' : 'Salvar'}
+        </button>
+      </div>
+    </Sheet>
   )
 }
 
