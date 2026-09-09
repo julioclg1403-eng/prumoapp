@@ -188,20 +188,17 @@ export default function Projetos({ goto, voltar, perfil }) {
     }
     return eventos.sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
   }, [editando])
-  const linksRelatorio = useLinksDeAnexos(useMemo(() => linhaDoTempo.flatMap((e) => e.anexos), [linhaDoTempo]))
-  /* As fotos do relatório só terminam de carregar (link assinado do
+  const anexosDoRelatorio = useMemo(() => linhaDoTempo.flatMap((e) => e.anexos), [linhaDoTempo])
+  const linksRelatorio = useLinksDeAnexos(anexosDoRelatorio)
+  /* Os anexos do relatório só terminam de carregar (link assinado do
      Storage, pedido nesse mesmo hook acima) depois de um vai-e-volta
      de rede — se o botão chamasse window.print() na hora do clique
      (como BotaoRelatorio faz por padrão), a pessoa abria o apontamento
-     e já clicava, e a folha ia pra impressão com <img src> ainda vazio:
-     foto sumia do PDF inteira, sem erro nenhum pra avisar. O botão
-     fica desabilitado até toda foto que vai entrar no relatório ter
-     link pronto. */
-  const imagensDoRelatorio = useMemo(
-    () => linhaDoTempo.flatMap((e) => e.anexos).filter((a) => (a.tipo_mime || '').startsWith('image/')),
-    [linhaDoTempo],
-  )
-  const fotosDoRelatorioProntas = imagensDoRelatorio.every((a) => linksRelatorio[a.caminho])
+     e já clicava, e a folha ia pra impressão com foto sem <img src> e
+     PDF sem link nenhum pra abrir, sem erro nenhum pra avisar. O botão
+     fica desabilitado até todo anexo que vai entrar no relatório
+     (foto OU pdf) ter link pronto. */
+  const anexosDoRelatorioProntos = anexosDoRelatorio.every((a) => linksRelatorio[a.caminho])
 
   const abrir = async () => {
     const fresco = await dados.abrirApontamento(editando.id)
@@ -376,8 +373,8 @@ export default function Projetos({ goto, voltar, perfil }) {
             {editando.id && (
               <div>
                 <BotaoRelatorio
-                  rotulo={fotosDoRelatorioProntas ? 'Relatório do chamado' : 'Carregando fotos do relatório…'}
-                  disabled={!fotosDoRelatorioProntas}
+                  rotulo={anexosDoRelatorioProntos ? 'Relatório do chamado' : 'Carregando anexos do relatório…'}
+                  disabled={!anexosDoRelatorioProntos}
                 />
               </div>
             )}
@@ -475,8 +472,14 @@ export default function Projetos({ goto, voltar, perfil }) {
                   <FotosRelatorio fotos={imagens} links={linksRelatorio} legenda={(f) => f.nome_arquivo || ''} />
                 )}
                 {outros.length > 0 && (
-                  <div style={{ fontSize: 12, color: '#71717A', marginTop: 6 }}>
-                    Anexos: {outros.map((a) => a.nome_arquivo || 'arquivo').join(', ')}
+                  <div style={{ fontSize: 12, marginTop: 6 }}>
+                    Anexos:{' '}
+                    {outros.map((a, j) => (
+                      <span key={a.id}>
+                        {j > 0 && ', '}
+                        <a href={linksRelatorio[a.caminho]} target="_blank" rel="noreferrer">{a.nome_arquivo || 'arquivo'}</a>
+                      </span>
+                    ))}
                   </div>
                 )}
               </SecaoRelatorio>
