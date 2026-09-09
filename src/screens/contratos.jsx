@@ -701,28 +701,66 @@ function GrupoCruzamento({ titulo, subtitulo, grupos, vazio }) {
 
 /* ── Controle de Medição ────────────────────────────────────── */
 
-/* Data programada de medição por empresa. O saldo/andamento de
-   verdade continua vindo do módulo Produtividade (eventos de marcação
-   ligados a um item de contrato) — aqui só cruzamos: pra cada empresa
-   agendada numa data, somamos quantidade × preço dos eventos daquele
-   mês cujo item de contrato pertence a essa empresa. Como um mesmo
-   mês pode ter itens de unidades diferentes (m³, kg, m²…), o
-   cruzamento é sempre reportado em R$ — nunca em quantidade "crua". */
+const DIAS_RECORRENCIA = [1, 10, 20]
+
+function ultimoDiaDoMes(aaaaMM) {
+  const [ano, mes] = aaaaMM.split('-').map(Number)
+  return new Date(ano, mes, 0).getDate()
+}
+
+function rotuloMes(aaaaMM) {
+  const [ano, mes] = aaaaMM.split('-').map(Number)
+  const nome = new Date(ano, mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  return nome.charAt(0).toUpperCase() + nome.slice(1)
+}
+
+function somarMes(aaaaMM, delta) {
+  const [ano, mes] = aaaaMM.split('-').map(Number)
+  const d = new Date(ano, mes - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/* Data programada de medição por empresa. Cada linha é uma medição
+   AVULSA (data fixa) ou RECORRENTE (dia do mês, repete sozinha, com
+   uma lista de meses excluídos pra quando um mês específico é
+   retirado ou muda de data sem afetar os outros). O saldo/andamento
+   de verdade continua vindo do módulo Produtividade (eventos de
+   marcação ligados a um item de contrato) — aqui só cruzamos: pra
+   cada empresa agendada num mês, somamos quantidade × preço dos
+   eventos daquele mês cujo item de contrato pertence a essa empresa.
+   Como um mesmo mês pode ter itens de unidades diferentes (m³, kg,
+   m²…), o cruzamento é sempre reportado em R$, nunca em quantidade
+   "crua". */
 function AbaControleMedicao({ dados, podeEditar }) {
-  const [novaAberta, setNovaAberta] = useState(false)
-  const [editando, setEditando] = useState(null)
+  const [periodo, setPeriodo] = useState(() => hojeISO().slice(0, 7))
+  const [sheetAberta, setSheetAberta] = useState(false)
+  const [contexto, setContexto] = useState({ modo: 'nova' })
   const [excluindo, setExcluindo] = useState(null)
 
   const medicoes = dados.medicoesProgramadas || []
 
+  const ocorrenciasDoPeriodo = useMemo(() => {
+    const lista = []
+    for (const m of medicoes) {
+      if (m.recorrente) {
+        if ((m.meses_excluidos || []).includes(periodo)) continue
+        const dia = Math.min(m.dia_mes, ultimoDiaDoMes(periodo))
+        lista.push({ ...m, dataOcorrencia: `${periodo}-${String(dia).padStart(2, '0')}` })
+      } else if (m.data && m.data.slice(0, 7) === periodo) {
+        lista.push({ ...m, dataOcorrencia: m.data })
+      }
+    }
+    return lista.sort((a, b) => a.dataOcorrencia.localeCompare(b.dataOcorrencia))
+  }, [medicoes, periodo])
+
   const porData = useMemo(() => {
     const mapa = new Map()
-    for (const m of medicoes) {
-      if (!mapa.has(m.data)) mapa.set(m.data, [])
-      mapa.get(m.data).push(m)
+    for (const oc of ocorrenciasDoPeriodo) {
+      if (!mapa.has(oc.dataOcorrencia)) mapa.set(oc.dataOcorrencia, [])
+      mapa.get(oc.dataOcorrencia).push(oc)
     }
-    return [...mapa.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-  }, [medicoes])
+    return [...mapa.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [ocorrenciasDoPeriodo])
 
   /* "empresa|AAAA-MM" -> valor medido no módulo Produtividade naquele mês. */
   const { medidoPorEmpresaMes, empresasComItens } = useMemo(() => {
@@ -740,19 +778,32 @@ function AbaControleMedicao({ dados, podeEditar }) {
     return { medidoPorEmpresaMes, empresasComItens }
   }, [dados.contratos, dados.eventosProducao])
 
+  const abrirNova = () => { setContexto({ modo: 'nova' }); setSheetAberta(true) }
+  const abrirMudarOcorrencia = (oc) => {
+    setContexto(oc.recorrente ? { modo: 'ocorrencia', item: oc } : { modo: 'avulsa', item: oc })
+    setSheetAberta(true)
+  }
+  const abrirEditarSerie = (oc) => { setContexto({ modo: 'serie', item: oc }); setSheetAberta(true) }
+
   return (
     <div className="stack-2">
       {podeEditar && (
-        <button className="btn btn-primary" onClick={() => { setEditando(null); setNovaAberta(true) }}>
+        <button className="btn btn-primary" onClick={abrirNova}>
           Nova medição programada
         </button>
       )}
 
+      <div className="row-between" style={{ alignItems: 'center' }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setPeriodo((p) => somarMes(p, -1))}>‹ Anterior</button>
+        <div className="t-strong">{rotuloMes(periodo)}</div>
+        <button className="btn btn-ghost btn-sm" onClick={() => setPeriodo((p) => somarMes(p, 1))}>Próximo ›</button>
+      </div>
+
       {porData.length === 0 ? (
         <div className="card-flat">
           <Vazio
-            titulo="Nenhuma data de medição programada ainda"
-            texto="Cadastre as datas em que cada empresa faz medição, pra controlar o calendário."
+            titulo="Nenhuma medição programada neste mês"
+            texto="Cadastre as datas em que cada empresa faz medição — dá pra deixar fixa (recorrente, ex.: todo dia 1, 10 ou 20) ou avulsa."
           />
         </div>
       ) : (
@@ -761,28 +812,41 @@ function AbaControleMedicao({ dados, podeEditar }) {
             <div key={data} className="card-flat stack-1">
               <div className="t-strong" style={{ fontSize: 14 }}>{formatarData(data)}</div>
               <div className="stack-1">
-                {lista.map((m) => {
-                  const nomeEmpresa = dados.nomeDe(dados.empresas, m.company_id)
-                  const valorMedido = medidoPorEmpresaMes.get(`${m.company_id}|${data.slice(0, 7)}`) || 0
-                  const temItens = empresasComItens.has(m.company_id)
+                {lista.map((oc) => {
+                  const nomeEmpresa = dados.nomeDe(dados.empresas, oc.company_id)
+                  const valorMedido = medidoPorEmpresaMes.get(`${oc.company_id}|${data.slice(0, 7)}`) || 0
+                  const temItens = empresasComItens.has(oc.company_id)
                   return (
                     <div
-                      key={m.id} className="row-between"
+                      key={oc.id} className="row-between"
                       style={{ alignItems: 'flex-start', borderTop: '1px solid var(--border)', paddingTop: 8 }}
                     >
                       <div style={{ minWidth: 0 }}>
-                        <div className="t-strong" style={{ fontSize: 13 }}>{nomeEmpresa}</div>
-                        {m.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{m.observacao}</div>}
+                        <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+                          <span className="t-strong" style={{ fontSize: 13 }}>{nomeEmpresa}</span>
+                          {oc.recorrente && <Chip tom="info">Recorrente · todo dia {oc.dia_mes}</Chip>}
+                        </div>
+                        {oc.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{oc.observacao}</div>}
                         <div className="t-caption" style={{ marginTop: 2 }}>
                           {temItens
                             ? <>Medido no mês (Produtividade): <strong>{formatarDinheiro(valorMedido)}</strong></>
                             : 'Sem item de contrato vinculado a essa empresa ainda'}
                         </div>
+                        {podeEditar && oc.recorrente && (
+                          <button
+                            className="btn btn-ghost btn-sm" style={{ marginTop: 2, padding: '2px 0', height: 'auto', color: 'var(--primary)' }}
+                            onClick={() => abrirEditarSerie(oc)}
+                          >
+                            Editar recorrência
+                          </button>
+                        )}
                       </div>
                       {podeEditar && (
                         <div className="row-flex" style={{ gap: 6, flex: 'none' }}>
-                          <button className="btn btn-ghost btn-sm" onClick={() => { setEditando(m); setNovaAberta(true) }}>Mudar</button>
-                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setExcluindo(m)}>Retirar</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => abrirMudarOcorrencia(oc)}>Mudar</button>
+                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setExcluindo(oc)}>
+                            {oc.recorrente ? 'Pular este mês' : 'Retirar'}
+                          </button>
                         </div>
                       )}
                     </div>
@@ -795,20 +859,22 @@ function AbaControleMedicao({ dados, podeEditar }) {
       )}
 
       <SheetMedicaoProgramada
-        aberto={novaAberta}
-        item={editando}
+        aberto={sheetAberta}
+        contexto={contexto}
+        periodo={periodo}
         dados={dados}
-        onFechar={() => { setNovaAberta(false); setEditando(null) }}
+        onFechar={() => setSheetAberta(false)}
       />
 
       <Confirmar
         aberto={Boolean(excluindo)}
-        titulo="Retirar esta medição programada?"
-        texto={excluindo ? `${dados.nomeDe(dados.empresas, excluindo.company_id)} — ${formatarData(excluindo.data)}` : ''}
+        titulo={excluindo?.recorrente ? `Pular a medição de ${rotuloMes(periodo)}?` : 'Retirar esta medição programada?'}
+        texto={excluindo ? `${dados.nomeDe(dados.empresas, excluindo.company_id)} — ${formatarData(excluindo.dataOcorrencia)}${excluindo.recorrente ? ' (os outros meses da recorrência continuam)' : ''}` : ''}
         perigo
         onCancelar={() => setExcluindo(null)}
         onOk={async () => {
-          await dados.excluirMedicaoProgramada(excluindo.id)
+          if (excluindo.recorrente) await dados.excluirOcorrenciaRecorrente(excluindo.id, periodo)
+          else await dados.excluirMedicaoProgramada(excluindo.id)
           setExcluindo(null)
         }}
       />
@@ -816,24 +882,66 @@ function AbaControleMedicao({ dados, podeEditar }) {
   )
 }
 
-function SheetMedicaoProgramada({ aberto, item, dados, onFechar }) {
+/* contexto.modo:
+   - 'nova': cadastro do zero, escolhe avulsa ou recorrente.
+   - 'serie': edita a recorrência inteira (empresa/dia do mês), com
+     opção de excluir a série toda.
+   - 'ocorrencia': muda só o mês em exibição de uma recorrência —
+     exclui aquele mês da série e cria uma medição avulsa no lugar.
+   - 'avulsa': edita uma medição avulsa já existente. */
+function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) {
   const [companyId, setCompanyId] = useState('')
+  const [recorrente, setRecorrente] = useState(false)
+  const [diaMes, setDiaMes] = useState(1)
   const [data, setData] = useState('')
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [excluindoSerie, setExcluindoSerie] = useState(false)
+
+  const modo = contexto?.modo || 'nova'
+  const item = contexto?.item
 
   useEffect(() => {
     if (!aberto) return
-    setCompanyId(item?.company_id || '')
-    setData(item?.data || hojeISO())
-    setObservacao(item?.observacao || '')
-  }, [aberto, item])
+    if (modo === 'serie') {
+      setCompanyId(item.company_id); setRecorrente(true); setDiaMes(item.dia_mes || 1)
+      setData(''); setObservacao(item.observacao || '')
+    } else if (modo === 'ocorrencia') {
+      const dia = Math.min(item.dia_mes, ultimoDiaDoMes(periodo))
+      setCompanyId(item.company_id); setRecorrente(false)
+      setData(`${periodo}-${String(dia).padStart(2, '0')}`); setObservacao(item.observacao || '')
+    } else if (modo === 'avulsa') {
+      setCompanyId(item.company_id); setRecorrente(false)
+      setData(item.data); setObservacao(item.observacao || '')
+    } else {
+      setCompanyId(''); setRecorrente(false); setDiaMes(1)
+      setData(hojeISO()); setObservacao('')
+    }
+  }, [aberto, modo, item, periodo])
+
+  const titulo = {
+    nova: 'Nova medição programada',
+    serie: 'Editar recorrência',
+    ocorrencia: `Mudar medição de ${rotuloMes(periodo)}`,
+    avulsa: 'Mudar data da medição',
+  }[modo]
 
   const salvar = async () => {
-    if (!companyId || !data) return
+    if (!companyId) return
+    if (recorrente && !diaMes) return
+    if (!recorrente && !data) return
     setSalvando(true)
     try {
-      const salvo = await dados.salvarMedicaoProgramada({ id: item?.id, company_id: companyId, data, observacao })
+      if (modo === 'ocorrencia') {
+        await dados.excluirOcorrenciaRecorrente(item.id, periodo)
+        const salvo = await dados.salvarMedicaoProgramada({ company_id: companyId, recorrente: false, data, observacao })
+        if (salvo) onFechar()
+        return
+      }
+      const salvo = await dados.salvarMedicaoProgramada({
+        id: modo === 'serie' || modo === 'avulsa' ? item.id : undefined,
+        company_id: companyId, recorrente, dia_mes: diaMes, data, observacao,
+      })
       if (salvo) onFechar()
     } finally {
       setSalvando(false)
@@ -841,30 +949,101 @@ function SheetMedicaoProgramada({ aberto, item, dados, onFechar }) {
   }
 
   return (
-    <Sheet aberto={aberto} titulo={item ? 'Mudar data da medição' : 'Nova medição programada'} onFechar={onFechar}>
-      <div className="stack-2">
-        <Campo label="Empresa">
-          <select className="sel" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-            <option value="">Selecione…</option>
-            {(dados.empresas || []).filter((e) => e.ativo !== false).map((e) => (
-              <option key={e.id} value={e.id}>{e.nome}</option>
-            ))}
-          </select>
-        </Campo>
-        <Campo label="Data da medição">
-          <input type="date" className="ipt" value={data} onChange={(e) => setData(e.target.value)} />
-        </Campo>
-        <Campo label="Observação (opcional)">
-          <input
-            className="ipt" value={observacao} onChange={(e) => setObservacao(e.target.value)}
-            placeholder="Ex.: medição parcial, aditivo…"
-          />
-        </Campo>
-        <button className="btn btn-primary btn-block" disabled={!companyId || !data || salvando} onClick={salvar}>
-          {salvando ? 'Salvando…' : 'Salvar'}
-        </button>
-      </div>
-    </Sheet>
+    <>
+      <Sheet aberto={aberto} titulo={titulo} onFechar={onFechar}>
+        <div className="stack-2">
+          <Campo label="Empresa">
+            <select className="sel" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <option value="">Selecione…</option>
+              {(dados.empresas || []).filter((e) => e.ativo !== false).map((e) => (
+                <option key={e.id} value={e.id}>{e.nome}</option>
+              ))}
+            </select>
+          </Campo>
+
+          {modo === 'nova' && (
+            <div className="row-wrap" style={{ gap: 6 }}>
+              <button
+                className={`btn btn-sm ${!recorrente ? 'btn-dark' : 'btn-secondary'}`}
+                onClick={() => setRecorrente(false)}
+              >
+                Data única
+              </button>
+              <button
+                className={`btn btn-sm ${recorrente ? 'btn-dark' : 'btn-secondary'}`}
+                onClick={() => setRecorrente(true)}
+              >
+                Recorrente (todo mês)
+              </button>
+            </div>
+          )}
+
+          {modo === 'ocorrencia' && (
+            <div className="t-caption" style={{ color: 'var(--text-2)' }}>
+              Isso muda só a medição de {rotuloMes(periodo)}. Os outros meses continuam no dia {item?.dia_mes}.
+            </div>
+          )}
+
+          {(modo === 'serie' || (modo === 'nova' && recorrente)) ? (
+            <Campo label="Dia da recorrência">
+              <div className="row-wrap" style={{ gap: 6, alignItems: 'center' }}>
+                {DIAS_RECORRENCIA.map((d) => (
+                  <button
+                    key={d} type="button"
+                    className={`btn btn-sm ${diaMes === d ? 'btn-dark' : 'btn-secondary'}`}
+                    onClick={() => setDiaMes(d)}
+                  >
+                    Dia {d}
+                  </button>
+                ))}
+                <input
+                  type="number" min={1} max={31} className="ipt" style={{ width: 70 }}
+                  value={diaMes} onChange={(e) => setDiaMes(Math.min(31, Math.max(1, Number(e.target.value) || 1)))}
+                />
+              </div>
+            </Campo>
+          ) : (
+            <Campo label="Data da medição">
+              <input type="date" className="ipt" value={data} onChange={(e) => setData(e.target.value)} />
+            </Campo>
+          )}
+
+          <Campo label="Observação (opcional)">
+            <input
+              className="ipt" value={observacao} onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Ex.: medição parcial, aditivo…"
+            />
+          </Campo>
+
+          <button
+            className="btn btn-primary btn-block"
+            disabled={!companyId || (recorrente ? !diaMes : !data) || salvando}
+            onClick={salvar}
+          >
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+
+          {modo === 'serie' && (
+            <button className="btn btn-ghost btn-block" style={{ color: 'var(--danger)' }} onClick={() => setExcluindoSerie(true)}>
+              Excluir toda a recorrência
+            </button>
+          )}
+        </div>
+      </Sheet>
+
+      <Confirmar
+        aberto={excluindoSerie}
+        titulo="Excluir toda a recorrência?"
+        texto={item ? `${dados.nomeDe(dados.empresas, item.company_id)} — todo dia ${item.dia_mes}, em todos os meses.` : ''}
+        perigo
+        onCancelar={() => setExcluindoSerie(false)}
+        onOk={async () => {
+          await dados.excluirMedicaoProgramada(item.id)
+          setExcluindoSerie(false)
+          onFechar()
+        }}
+      />
+    </>
   )
 }
 

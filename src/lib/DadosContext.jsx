@@ -2564,15 +2564,19 @@ export function DadosProvider({ perfil, children }) {
   /* Agenda de quando cada empresa mede — não é o registro da medição
      em si (isso é o módulo Produtividade > Medição, que lê os eventos
      de produção vinculados a item de contrato), é só o planejamento
-     de QUANDO. Uma linha por empresa+data; mudar a data é editar essa
-     mesma linha (não apaga e recria), pra não perder o autor/criado
-     em original à toa. */
+     de QUANDO. Uma linha por empresa+data (avulsa) OU por empresa+dia
+     do mês (recorrente — as datas de pagamento costumam ser sempre
+     dia 1, 10 ou 20, então a agenda se repete todo mês sozinha, sem
+     precisar recriar). Mudar é editar a mesma linha (não apaga e
+     recria), pra não perder o autor/criado em original à toa. */
   const salvarMedicaoProgramada = useCallback(
     async (item) => {
       const { organization_id, worksite_id } = escopo()
       const linha = {
-        organization_id, worksite_id,
-        data: item.data, company_id: item.company_id,
+        organization_id, worksite_id, company_id: item.company_id,
+        recorrente: Boolean(item.recorrente),
+        data: item.recorrente ? null : item.data,
+        dia_mes: item.recorrente ? item.dia_mes : null,
         observacao: (item.observacao || '').trim() || null,
       }
       if (item.id) linha.id = item.id
@@ -2604,6 +2608,29 @@ export function DadosProvider({ perfil, children }) {
       return true
     },
     [checar],
+  )
+
+  /* Pula só a ocorrência de UM mês de uma medição recorrente, sem
+     mexer nos outros meses — a série continua existindo, só ganha
+     mais um mês na lista de exceções. */
+  const excluirOcorrenciaRecorrente = useCallback(
+    async (id, mesAAAAMM) => {
+      const atual = tudo?.medicoesProgramadas.find((x) => x.id === id)
+      if (!atual) return false
+      const excluidos = [...new Set([...(atual.meses_excluidos || []), mesAAAAMM])]
+      const atualizado = checar(
+        await supabase.from('contract_measurement_dates')
+          .update({ meses_excluidos: excluidos }).eq('id', id).select('*').single(),
+        'pular a medição daquele mês',
+      )
+      if (!atualizado) return false
+      setTudo((t) => t && ({
+        ...t,
+        medicoesProgramadas: t.medicoesProgramadas.map((x) => (x.id === id ? atualizado : x)),
+      }))
+      return true
+    },
+    [tudo, checar],
   )
 
   // ── Controle de refeições (Almoxarifado) ───────────────────
@@ -3932,7 +3959,7 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
-      salvarMedicaoProgramada, excluirMedicaoProgramada,
+      salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal,
@@ -3973,7 +4000,7 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
-      salvarMedicaoProgramada, excluirMedicaoProgramada,
+      salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal, definirPapel,
