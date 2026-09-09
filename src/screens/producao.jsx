@@ -828,11 +828,11 @@ function AbaDashboardRendimento({ dados }) {
 
 /* ── Comparação com o SINAPI ────────────────────────────────────
    Busca sob demanda (nunca automática — custa dinheiro e tempo):
-   pede pro assistente de IA (Claude com busca na web) achar a
-   composição SINAPI do serviço selecionado e devolver só um JSON,
-   sem prosa, pra virar gráfico. Fica em cache na tela enquanto o
-   filtro de serviço não muda — trocar de serviço limpa e exige
-   buscar de novo. */
+   pede pra Edge Function sinapi-referencia (OpenAI, gpt-4o-mini com
+   busca na web nativa da Responses API) achar a composição SINAPI do
+   serviço selecionado e devolver só um JSON, sem prosa, pra virar
+   gráfico. Fica em cache na tela enquanto o filtro de serviço não
+   muda — trocar de serviço limpa e exige buscar de novo. */
 function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId }) {
   const [buscando, setBuscando] = useState(false)
   const [resultado, setResultado] = useState(null)
@@ -852,21 +852,11 @@ function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId 
         + '{"encontrado": true ou false, "coeficiente_por_dia": número ou null, "codigo_composicao": string ou null, '
         + '"revisao": string ou null, "fonte_url": string ou null, "observacao": string ou null}'
 
-      let historico = [{ role: 'user', content: prompt }]
-      let conteudoFinal = null
-      for (let i = 0; i < 4; i++) {
-        const { data, error } = await supabase.functions.invoke('prumo-chat', { body: { messages: historico, tools: [] } })
-        if (error) throw error
-        if (data?.error) throw new Error(data.error)
-        historico = [...historico, { role: 'assistant', content: data.content }]
-        if (data.stop_reason === 'pause_turn') continue
-        conteudoFinal = data.content
-        break
-      }
-      if (!conteudoFinal) throw new Error('Demorou demais pra responder.')
+      const { data, error } = await supabase.functions.invoke('sinapi-referencia', { body: { prompt } })
+      if (error) throw error
+      if (data?.erro) throw new Error(data.erro)
 
-      const texto = conteudoFinal.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim()
-      const bruto = texto.replace(/^```(json)?/i, '').replace(/```$/, '').trim()
+      const bruto = (data.texto || '').replace(/^```(json)?/i, '').replace(/```$/, '').trim()
       const match = bruto.match(/\{[\s\S]*\}/)
       const json = JSON.parse(match ? match[0] : bruto)
       setResultado(json)
