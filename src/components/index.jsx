@@ -7,6 +7,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { linksTemporarios, baixarFoto } from '../lib/fotos'
 import { linksTemporariosAnexos } from '../lib/anexos'
 import { transcrever } from '../lib/audio'
+import { melhorarTexto } from '../lib/melhorarTexto'
 import { gradeDoMes, somarMeses, rotuloMes } from '../lib/dominio'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 
@@ -25,6 +26,7 @@ const CAMINHOS = {
   check: 'M4.5 12.5 9.5 17.5 19.5 6.5',
   x: 'M6 6l12 12M18 6 6 18',
   minus: 'M5 12h14',
+  melhorar: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 15l.9 2.6L22.5 18.5l-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z',
   voltar: 'M15 5l-7 7 7 7',
   avancar: 'M9 5l7 7-7 7',
   sair: 'M15 12H4.5M8 8.5 4.5 12 8 15.5M11 4.5h7a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-7',
@@ -191,11 +193,29 @@ export function Campo({ label, children, dica }) {
    Três estados: parado → gravando → transcrevendo → parado. O
    pedido de permissão do microfone só acontece no primeiro toque,
    como qualquer app. */
-export function TextareaComAudio({ value, onChange, style, ...props }) {
+export function TextareaComAudio({ value, onChange, style, podeMelhorar, ...props }) {
   const [estado, setEstado] = useState('parado') // parado | gravando | transcrevendo
   const [erro, setErro] = useState('')
+  const [melhorando, setMelhorando] = useState(false)
   const gravadorRef = useRef(null)
   const pedacosRef = useRef([])
+
+  /* "Melhorar com IA" — reescreve o texto digitado num tom mais
+     técnico, pedido pontual do Julio pra Descrição e Comentários de
+     Projetos (campo opt-in via `podeMelhorar`, não em todo textarea
+     do app — observação de frente do Diário, por exemplo, não pediu
+     isso). Substitui o texto inteiro, igual a transcrição de áudio
+     faz — sem "desfazer" próprio porque o campo continua editável
+     normalmente depois, a pessoa ajusta na mão se a IA exagerar. */
+  const aoMelhorar = async () => {
+    if (!value?.trim() || melhorando) return
+    setErro('')
+    setMelhorando(true)
+    const melhorado = await melhorarTexto(value.trim())
+    setMelhorando(false)
+    if (!melhorado) { setErro('Não consegui melhorar o texto agora. Tenta de novo.'); return }
+    onChange({ target: { value: melhorado } })
+  }
 
   const alternar = async () => {
     if (estado === 'gravando') {
@@ -254,6 +274,14 @@ export function TextareaComAudio({ value, onChange, style, ...props }) {
       </div>
       {estado === 'gravando' && <div className="t-caption" style={{ marginTop: 4 }}>Gravando… toque de novo para parar.</div>}
       {estado === 'transcrevendo' && <div className="t-caption" style={{ marginTop: 4 }}>Transcrevendo…</div>}
+      {podeMelhorar && !props.disabled && value?.trim() && (
+        <button
+          type="button" onClick={aoMelhorar} disabled={melhorando}
+          className="btn btn-ghost btn-sm" style={{ marginTop: 6, padding: '4px 8px' }}
+        >
+          <Icon name="melhorar" size={14} /> {melhorando ? 'Melhorando…' : 'Melhorar texto com IA'}
+        </button>
+      )}
       {erro && <div className="t-caption" style={{ marginTop: 4, color: 'var(--danger)' }}>{erro}</div>}
     </div>
   )

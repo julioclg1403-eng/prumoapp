@@ -538,7 +538,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo, travado }) {
       </Campo>
       <Campo label="Descrição">
         <TextareaComAudio
-          value={editando.descricao || ''} disabled={travado}
+          value={editando.descricao || ''} disabled={travado} podeMelhorar
           onChange={(e) => setEditando((p) => ({ ...p, descricao: e.target.value }))}
           placeholder="Contexto suficiente para quem for resolver."
         />
@@ -818,7 +818,7 @@ function AbaComentarios({ editando, setEditando, dados, perfil, garantirSalvo })
       )}
 
       <div>
-        <TextareaComAudio value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escreva um comentário…" />
+        <TextareaComAudio value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escreva um comentário…" podeMelhorar />
 
         {arquivos.length > 0 && (
           <div className="row-wrap" style={{ marginTop: 8, gap: 6 }}>
