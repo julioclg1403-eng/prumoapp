@@ -27,6 +27,7 @@ import {
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
   TextareaComAudio, CampoAnexos, useLinksDeAnexos, ChipToggle,
+  RelatorioFolha, SecaoRelatorio, FotosRelatorio, BotaoRelatorio,
 } from '../components'
 import { enviarAnexoComentario } from '../lib/anexos'
 
@@ -159,6 +160,35 @@ export default function Projetos({ goto, voltar, perfil }) {
 
   const travado = editando ? apontamentoTravado(editando, perfil) : false
   const pendenciasAbrir = editando ? pendenciasParaAbrirApontamento(editando) : []
+
+  /* Relatório do chamado — do início ao fim numa sequência lógica
+     só, não abas separadas (Detalhes/Comentários/Histórico) como na
+     tela: a abertura entra como o primeiro "comentário" (é a primeira
+     conversa), o histórico relevante (status, edição, disciplina —
+     não "comentario"/"anexo", que já viram registros de verdade
+     abaixo, duplicar aqui só criaria ruído) e cada comentário depois,
+     tudo ordenado por data, cada um com os PRÓPRIOS anexos ali do
+     lado — não uma lista de anexos solta no fim. */
+  const linhaDoTempo = useMemo(() => {
+    if (!editando?.id) return []
+    const eventos = [{
+      tipo: 'abertura', autor_id: editando.autor_id, created_at: editando.created_at,
+      texto: editando.descricao, anexos: editando.anexos || [],
+    }]
+    for (const h of editando.historico) {
+      if (h.tipo === 'comentario' || h.tipo === 'anexo') continue
+      eventos.push({
+        tipo: 'evento', autor_id: h.autor_id, created_at: h.created_at,
+        texto: h.descricao || `Mudou o status para ${ROTULO_STATUS_APONTAMENTO[h.para_status] || h.para_status}${h.de_status ? ` (de ${ROTULO_STATUS_APONTAMENTO[h.de_status] || h.de_status})` : ''}`,
+        anexos: [],
+      })
+    }
+    for (const c of editando.comentarios) {
+      eventos.push({ tipo: 'comentario', autor_id: c.autor_id, created_at: c.created_at, texto: c.texto, anexos: c.anexos || [] })
+    }
+    return eventos.sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
+  }, [editando])
+  const linksRelatorio = useLinksDeAnexos(useMemo(() => linhaDoTempo.flatMap((e) => e.anexos), [linhaDoTempo]))
 
   const abrir = async () => {
     const fresco = await dados.abrirApontamento(editando.id)
@@ -330,6 +360,8 @@ export default function Projetos({ goto, voltar, perfil }) {
               </div>
             )}
 
+            {editando.id && <div><BotaoRelatorio rotulo="Relatório do chamado" /></div>}
+
             {editando.id && !travado && (
               <div className="row-flex" style={{ flexWrap: 'wrap' }}>
                 {editando.status === 'ativo' ? (
@@ -383,6 +415,55 @@ export default function Projetos({ goto, voltar, perfil }) {
         onOk={confirmar?.onOk}
         onCancelar={() => setConfirmar(null)}
       />
+
+      {editando?.id && (
+        <RelatorioFolha
+          titulo={`Chamado Nº ${editando.numero}`}
+          sub={editando.titulo}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio titulo="Situação">
+            <div style={{ fontSize: 13 }}>
+              Status: <strong>{ROTULO_STATUS_APONTAMENTO[editando.status]}</strong> ·
+              Prioridade: <strong>{ROTULO_PRIORIDADE[editando.prioridade]}</strong>
+              {editando.disciplinas.length > 0 && (
+                <> · Disciplinas: <strong>{editando.disciplinas.map((d) => siglaOuNome(dados.disciplinasProjeto, d.discipline_id)).filter(Boolean).join(', ')}</strong></>
+              )}
+              {editando.category_ids.length > 0 && (
+                <> · Categorias: <strong>{editando.category_ids.map((id) => dados.nomeDe(dados.categoriasProjeto, id)).join(', ')}</strong></>
+              )}
+              {editando.location_ids.length > 0 && (
+                <> · Locais: <strong>{editando.location_ids.map((id) => dados.nomeDe(dados.locais, id)).join(', ')}</strong></>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
+              Aberto por {dados.perfilPorId(editando.autor_id)?.nome || 'Alguém'} em {formatarDataHora(editando.created_at)}
+            </div>
+          </SecaoRelatorio>
+
+          {linhaDoTempo.map((e, i) => {
+            const imagens = e.anexos.filter((a) => (a.tipo_mime || '').startsWith('image/'))
+            const outros = e.anexos.filter((a) => !(a.tipo_mime || '').startsWith('image/'))
+            const rotuloTipo = e.tipo === 'abertura' ? 'Abertura do chamado' : e.tipo === 'evento' ? 'Andamento' : 'Comentário'
+            return (
+              <SecaoRelatorio
+                key={i}
+                titulo={`${i + 1}. ${rotuloTipo} — ${dados.perfilPorId(e.autor_id)?.nome || 'Alguém'} · ${formatarDataHora(e.created_at)}`}
+              >
+                {e.texto && <div style={{ fontSize: 13, whiteSpace: 'pre-line' }}>{e.texto}</div>}
+                {imagens.length > 0 && (
+                  <FotosRelatorio fotos={imagens} links={linksRelatorio} legenda={(f) => f.nome_arquivo || ''} />
+                )}
+                {outros.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#71717A', marginTop: 6 }}>
+                    Anexos: {outros.map((a) => a.nome_arquivo || 'arquivo').join(', ')}
+                  </div>
+                )}
+              </SecaoRelatorio>
+            )
+          })}
+        </RelatorioFolha>
+      )}
     </>
   )
 }
