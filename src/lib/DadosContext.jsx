@@ -2633,6 +2633,33 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  /* Estado da medição (programada / aguardando aditivo / medição
+     feita / nota em lançamento). Numa linha avulsa é só um campo da
+     própria linha; numa série recorrente, cada mês precisa de um
+     estado independente (o aditivo pode travar só um mês, o resto
+     segue normal) — por isso vira um mapa "AAAA-MM" -> estado dentro
+     da própria série, do mesmo jeito que os meses excluídos. */
+  const salvarStatusMedicao = useCallback(
+    async (ocorrencia, periodo, status) => {
+      const atual = tudo?.medicoesProgramadas.find((x) => x.id === ocorrencia.id)
+      if (!atual) return false
+      const patch = atual.recorrente
+        ? { status_por_mes: { ...(atual.status_por_mes || {}), [periodo]: status } }
+        : { status }
+      const atualizado = checar(
+        await supabase.from('contract_measurement_dates').update(patch).eq('id', ocorrencia.id).select('*').single(),
+        'salvar o estado da medição',
+      )
+      if (!atualizado) return false
+      setTudo((t) => t && ({
+        ...t,
+        medicoesProgramadas: t.medicoesProgramadas.map((x) => (x.id === ocorrencia.id ? atualizado : x)),
+      }))
+      return true
+    },
+    [tudo, checar],
+  )
+
   // ── Controle de refeições (Almoxarifado) ───────────────────
   const salvarRefeicao = useCallback(
     async (item) => {
@@ -3959,7 +3986,7 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
-      salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente,
+      salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente, salvarStatusMedicao,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal,
@@ -4000,7 +4027,7 @@ export function DadosProvider({ perfil, children }) {
       importarSuprimentos, vincularSuprimentoAutomaticamente, vincularEntradaSuprimento, definirDestinoSuprimento,
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
-      salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente,
+      salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente, salvarStatusMedicao,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal, definirPapel,

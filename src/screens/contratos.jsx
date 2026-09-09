@@ -703,6 +703,17 @@ function GrupoCruzamento({ titulo, subtitulo, grupos, vazio }) {
 
 const DIAS_RECORRENCIA = [1, 10, 20]
 
+const STATUS_MEDICAO = [
+  { valor: 'programada', rotulo: 'Programada', tom: '' },
+  { valor: 'aguardando_aditivo', rotulo: 'Aguardando aditivo', tom: 'danger' },
+  { valor: 'medicao_feita', rotulo: 'Medição feita', tom: 'success' },
+  { valor: 'lancamento_nota', rotulo: 'Nota em lançamento', tom: 'info' },
+]
+
+function infoStatus(valor) {
+  return STATUS_MEDICAO.find((s) => s.valor === valor) || STATUS_MEDICAO[0]
+}
+
 function ultimoDiaDoMes(aaaaMM) {
   const [ano, mes] = aaaaMM.split('-').map(Number)
   return new Date(ano, mes, 0).getDate()
@@ -736,6 +747,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
   const [sheetAberta, setSheetAberta] = useState(false)
   const [contexto, setContexto] = useState({ modo: 'nova' })
   const [excluindo, setExcluindo] = useState(null)
+  const [detalheId, setDetalheId] = useState(null)
 
   const medicoes = dados.medicoesProgramadas || []
 
@@ -745,9 +757,10 @@ function AbaControleMedicao({ dados, podeEditar }) {
       if (m.recorrente) {
         if ((m.meses_excluidos || []).includes(periodo)) continue
         const dia = Math.min(m.dia_mes, ultimoDiaDoMes(periodo))
-        lista.push({ ...m, dataOcorrencia: `${periodo}-${String(dia).padStart(2, '0')}` })
+        const status = (m.status_por_mes || {})[periodo] || m.status || 'programada'
+        lista.push({ ...m, dataOcorrencia: `${periodo}-${String(dia).padStart(2, '0')}`, status })
       } else if (m.data && m.data.slice(0, 7) === periodo) {
-        lista.push({ ...m, dataOcorrencia: m.data })
+        lista.push({ ...m, dataOcorrencia: m.data, status: m.status || 'programada' })
       }
     }
     return lista.sort((a, b) => a.dataOcorrencia.localeCompare(b.dataOcorrencia))
@@ -784,6 +797,8 @@ function AbaControleMedicao({ dados, podeEditar }) {
     setSheetAberta(true)
   }
   const abrirEditarSerie = (oc) => { setContexto({ modo: 'serie', item: oc }); setSheetAberta(true) }
+
+  const ocorrenciaDetalhe = ocorrenciasDoPeriodo.find((oc) => oc.id === detalheId) || null
 
   return (
     <div className="stack-2">
@@ -822,8 +837,14 @@ function AbaControleMedicao({ dados, podeEditar }) {
                       style={{ alignItems: 'flex-start', borderTop: '1px solid var(--border)', paddingTop: 8 }}
                     >
                       <div style={{ minWidth: 0 }}>
-                        <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
-                          <span className="t-strong" style={{ fontSize: 13 }}>{nomeEmpresa}</span>
+                        <div className="row-flex" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span
+                            className="t-strong" style={{ fontSize: 13, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                            onClick={() => setDetalheId(oc.id)}
+                          >
+                            {nomeEmpresa}
+                          </span>
+                          <Chip tom={infoStatus(oc.status).tom}>{infoStatus(oc.status).rotulo}</Chip>
                           {oc.recorrente && <Chip tom="info">Recorrente · todo dia {oc.dia_mes}</Chip>}
                         </div>
                         {oc.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{oc.observacao}</div>}
@@ -866,6 +887,17 @@ function AbaControleMedicao({ dados, podeEditar }) {
         onFechar={() => setSheetAberta(false)}
       />
 
+      <SheetEstadoMedicao
+        aberto={Boolean(ocorrenciaDetalhe)}
+        ocorrencia={ocorrenciaDetalhe}
+        periodo={periodo}
+        dados={dados}
+        valorMedido={ocorrenciaDetalhe ? (medidoPorEmpresaMes.get(`${ocorrenciaDetalhe.company_id}|${periodo}`) || 0) : 0}
+        temItens={ocorrenciaDetalhe ? empresasComItens.has(ocorrenciaDetalhe.company_id) : false}
+        podeEditar={podeEditar}
+        onFechar={() => setDetalheId(null)}
+      />
+
       <Confirmar
         aberto={Boolean(excluindo)}
         titulo={excluindo?.recorrente ? `Pular a medição de ${rotuloMes(periodo)}?` : 'Retirar esta medição programada?'}
@@ -879,6 +911,62 @@ function AbaControleMedicao({ dados, podeEditar }) {
         }}
       />
     </div>
+  )
+}
+
+/* Estado da medição de uma ocorrência específica (empresa + mês em
+   exibição) — separado do "mudar data", porque isso é sobre O QUE
+   está acontecendo com a medição (precisa de aditivo? já foi feita?
+   nota em lançamento?), não sobre quando ela é. */
+function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, valorMedido, temItens, podeEditar, onFechar }) {
+  const [salvando, setSalvando] = useState(false)
+
+  const nomeEmpresa = ocorrencia ? dados.nomeDe(dados.empresas, ocorrencia.company_id) : ''
+
+  const escolher = async (status) => {
+    if (!ocorrencia || !podeEditar) return
+    setSalvando(true)
+    try {
+      await dados.salvarStatusMedicao(ocorrencia, periodo, status)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Sheet aberto={aberto} titulo={nomeEmpresa} onFechar={onFechar}>
+      {ocorrencia && (
+        <div className="stack-2">
+          <div className="t-caption">
+            {formatarData(ocorrencia.dataOcorrencia)}
+            {ocorrencia.recorrente ? ` · recorrente, todo dia ${ocorrencia.dia_mes}` : ''}
+          </div>
+          {ocorrencia.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{ocorrencia.observacao}</div>}
+          <div className="card-flat">
+            <div className="t-caption">Cruzamento com Produtividade</div>
+            <div className="t-caption" style={{ marginTop: 2 }}>
+              {temItens
+                ? <>Medido no mês: <strong>{formatarDinheiro(valorMedido)}</strong></>
+                : 'Sem item de contrato vinculado a essa empresa ainda'}
+            </div>
+          </div>
+          <Campo label="Estado da medição">
+            <div className="stack-1">
+              {STATUS_MEDICAO.map((s) => (
+                <button
+                  key={s.valor} disabled={salvando || !podeEditar}
+                  className={`btn btn-block ${ocorrencia.status === s.valor ? 'btn-dark' : 'btn-secondary'}`}
+                  style={{ justifyContent: 'flex-start' }}
+                  onClick={() => escolher(s.valor)}
+                >
+                  {s.rotulo}
+                </button>
+              ))}
+            </div>
+          </Campo>
+        </div>
+      )}
+    </Sheet>
   )
 }
 
