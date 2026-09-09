@@ -3335,6 +3335,32 @@ export function DadosProvider({ perfil, children }) {
     [tudo, checar],
   )
 
+  /* Cache da referência SINAPI, por TIPO de serviço (não por Serviço
+     nem por obra) — o coeficiente de produtividade é uma propriedade
+     do tipo de trabalho ("armação CA-50", "escavação manual"), igual
+     pra qualquer empresa/contrato/obra que fizer aquele mesmo tipo.
+     Gravando aqui, a mesma busca nunca se repete pra dois Serviços do
+     mesmo tipo — é o que economiza crédito de IA de verdade, pedido
+     do Julio. "Buscar de novo" (na tela) sobrescreve o cache quando a
+     pessoa decide que vale gastar de novo (composição pode mudar de
+     revisão com o tempo). */
+  const salvarSinapiTipo = useCallback(
+    async (tipoId, referencia) => {
+      const atualizado = checar(
+        await supabase.from('service_types')
+          .update({ sinapi_referencia: referencia, sinapi_atualizado_em: new Date().toISOString() })
+          .eq('id', tipoId).select('*').single(),
+        'salvar a referência do SINAPI',
+      )
+      if (!atualizado) return
+      setTudo((t) => t && ({
+        ...t,
+        tiposServico: t.tiposServico.map((x) => (x.id === tipoId ? atualizado : x)),
+      }))
+    },
+    [checar],
+  )
+
   /* Serviço: registro por obra que fixa tipo (do catálogo), empresa,
      contrato e o time de funcionários ANTES de importar qualquer
      planta — cada combinação empresa+contrato é o seu próprio
@@ -3838,7 +3864,7 @@ export function DadosProvider({ perfil, children }) {
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
-      salvarTipoServico, arquivarTipoServico,
+      salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
       editarGeometriaMarcador,
@@ -3879,7 +3905,7 @@ export function DadosProvider({ perfil, children }) {
       vincularServicosAutomaticamente,
       salvarLembrete, mudarStatusLembrete, removerLembrete,
       salvarRegraNotificacao,
-      salvarTipoServico, arquivarTipoServico,
+      salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
       editarGeometriaMarcador,

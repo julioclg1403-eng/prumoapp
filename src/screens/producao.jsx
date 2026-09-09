@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, formatarDataHora, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento } from '../lib/dominio'
 import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
@@ -819,7 +819,7 @@ function AbaDashboardRendimento({ dados }) {
             <GraficoColunas itens={comCores(porLocal)} formatarValor={(v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} />
           </div>
 
-          <PainelSinapi servico={servicoSelecionado} tipo={tipoSelecionado} unidade={unidadeSelecionada} porColaborador={porColaborador} servicoFiltroId={servicoFiltroId} />
+          <PainelSinapi servico={servicoSelecionado} tipo={tipoSelecionado} unidade={unidadeSelecionada} porColaborador={porColaborador} servicoFiltroId={servicoFiltroId} dados={dados} />
         </>
       )}
     </div>
@@ -829,16 +829,21 @@ function AbaDashboardRendimento({ dados }) {
 /* ── Comparação com o SINAPI ────────────────────────────────────
    Busca sob demanda (nunca automática — custa dinheiro e tempo):
    pede pro assistente de IA (Claude com busca na web) achar a
-   composição SINAPI do serviço selecionado e devolver só um JSON,
-   sem prosa, pra virar gráfico. Fica em cache na tela enquanto o
-   filtro de serviço não muda — trocar de serviço limpa e exige
-   buscar de novo. */
-function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId }) {
+   composição SINAPI e devolver só um JSON, sem prosa, pra virar
+   gráfico. O resultado fica GRAVADO no tipo de serviço (não só na
+   tela) — pedido do Julio pra nunca repetir a mesma busca e gastar
+   crédito à toa: "armação CA-50" tem o mesmo coeficiente não importa
+   qual Serviço/obra/contrato, então uma busca serve pra sempre até
+   alguém pedir "Buscar de novo" de propósito. */
+function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId, dados }) {
   const [buscando, setBuscando] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [erro, setErro] = useState('')
 
-  useEffect(() => { setResultado(null); setErro('') }, [servicoFiltroId])
+  useEffect(() => {
+    setResultado(tipo?.sinapi_referencia || null)
+    setErro('')
+  }, [servicoFiltroId, tipo])
 
   const buscar = async () => {
     if (!servico || !tipo) return
@@ -870,6 +875,7 @@ function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId 
       const match = bruto.match(/\{[\s\S]*\}/)
       const json = JSON.parse(match ? match[0] : bruto)
       setResultado(json)
+      await dados.salvarSinapiTipo(tipo.id, json)
     } catch {
       setErro('Não consegui buscar a referência do SINAPI agora. Tenta de novo em instantes.')
     } finally {
@@ -922,6 +928,11 @@ function PainelSinapi({ servico, tipo, unidade, porColaborador, servicoFiltroId 
                 {resultado.fonte_url && <>Fonte: <a href={resultado.fonte_url} target="_blank" rel="noreferrer">{resultado.fonte_url}</a>. </>}
                 {resultado.observacao}
               </div>
+              {tipo?.sinapi_atualizado_em && (
+                <div className="t-caption">
+                  Salvo pro tipo «{tipo.nome}» — buscado em {formatarDataHora(tipo.sinapi_atualizado_em)}, não gasta crédito de novo até alguém pedir.
+                </div>
+              )}
               <button className="btn btn-ghost btn-sm" onClick={buscar} style={{ alignSelf: 'flex-start' }}>Buscar de novo</button>
             </>
           )}
