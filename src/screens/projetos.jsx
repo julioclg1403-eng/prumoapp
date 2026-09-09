@@ -22,11 +22,11 @@ import {
   temComentarioNovoEmAndamento,
   VISIBILIDADE_APONTAMENTO, ROTULO_VISIBILIDADE_APONTAMENTO,
   apontamentoTravado, pendenciasParaAbrirApontamento,
-  descreverEdicaoApontamento,
+  descreverEdicaoApontamento, plural,
 } from '../lib/dominio'
 import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio,
-  TextareaComAudio, CampoAnexos, useLinksDeAnexos, ChipToggle,
+  TextareaComAudio, CampoAnexos, useLinksDeAnexos, ChipToggle, SecaoRecolhivel,
   RelatorioFolha, SecaoRelatorio, FotosRelatorio, BotaoRelatorio,
 } from '../components'
 import { enviarAnexoComentario } from '../lib/anexos'
@@ -579,7 +579,11 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo, travado }) {
           ))}
         </select>
       </Campo>
-      <Campo label="Categorias" dica="Toque para marcar quantas fizerem sentido.">
+      <SecaoRecolhivel
+        titulo="Categorias"
+        resumo={editando.category_ids.length > 0 ? plural(editando.category_ids.length, 'categoria', 'categorias') : 'Nenhuma'}
+      >
+        <div className="t-caption" style={{ marginBottom: 4 }}>Toque para marcar quantas fizerem sentido.</div>
         <div className="row-wrap">
           {dados.categoriasProjeto.filter((c) => c.ativo !== false).map((c) => (
             <ChipToggle key={c.id} ativo={editando.category_ids.includes(c.id)} disabled={travado} onClick={() => alternar('category_ids', c.id)}>
@@ -588,8 +592,11 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo, travado }) {
           ))}
           {dados.categoriasProjeto.length === 0 && <div className="t-caption">Nenhuma categoria cadastrada ainda.</div>}
         </div>
-      </Campo>
-      <Campo label="Locais">
+      </SecaoRecolhivel>
+      <SecaoRecolhivel
+        titulo="Locais"
+        resumo={editando.location_ids.length > 0 ? plural(editando.location_ids.length, 'local', 'locais') : 'Nenhum'}
+      >
         <div className="row-wrap">
           {dados.locais.filter((l) => l.ativo !== false).map((l) => (
             <ChipToggle key={l.id} ativo={editando.location_ids.includes(l.id)} disabled={travado} onClick={() => alternar('location_ids', l.id)}>
@@ -598,7 +605,7 @@ function AbaDetalhes({ editando, setEditando, dados, garantirSalvo, travado }) {
           ))}
           {dados.locais.length === 0 && <div className="t-caption">Nenhum local cadastrado ainda.</div>}
         </div>
-      </Campo>
+      </SecaoRecolhivel>
       <Campo label="Etiquetas">
         <div className="row-wrap" style={{ marginBottom: 8 }}>
           {editando.etiquetas.map((et) => (
