@@ -991,6 +991,27 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const semColaboradorCount = pendenciasMarcadores.filter((p) => p.semColaborador).length
   const semContratoCount = pendenciasMarcadores.filter((p) => p.semContrato).length
 
+  /* "Por dia": todo evento (mudança de estágio) deste serviço,
+     agrupado pela data de execução — o "o que colocamos hoje" que
+     antes só dava pra montar abrindo marcador por marcador. Mesmo
+     escopo de plantas/marcadores ativos de pendenciasMarcadores. */
+  const eventosPorDia = useMemo(() => {
+    const planIds = new Set(plantas.map((p) => p.id))
+    const plantaPorId = new Map(plantas.map((p) => [p.id, p]))
+    const marcadorPorId = new Map(
+      (dados.marcadoresProducao || []).filter((m) => planIds.has(m.plan_id) && m.ativo !== false).map((m) => [m.id, m]),
+    )
+    const porDia = new Map()
+    for (const ev of (dados.eventosProducao || [])) {
+      const marcador = marcadorPorId.get(ev.marker_id)
+      if (!marcador || !ev.data_execucao) continue
+      if (!porDia.has(ev.data_execucao)) porDia.set(ev.data_execucao, [])
+      porDia.get(ev.data_execucao).push({ evento: ev, marcador, planta: plantaPorId.get(marcador.plan_id) })
+    }
+    return [...porDia.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
+  }, [plantas, dados.marcadoresProducao, dados.eventosProducao])
+  const totalEventosPorDia = eventosPorDia.reduce((s, [, itens]) => s + itens.length, 0)
+
   if (plantaAtual) {
     return (
       <VisualizarPlanta
@@ -1033,6 +1054,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
         valor={abaServico} onChange={setAbaServico}
         opcoes={[
           { valor: 'plantas', rotulo: 'Plantas' },
+          { valor: 'diario', rotulo: 'Por dia', contador: totalEventosPorDia },
           { valor: 'medicao', rotulo: 'Medição' },
           { valor: 'rendimento', rotulo: 'Rendimento' },
         ]}
@@ -1138,6 +1160,47 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
               </button>
             </div>
           </Sheet>
+        </div>
+      )}
+
+      {abaServico === 'diario' && (
+        <div className="stack-2">
+          {eventosPorDia.length === 0 ? (
+            <div className="card-flat">
+              <Vazio titulo="Nenhuma marcação ainda" texto="Toda vez que marcar ou mudar o estágio de um elemento na planta, ele aparece aqui na data certa." />
+            </div>
+          ) : (
+            eventosPorDia.map(([data, itens]) => (
+              <div key={data} className="card-flat stack-1">
+                <div className="t-strong" style={{ fontSize: 14 }}>
+                  {formatarData(data)} <span className="t-caption" style={{ fontWeight: 400 }}>· {plural(itens.length, 'elemento', 'elementos')}</span>
+                </div>
+                <div className="stack-1">
+                  {itens.map(({ evento, marcador, planta }) => {
+                    const etapaInfo = tipo?.etapas?.find((e) => e.chave === evento.etapa)
+                    const equipe = equipeDoEvento(evento)
+                    return (
+                      <div
+                        key={evento.id} className="row-between"
+                        style={{ alignItems: 'flex-start', borderTop: '1px solid var(--border)', paddingTop: 8 }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div className="t-strong" style={{ fontSize: 13 }}>
+                            {marcador.elemento || '—'} <span className="t-caption" style={{ fontWeight: 400 }}>· {planta?.nome || 'Local removido'}</span>
+                          </div>
+                          <div className="t-caption" style={{ marginTop: 2 }}>
+                            {equipe.length > 0 ? equipe.map((id) => dados.colaboradorPorId(id)?.nome || '—').join(', ') : 'Sem colaborador vinculado'}
+                          </div>
+                          {evento.observacao && <div className="t-caption" style={{ marginTop: 2 }}>{evento.observacao}</div>}
+                        </div>
+                        <Chip tom={etapaInfo?.cor}>{etapaInfo?.rotulo || evento.etapa}</Chip>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
