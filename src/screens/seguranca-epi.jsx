@@ -276,12 +276,28 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   /* Custo unitário médio de cada EPI, pra estimar o valor de cada
      saída (a saída em si não guarda preço — só a entrada). Mesma
      lógica do custoMedio do Estoque Atual/Dashboard, reaproveitada
-     aqui pra rastrear gasto por colaborador e por empresa. */
+     aqui pra rastrear gasto por colaborador e por empresa.
+
+     Quando não tem entrada com valor lançado (custoMedio zerado),
+     cai pro preço do Suprimentos — mesmo casamento por nome/apelido
+     já usado na reconciliação (resumoRecebidoSuprimentos) — pegando
+     a média do preço de todos os pedidos confirmados vinculados a
+     esse EPI. Sem isso, EPI recebido antes do app (ou sem "Valor
+     total" preenchido na entrada) sempre aparecia com gasto R$ 0,00. */
   const custoMedioPorMaterial = useMemo(() => {
     const mapa = new Map()
     for (const s of saldos) mapa.set(s.material.id, s.custoMedio)
+    for (const material of materiais) {
+      if (mapa.get(material.id) > 0) continue
+      const precos = (dados.suprimentos || [])
+        .filter((p) => p.destino === 'epi' && p.estagio === '5 - Confirmado' && p.preco != null
+          && (insumoCorrespondeMaterial(p.insumo, material.nome)
+            || (material.apelidos || []).some((ap) => normalizarParaCasar(ap) === normalizarParaCasar(p.insumo))))
+        .map((p) => Number(p.preco))
+      if (precos.length > 0) mapa.set(material.id, precos.reduce((s, v) => s + v, 0) / precos.length)
+    }
     return mapa
-  }, [saldos])
+  }, [saldos, materiais, dados.suprimentos])
 
   const valorEntregaEpi = (s) => Number(s.quantidade || 0) * (custoMedioPorMaterial.get(s.material_id) || 0)
 
@@ -1497,8 +1513,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 Entregas: <strong>{entregas.length}</strong>
               </div>
               <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
-                Valor estimado pelo custo médio de cada EPI (valor total das entradas ÷ quantidade recebida) — não é o
-                custo exato de cada unidade entregue.
+                Valor estimado pelo custo médio de cada EPI — da entrada, quando tem "Valor total" lançado; senão, do
+                preço médio do Suprimentos vinculado a esse EPI. Não é o custo exato de cada unidade entregue.
               </div>
             </SecaoRelatorio>
             <TabelaRelatorio
@@ -1529,8 +1545,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
                 Colaboradores atendidos: <strong>{linhas.length}</strong>
               </div>
               <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
-                Valor estimado pelo custo médio de cada EPI (valor total das entradas ÷ quantidade recebida) — não é o
-                custo exato de cada unidade entregue.
+                Valor estimado pelo custo médio de cada EPI — da entrada, quando tem "Valor total" lançado; senão, do
+                preço médio do Suprimentos vinculado a esse EPI. Não é o custo exato de cada unidade entregue.
               </div>
             </SecaoRelatorio>
             <TabelaRelatorio
