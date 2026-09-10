@@ -747,6 +747,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
   const [sheetAberta, setSheetAberta] = useState(false)
   const [contexto, setContexto] = useState({ modo: 'nova' })
   const [excluindo, setExcluindo] = useState(null)
+  const [excluindoSerie, setExcluindoSerie] = useState(null)
   const [detalheId, setDetalheId] = useState(null)
 
   const medicoes = dados.medicoesProgramadas || []
@@ -854,12 +855,20 @@ function AbaControleMedicao({ dados, podeEditar }) {
                             : 'Sem item de contrato vinculado a essa empresa ainda'}
                         </div>
                         {podeEditar && oc.recorrente && (
-                          <button
-                            className="btn btn-ghost btn-sm" style={{ marginTop: 2, padding: '2px 0', height: 'auto', color: 'var(--primary)' }}
-                            onClick={() => abrirEditarSerie(oc)}
-                          >
-                            Editar recorrência
-                          </button>
+                          <div className="row-flex" style={{ gap: 10 }}>
+                            <button
+                              className="btn btn-ghost btn-sm" style={{ marginTop: 2, padding: '2px 0', height: 'auto', color: 'var(--primary)' }}
+                              onClick={() => abrirEditarSerie(oc)}
+                            >
+                              Editar recorrência
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm" style={{ marginTop: 2, padding: '2px 0', height: 'auto', color: 'var(--danger)' }}
+                              onClick={() => setExcluindoSerie(oc)}
+                            >
+                              Excluir recorrência
+                            </button>
+                          </div>
                         )}
                       </div>
                       {podeEditar && (
@@ -908,6 +917,18 @@ function AbaControleMedicao({ dados, podeEditar }) {
           if (excluindo.recorrente) await dados.excluirOcorrenciaRecorrente(excluindo.id, periodo)
           else await dados.excluirMedicaoProgramada(excluindo.id)
           setExcluindo(null)
+        }}
+      />
+
+      <Confirmar
+        aberto={Boolean(excluindoSerie)}
+        titulo="Excluir toda a recorrência?"
+        texto={excluindoSerie ? `${dados.nomeDe(dados.empresas, excluindoSerie.company_id)} — todo dia ${excluindoSerie.dia_mes}, em todos os meses. Use quando a empresa sair da obra.` : ''}
+        perigo
+        onCancelar={() => setExcluindoSerie(null)}
+        onOk={async () => {
+          await dados.excluirMedicaoProgramada(excluindoSerie.id)
+          setExcluindoSerie(null)
         }}
       />
     </div>
