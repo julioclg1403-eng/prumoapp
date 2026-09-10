@@ -151,11 +151,34 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     () => saldoEstoque(materiais, dados.entradasEpi, dados.saidasEpi),
     [materiais, dados.entradasEpi, dados.saidasEpi],
   )
+
+  /* Custo de cada EPI, com fallback pro Suprimentos: quando não tem
+     entrada com "Valor total" lançado (custoMedio zerado — inclusive
+     EPI recebido antes do app existir), usa a média do preço dos
+     pedidos confirmados do Suprimentos vinculados a esse EPI, mesmo
+     casamento por nome/apelido já usado na reconciliação de estoque
+     (resumoRecebidoSuprimentos). Alimenta Estoque Atual, Dashboard,
+     Relatório de estoque e o relatório de gastos por colaborador/
+     empresa — tudo que mostra valor de EPI usa este cálculo, tanto
+     pro que já está no catálogo quanto pra EPI novo cadastrado depois
+     (roda de novo sempre que materiais/entradas/suprimentos mudam). */
+  const saldosComCusto = useMemo(() => saldos.map((s) => {
+    if (s.custoMedio > 0) return s
+    const precos = (dados.suprimentos || [])
+      .filter((p) => p.destino === 'epi' && p.estagio === '5 - Confirmado' && p.preco != null
+        && (insumoCorrespondeMaterial(p.insumo, s.material.nome)
+          || (s.material.apelidos || []).some((ap) => normalizarParaCasar(ap) === normalizarParaCasar(p.insumo))))
+      .map((p) => Number(p.preco))
+    if (precos.length === 0) return s
+    const custoMedio = precos.reduce((a, v) => a + v, 0) / precos.length
+    return { ...s, custoMedio, custoTotal: s.saldo * custoMedio }
+  }), [saldos, dados.suprimentos])
+
   const saldosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
-    const lista = termo ? saldos.filter((s) => s.material.nome.toLowerCase().includes(termo)) : saldos
+    const lista = termo ? saldosComCusto.filter((s) => s.material.nome.toLowerCase().includes(termo)) : saldosComCusto
     return [...lista].sort((a, b) => (a.abaixoDoMinimo === b.abaixoDoMinimo ? 0 : a.abaixoDoMinimo ? -1 : 1))
-  }, [saldos, busca])
+  }, [saldosComCusto, busca])
   const abaixoDoMinimo = saldos.filter((s) => s.abaixoDoMinimo).length
 
   const emEstoque = useMemo(() => saldosFiltrados.filter((s) => s.saldo > 0), [saldosFiltrados])
@@ -163,8 +186,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   /* Sem o filtro de busca da aba Estoque Atual — Dashboard e Relatório
      sempre olham pra tudo que está em estoque. */
   const emEstoqueTudo = useMemo(
-    () => [...saldos].filter((s) => s.saldo > 0).sort((a, b) => b.custoTotal - a.custoTotal),
-    [saldos],
+    () => [...saldosComCusto].filter((s) => s.saldo > 0).sort((a, b) => b.custoTotal - a.custoTotal),
+    [saldosComCusto],
   )
   const valorTotalEstoque = useMemo(() => emEstoqueTudo.reduce((s, x) => s + x.custoTotal, 0), [emEstoqueTudo])
 
@@ -273,31 +296,14 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     return saidas
   }, [saidas, modoPeriodo, dataDia, mesEscolhido, periodoInicio, periodoFim])
 
-  /* Custo unitário médio de cada EPI, pra estimar o valor de cada
-     saída (a saída em si não guarda preço — só a entrada). Mesma
-     lógica do custoMedio do Estoque Atual/Dashboard, reaproveitada
-     aqui pra rastrear gasto por colaborador e por empresa.
-
-     Quando não tem entrada com valor lançado (custoMedio zerado),
-     cai pro preço do Suprimentos — mesmo casamento por nome/apelido
-     já usado na reconciliação (resumoRecebidoSuprimentos) — pegando
-     a média do preço de todos os pedidos confirmados vinculados a
-     esse EPI. Sem isso, EPI recebido antes do app (ou sem "Valor
-     total" preenchido na entrada) sempre aparecia com gasto R$ 0,00. */
+  /* Custo unitário de cada EPI (já com o fallback pro Suprimentos —
+     ver saldosComCusto acima), pra estimar o valor de cada saída, já
+     que a saída em si não guarda preço — só a entrada. */
   const custoMedioPorMaterial = useMemo(() => {
     const mapa = new Map()
-    for (const s of saldos) mapa.set(s.material.id, s.custoMedio)
-    for (const material of materiais) {
-      if (mapa.get(material.id) > 0) continue
-      const precos = (dados.suprimentos || [])
-        .filter((p) => p.destino === 'epi' && p.estagio === '5 - Confirmado' && p.preco != null
-          && (insumoCorrespondeMaterial(p.insumo, material.nome)
-            || (material.apelidos || []).some((ap) => normalizarParaCasar(ap) === normalizarParaCasar(p.insumo))))
-        .map((p) => Number(p.preco))
-      if (precos.length > 0) mapa.set(material.id, precos.reduce((s, v) => s + v, 0) / precos.length)
-    }
+    for (const s of saldosComCusto) mapa.set(s.material.id, s.custoMedio)
     return mapa
-  }, [saldos, materiais, dados.suprimentos])
+  }, [saldosComCusto])
 
   const valorEntregaEpi = (s) => Number(s.quantidade || 0) * (custoMedioPorMaterial.get(s.material_id) || 0)
 
