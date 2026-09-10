@@ -19,7 +19,7 @@ import {
   Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, ItemLista, Indicador,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, BotaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
-import { RankingBarras } from '../components/charts'
+import { RankingBarras, CurvaProducao } from '../components/charts'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
   const csv = [cabecalho, ...linhas]
@@ -32,6 +32,16 @@ function baixarCSV(nomeArquivo, cabecalho, linhas) {
   a.download = nomeArquivo
   document.body.appendChild(a); a.click(); a.remove()
   URL.revokeObjectURL(url)
+}
+
+function mesCurto(mesISO) {
+  const [ano, m] = mesISO.split('-').map(Number)
+  const texto = new Date(ano, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+  return `${texto}/${String(ano).slice(2)}`
+}
+
+function formatarDias(v) {
+  return `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dias`
 }
 
 /* Uma linha da lista de Suprimentos (usada nas duas divisões —
@@ -199,6 +209,85 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     () => [...(dados.saidasEpi || [])].sort((a, b) => (a.data < b.data ? 1 : -1)),
     [dados.saidasEpi],
   )
+
+  /* Giro (a cada quantos dias, em média, um EPI volta a ser retirado
+     do estoque) e troca (a cada quantos dias, em média, um mesmo
+     colaborador pede de novo o mesmo EPI) — o intervalo entre duas
+     saídas consecutivas da mesma referência (EPI, ou EPI+colaborador).
+     Não é sobre saldo — é sobre ritmo de consumo, que é o que avisa
+     antes de faltar e o que denuncia troca fora do padrão (perda,
+     desgaste, ou o oposto — colaborador que nunca troca). Cada
+     intervalo é creditado ao mês da saída mais recente do par, pra
+     dar a curva mensal; com menos de 2 saídas da mesma referência não
+     existe intervalo nenhum pra contar. */
+  const { giroPorMaterial, giroMensal, giroGeralDias, trocaPorColaborador, trocaMensal, trocaGeralDias } = useMemo(() => {
+    const diffDias = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000)
+    const intervalosDeGrupo = (grupos) => {
+      const gaps = []
+      for (const datas of grupos.values()) {
+        const ordenadas = [...datas].sort()
+        for (let i = 1; i < ordenadas.length; i++) {
+          gaps.push({ dias: diffDias(ordenadas[i - 1], ordenadas[i]), mes: ordenadas[i].slice(0, 7) })
+        }
+      }
+      return gaps
+    }
+    const mediaMensal = (gaps) => {
+      const porMes = new Map()
+      for (const g of gaps) {
+        if (!porMes.has(g.mes)) porMes.set(g.mes, [])
+        porMes.get(g.mes).push(g.dias)
+      }
+      return [...porMes.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([mes, dias]) => ({ chave: mes, rotulo: mesCurto(mes), valor: dias.reduce((s, d) => s + d, 0) / dias.length }))
+    }
+    const mediaGeral = (gaps) => (gaps.length > 0 ? gaps.reduce((s, g) => s + g.dias, 0) / gaps.length : null)
+
+    const porMaterial = new Map()
+    for (const s of saidas) {
+      if (!s.data) continue
+      if (!porMaterial.has(s.material_id)) porMaterial.set(s.material_id, [])
+      porMaterial.get(s.material_id).push(s.data)
+    }
+    const giroPorMaterial = [...porMaterial.entries()]
+      .map(([materialId, datas]) => {
+        const gaps = intervalosDeGrupo(new Map([[materialId, datas]]))
+        return gaps.length > 0 ? { materialId, media: gaps.reduce((s, g) => s + g.dias, 0) / gaps.length, amostras: gaps.length } : null
+      })
+      .filter(Boolean)
+
+    const porColabMaterial = new Map()
+    for (const s of saidas) {
+      if (!s.data || !s.worker_id) continue
+      const chave = `${s.worker_id}|${s.material_id}`
+      if (!porColabMaterial.has(chave)) porColabMaterial.set(chave, [])
+      porColabMaterial.get(chave).push(s.data)
+    }
+    const gapsTrocaPorColaborador = new Map()
+    for (const [chave, datas] of porColabMaterial) {
+      const [workerId] = chave.split('|')
+      const ordenadas = [...datas].sort()
+      for (let i = 1; i < ordenadas.length; i++) {
+        if (!gapsTrocaPorColaborador.has(workerId)) gapsTrocaPorColaborador.set(workerId, [])
+        gapsTrocaPorColaborador.get(workerId).push(diffDias(ordenadas[i - 1], ordenadas[i]))
+      }
+    }
+    const trocaPorColaborador = [...gapsTrocaPorColaborador.entries()]
+      .map(([workerId, gaps]) => ({ workerId, media: gaps.reduce((s, d) => s + d, 0) / gaps.length, amostras: gaps.length }))
+
+    const gapsGiro = intervalosDeGrupo(porMaterial)
+    const gapsTroca = intervalosDeGrupo(porColabMaterial)
+
+    return {
+      giroPorMaterial,
+      giroMensal: mediaMensal(gapsGiro),
+      giroGeralDias: mediaGeral(gapsGiro),
+      trocaPorColaborador,
+      trocaMensal: mediaMensal(gapsTroca),
+      trocaGeralDias: mediaGeral(gapsTroca),
+    }
+  }, [saidas])
 
   /* Mesma reconciliação do Almoxarifado, só que pro lado EPI: o que o
      Suprimentos diz que já chegou (Destino "EPI") contra o que foi
@@ -672,6 +761,83 @@ export default function SegurancaEpi({ perfil, params = {} }) {
               </div>
             </div>
           )}
+
+          <div className="stack-2">
+            <div>
+              <div className="t-micro">Giro e reposição de EPI</div>
+              <div className="t-caption" style={{ color: 'var(--text-2)', marginTop: 2 }}>
+                Ritmo de consumo, não saldo — a cada quantos dias, em média, um EPI volta a sair do estoque, e a cada
+                quantos dias um colaborador pede de novo o mesmo EPI.
+              </div>
+            </div>
+
+            <div className="row-wrap" style={{ gap: 10 }}>
+              <div style={{ flex: '1 1 220px' }}>
+                <Indicador rotulo="Giro médio (dias entre retiradas)" valor={giroGeralDias != null ? formatarDias(giroGeralDias) : '—'} />
+              </div>
+              <div style={{ flex: '1 1 220px' }}>
+                <Indicador rotulo="Troca média por colaborador" valor={trocaGeralDias != null ? formatarDias(trocaGeralDias) : '—'} />
+              </div>
+            </div>
+
+            <div className="row-wrap" style={{ gap: 12 }}>
+              <div className="card-flat chart-panel stack-1" style={{ flex: '1 1 320px' }}>
+                <div className="t-micro">Giro médio por mês — dias entre retiradas de um mesmo EPI</div>
+                <CurvaProducao
+                  pontos={giroMensal} formatarValor={formatarDias} rotuloValor="Média do mês" cor="var(--info)"
+                  vazio="Ainda sem dados suficientes — precisa do mesmo EPI saindo mais de uma vez, em meses diferentes."
+                />
+              </div>
+              <div className="card-flat chart-panel stack-1" style={{ flex: '1 1 320px' }}>
+                <div className="t-micro">Troca média por mês — dias até o colaborador pedir de novo o mesmo EPI</div>
+                <CurvaProducao
+                  pontos={trocaMensal} formatarValor={formatarDias} rotuloValor="Média do mês" cor="var(--success)"
+                  vazio="Ainda sem dados suficientes — precisa de um colaborador recebendo o mesmo EPI mais de uma vez, em meses diferentes."
+                />
+              </div>
+            </div>
+
+            <div className="row-wrap" style={{ gap: 12 }}>
+              <div style={{ flex: '1 1 320px' }}>
+                <div className="t-micro" style={{ marginBottom: 10 }}>EPIs com giro mais rápido (menor intervalo médio)</div>
+                <div className="card-flat chart-panel">
+                  <RankingBarras
+                    itens={[...giroPorMaterial]
+                      .filter((g) => g.amostras >= 2)
+                      .sort((a, b) => a.media - b.media)
+                      .slice(0, 8)
+                      .map((g) => ({
+                        chave: g.materialId, rotulo: nomeMaterial(g.materialId), valor: g.media,
+                        contador: `${g.amostras} ${g.amostras === 1 ? 'intervalo' : 'intervalos'}`,
+                      }))}
+                    formatarValor={formatarDias}
+                    cor="var(--info)"
+                    vazio="Nenhum EPI com giro suficiente pra medir ainda (precisa de pelo menos 3 saídas)."
+                  />
+                </div>
+              </div>
+              <div style={{ flex: '1 1 320px' }}>
+                <div className="t-micro" style={{ marginBottom: 10 }}>
+                  Colaboradores que mais trocam EPI <span style={{ fontWeight: 400 }}>— vale olhar de perto: pode ser desgaste, perda ou tarefa mais exigente</span>
+                </div>
+                <div className="card-flat chart-panel">
+                  <RankingBarras
+                    itens={[...trocaPorColaborador]
+                      .filter((t) => t.amostras >= 2)
+                      .sort((a, b) => a.media - b.media)
+                      .slice(0, 8)
+                      .map((t) => ({
+                        chave: t.workerId, rotulo: dados.colaboradorPorId(t.workerId)?.nome || 'Colaborador removido', valor: t.media,
+                        contador: `${t.amostras} ${t.amostras === 1 ? 'troca' : 'trocas'}`,
+                      }))}
+                    formatarValor={formatarDias}
+                    cor="var(--success)"
+                    vazio="Nenhum colaborador com troca repetida do mesmo EPI ainda (precisa de pelo menos 3 entregas)."
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
 
           <RelatorioFolha
             titulo="Relatório de estoque de EPI"

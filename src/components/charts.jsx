@@ -256,7 +256,7 @@ export function GraficoPareto({ itens, formatarValor = (v) => String(v), cor = '
    Diferente da CurvaSPrevision (que é sempre base/previsto/realizado
    em %), esta é genérica: qualquer quantidade acumulando dia a dia —
    pensada pra produção física (m³, m², ml, un), não financeiro. */
-export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 'var(--primary)', vazio = 'Nada aqui ainda.' }) {
+export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 'var(--primary)', vazio = 'Nada aqui ainda.', rotuloValor = 'Acumulado' }) {
   const [selecionado, setSelecionado] = useState(null)
   const idGradiente = useId()
   if (!pontos || pontos.length < 2) return <div className="t-caption">{vazio}</div>
@@ -318,7 +318,7 @@ export function CurvaProducao({ pontos, formatarValor = (v) => String(v), cor = 
       </svg>
       <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
         <span className="t-strong">{atual.rotulo}</span>
-        <span style={{ color: cor }}>Acumulado: {formatarValor(atual.valor)}</span>
+        <span style={{ color: cor }}>{rotuloValor}: {formatarValor(atual.valor)}</span>
       </div>
     </div>
   )
