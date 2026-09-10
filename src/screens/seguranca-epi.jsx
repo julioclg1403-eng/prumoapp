@@ -119,7 +119,8 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   const [gerandoEtiquetas, setGerandoEtiquetas] = useState(false)
   const [colaboradorEpiAberto, setColaboradorEpiAberto] = useState(null)
   const [imprimindoFichaEpi, setImprimindoFichaEpi] = useState(false)
-  const [imprimindoGastosEpi, setImprimindoGastosEpi] = useState(false)
+  const [imprimindoGastosColaborador, setImprimindoGastosColaborador] = useState(false)
+  const [gastosEmpresaAberta, setGastosEmpresaAberta] = useState(null)
   const [buscaColaboradorSaida, setBuscaColaboradorSaida] = useState('')
   const [diaHistoricoAberto, setDiaHistoricoAberto] = useState(null)
   const [buscaColaboradorLista, setBuscaColaboradorLista] = useState('')
@@ -282,49 +283,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     return mapa
   }, [saldos])
 
-  /* Gasto de EPI no período — por colaborador (só quem tem worker_id
-     vinculado) e por empresa (a partir da empresa do colaborador).
-     Saída sem colaborador vinculado (destino em texto livre) não dá
-     pra atribuir com segurança a ninguém — entra só no total geral,
-     nunca nas duas quebras, e aparece como valor "sem colaborador
-     vinculado" pra a soma bater. */
-  const { gastosPorColaborador, gastosPorEmpresa, valorSemColaborador, valorTotalPeriodo } = useMemo(() => {
-    const porColaborador = new Map()
-    const porEmpresa = new Map()
-    let semColaborador = 0
-    let total = 0
-    for (const s of saidasNoPeriodo) {
-      const valor = Number(s.quantidade || 0) * (custoMedioPorMaterial.get(s.material_id) || 0)
-      total += valor
-      const colaborador = s.worker_id ? dados.colaboradores.find((c) => c.id === s.worker_id) : null
-      if (!colaborador) { semColaborador += valor; continue }
-
-      if (!porColaborador.has(colaborador.id)) porColaborador.set(colaborador.id, { colaborador, entregas: 0, valor: 0 })
-      const reg = porColaborador.get(colaborador.id)
-      reg.entregas += 1
-      reg.valor += valor
-
-      const empresaId = colaborador.company_id || 'sem-empresa'
-      if (!porEmpresa.has(empresaId)) {
-        porEmpresa.set(empresaId, {
-          nome: colaborador.company_id ? dados.nomeDe(dados.empresas, colaborador.company_id) : 'Sem empresa',
-          colaboradores: new Set(), entregas: 0, valor: 0,
-        })
-      }
-      const regE = porEmpresa.get(empresaId)
-      regE.colaboradores.add(colaborador.id)
-      regE.entregas += 1
-      regE.valor += valor
-    }
-    return {
-      gastosPorColaborador: [...porColaborador.values()].sort((a, b) => b.valor - a.valor),
-      gastosPorEmpresa: [...porEmpresa.values()]
-        .map((e) => ({ ...e, colaboradores: e.colaboradores.size }))
-        .sort((a, b) => b.valor - a.valor),
-      valorSemColaborador: semColaborador,
-      valorTotalPeriodo: total,
-    }
-  }, [saidasNoPeriodo, dados.colaboradores, dados.empresas, custoMedioPorMaterial])
+  const valorEntregaEpi = (s) => Number(s.quantidade || 0) * (custoMedioPorMaterial.get(s.material_id) || 0)
 
   /* Ficha de entrega por colaborador: só quem já recebeu algo com o
      vínculo estruturado (worker_id) aparece aqui — saída antiga, com
@@ -364,7 +323,7 @@ export default function SegurancaEpi({ perfil, params = {} }) {
         rotuloSemDado = 'Sem empresa'
         rotulo = item.colaborador.company_id ? dados.nomeDe(dados.empresas, item.colaborador.company_id) : rotuloSemDado
       }
-      if (!grupos.has(chave)) grupos.set(chave, { rotulo, rotuloSemDado, itens: [] })
+      if (!grupos.has(chave)) grupos.set(chave, { chave, rotulo, rotuloSemDado, itens: [] })
       grupos.get(chave).itens.push(item)
     })
     return Array.from(grupos.values()).sort((a, b) => {
@@ -381,10 +340,16 @@ export default function SegurancaEpi({ perfil, params = {} }) {
   }, [imprimindoFichaEpi])
 
   useEffect(() => {
-    if (!imprimindoGastosEpi) return
+    if (!imprimindoGastosColaborador) return
     const id = requestAnimationFrame(() => window.print())
     return () => cancelAnimationFrame(id)
-  }, [imprimindoGastosEpi])
+  }, [imprimindoGastosColaborador])
+
+  useEffect(() => {
+    if (!gastosEmpresaAberta) return
+    const id = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(id)
+  }, [gastosEmpresaAberta])
 
   useEffect(() => { setDiaHistoricoAberto(null) }, [editandoMaterial?.id])
 
@@ -760,16 +725,6 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             </div>
           </div>
 
-          <div className="card-flat row-between" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <div>
-              <div className="t-caption">Gasto de EPI no período ({rotuloPeriodo(modoPeriodo, { dia: dataDia, mes: mesEscolhido, inicio: periodoInicio, fim: periodoFim })})</div>
-              <div className="t-strong" style={{ fontSize: 16 }}>{formatarDinheiro(valorTotalPeriodo)}</div>
-            </div>
-            <button className="btn btn-secondary btn-sm" onClick={() => setImprimindoGastosEpi(true)} disabled={saidasNoPeriodo.length === 0}>
-              <Icon name="relatorio" size={15} /> Relatório de gastos (por colaborador e empresa)
-            </button>
-          </div>
-
           {colaboradoresComEpi.length === 0 ? (
             <div className="card-flat">
               <Vazio
@@ -783,10 +738,20 @@ export default function SegurancaEpi({ perfil, params = {} }) {
             </div>
           ) : gruposColaboradoresEpi ? (
             <div className="stack-3">
-              {gruposColaboradoresEpi.map(({ rotulo, itens }) => (
+              {gruposColaboradoresEpi.map(({ chave, rotulo, rotuloSemDado, itens }) => (
                 <div key={rotulo} className="stack-1">
-                  <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-                    {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
+                  <div className="row-between" style={{ alignItems: 'center' }}>
+                    <div className="t-caption" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                      {rotulo} <span style={{ opacity: 0.6, fontWeight: 400, textTransform: 'none' }}>{itens.length}</span>
+                    </div>
+                    {agrupamentoColab === 'empresa' && rotulo !== rotuloSemDado && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setGastosEmpresaAberta({ empresaId: chave, nome: rotulo, itens })}
+                      >
+                        <Icon name="relatorio" size={13} /> Gastos empresa
+                      </button>
+                    )}
                   </div>
                   {itens.map(({ colaborador, entregas }) => (
                     <ItemLista
@@ -1451,9 +1416,14 @@ export default function SegurancaEpi({ perfil, params = {} }) {
         titulo={colaboradorEpiAberto?.nome}
         onFechar={() => setColaboradorEpiAberto(null)}
         rodape={
-          <button className="btn btn-primary btn-block" onClick={() => setImprimindoFichaEpi(true)}>
-            <Icon name="relatorio" size={16} /> Imprimir ficha
-          </button>
+          <div className="row-flex" style={{ gap: 8 }}>
+            <button className="btn btn-secondary grow" onClick={() => setImprimindoGastosColaborador(true)}>
+              <Icon name="relatorio" size={16} /> Imprimir gastos
+            </button>
+            <button className="btn btn-primary grow" onClick={() => setImprimindoFichaEpi(true)}>
+              <Icon name="relatorio" size={16} /> Imprimir ficha
+            </button>
+          </div>
         }
       >
         {colaboradorEpiAberto && (
@@ -1512,50 +1482,64 @@ export default function SegurancaEpi({ perfil, params = {} }) {
         </RelatorioFolha>
       )}
 
-      {imprimindoGastosEpi && (
-        <RelatorioFolha
-          titulo="Relatório de gastos de EPI"
-          sub={rotuloPeriodo(modoPeriodo, { dia: dataDia, mes: mesEscolhido, inicio: periodoInicio, fim: periodoFim })}
-          obra={dados.obra.nome} org={dados.org.nome}
-        >
-          <SecaoRelatorio titulo="Resumo">
-            <div style={{ fontSize: 13 }}>
-              Valor total em EPIs entregues no período: <strong>{formatarDinheiro(valorTotalPeriodo)}</strong> ·
-              Colaboradores atendidos: <strong>{gastosPorColaborador.length}</strong> ·
-              Empresas atendidas: <strong>{gastosPorEmpresa.length}</strong>
-            </div>
-            {valorSemColaborador > 0 && (
-              <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
-                {formatarDinheiro(valorSemColaborador)} em saídas sem colaborador vinculado (destino em texto livre) —
-                não entram nas quebras abaixo, só no total geral.
+      {imprimindoGastosColaborador && colaboradorEpiAberto && (() => {
+        const entregas = colaboradoresComEpi.find((c) => c.colaborador.id === colaboradorEpiAberto.id)?.entregas || []
+        const total = entregas.reduce((s, e) => s + valorEntregaEpi(e), 0)
+        return (
+          <RelatorioFolha
+            titulo="Relatório de gastos de EPI"
+            sub={`${colaboradorEpiAberto.nome} · ${rotuloPeriodo(modoPeriodo, { dia: dataDia, mes: mesEscolhido, inicio: periodoInicio, fim: periodoFim })}`}
+            obra={dados.obra.nome} org={dados.org.nome}
+          >
+            <SecaoRelatorio titulo="Resumo">
+              <div style={{ fontSize: 13 }}>
+                Valor total no período: <strong>{formatarDinheiro(total)}</strong> ·
+                Entregas: <strong>{entregas.length}</strong>
               </div>
-            )}
-            <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
-              Valor estimado pelo custo médio de cada EPI (valor total das entradas ÷ quantidade recebida) — não é o
-              custo exato de cada unidade entregue.
-            </div>
-          </SecaoRelatorio>
+              <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
+                Valor estimado pelo custo médio de cada EPI (valor total das entradas ÷ quantidade recebida) — não é o
+                custo exato de cada unidade entregue.
+              </div>
+            </SecaoRelatorio>
+            <TabelaRelatorio
+              colunas={['Data', 'EPI', 'Quantidade', 'Valor']}
+              linhas={entregas.map((s) => [
+                formatarData(s.data), nomeMaterial(s.material_id),
+                `${s.quantidade} ${unidadeMaterial(s.material_id)}`, formatarDinheiro(valorEntregaEpi(s)),
+              ])}
+            />
+          </RelatorioFolha>
+        )
+      })()}
 
-          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 18, marginBottom: 8 }}>Por colaborador</div>
-          <TabelaRelatorio
-            colunas={['Colaborador', 'Empresa', 'Entregas', 'Valor']}
-            linhas={gastosPorColaborador.map((g) => [
-              g.colaborador.nome,
-              g.colaborador.company_id ? dados.nomeDe(dados.empresas, g.colaborador.company_id) : '—',
-              String(g.entregas),
-              formatarDinheiro(g.valor),
-            ])}
-          />
-
-          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 18, marginBottom: 8 }}>Por empresa</div>
-          <TabelaRelatorio
-            colunas={['Empresa', 'Colaboradores', 'Entregas', 'Valor']}
-            linhas={gastosPorEmpresa.map((g) => [
-              g.nome, String(g.colaboradores), String(g.entregas), formatarDinheiro(g.valor),
-            ])}
-          />
-        </RelatorioFolha>
-      )}
+      {gastosEmpresaAberta && (() => {
+        const linhas = gastosEmpresaAberta.itens
+          .map(({ colaborador, entregas }) => ({ colaborador, entregas: entregas.length, valor: entregas.reduce((s, e) => s + valorEntregaEpi(e), 0) }))
+          .sort((a, b) => b.valor - a.valor)
+        const total = linhas.reduce((s, l) => s + l.valor, 0)
+        return (
+          <RelatorioFolha
+            titulo="Relatório de gastos de EPI"
+            sub={`${gastosEmpresaAberta.nome} · ${rotuloPeriodo(modoPeriodo, { dia: dataDia, mes: mesEscolhido, inicio: periodoInicio, fim: periodoFim })}`}
+            obra={dados.obra.nome} org={dados.org.nome}
+          >
+            <SecaoRelatorio titulo="Resumo">
+              <div style={{ fontSize: 13 }}>
+                Valor total no período: <strong>{formatarDinheiro(total)}</strong> ·
+                Colaboradores atendidos: <strong>{linhas.length}</strong>
+              </div>
+              <div style={{ fontSize: 12, color: '#71717A', marginTop: 4 }}>
+                Valor estimado pelo custo médio de cada EPI (valor total das entradas ÷ quantidade recebida) — não é o
+                custo exato de cada unidade entregue.
+              </div>
+            </SecaoRelatorio>
+            <TabelaRelatorio
+              colunas={['Colaborador', 'Entregas', 'Valor']}
+              linhas={linhas.map((l) => [l.colaborador.nome, String(l.entregas), formatarDinheiro(l.valor)])}
+            />
+          </RelatorioFolha>
+        )
+      })()}
 
       <Confirmar
         aberto={Boolean(confirmar)}
