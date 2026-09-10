@@ -1049,16 +1049,28 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
 
       {/* Medição e Rendimento ficam aqui dentro, escopados só a este
          Serviço — pedido do Julio pra "ter o controle apenas daquele
-         serviço", em vez de um índice geral exposto pra todo mundo. */}
-      <Segmentos
-        valor={abaServico} onChange={setAbaServico}
-        opcoes={[
-          { valor: 'plantas', rotulo: 'Plantas' },
-          { valor: 'diario', rotulo: 'Por dia', contador: totalEventosPorDia },
-          { valor: 'medicao', rotulo: 'Medição' },
-          { valor: 'rendimento', rotulo: 'Rendimento' },
-        ]}
-      />
+         serviço", em vez de um índice geral exposto pra todo mundo.
+         "Por dia" fica separada, à direita — é uma visão auxiliar
+         (o log do que foi marcado), não mais uma etapa do fluxo
+         principal Plantas → Medição → Rendimento. */}
+      <div className="row-between" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <Segmentos
+          valor={abaServico} onChange={setAbaServico}
+          opcoes={[
+            { valor: 'plantas', rotulo: 'Plantas' },
+            { valor: 'medicao', rotulo: 'Medição' },
+            { valor: 'rendimento', rotulo: 'Rendimento' },
+          ]}
+        />
+        <button
+          className={`btn btn-sm ${abaServico === 'diario' ? 'btn-dark' : 'btn-secondary'}`}
+          onClick={() => setAbaServico('diario')}
+          aria-pressed={abaServico === 'diario'}
+        >
+          Por dia
+          {totalEventosPorDia > 0 && <span style={{ opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>{totalEventosPorDia}</span>}
+        </button>
+      </div>
 
       {abaServico === 'plantas' && (
         <div className="stack-2">
