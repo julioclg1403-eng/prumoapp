@@ -2808,6 +2808,19 @@ function AbaMedicao({ servico, dados }) {
           </div>
         </SecaoRelatorio>
 
+        {/* Resumo de todos os itens, logo no início — pedido do
+           Julio pra ver de cara o total de cada item sem precisar
+           passar por todo o detalhe (locais, colaboradores) de cada
+           um lá embaixo. */}
+        <TabelaRelatorio
+          colunas={['Item', 'Contrato', 'Quantidade', 'Valor']}
+          linhas={porItem.map(({ item, quantidadePeriodo, valorPeriodo }) => [
+            item.descricao_item, String(item.cod_contrato),
+            `${quantidadePeriodo.toLocaleString('pt-BR')} ${item.unidade}`,
+            formatarDinheiro(valorPeriodo),
+          ])}
+        />
+
         {/* Cada item vira dois blocos: um cabeçalho curto (título,
            contrato, mini-tabela) que não pode quebrar no meio — e a
            tabela de locais À PARTE, fora do "break-inside: avoid".
