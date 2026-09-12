@@ -36,6 +36,71 @@ function formatarNumero(v) {
   return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })
 }
 
+/* Um registro por contrato (cod_contrato), com os itens dele dentro —
+   os campos do contrato inteiro se repetem em toda linha de item na
+   planilha achatada, então pega só a primeira ocorrência de cada
+   contrato e empilha os itens por baixo. Usado tanto na aba "Todos os
+   dados" quanto em Controle de Medição (pra saber, ao escolher um
+   contrato, se precisa de aditivo ou já dá pra medir). */
+function agruparContratosComItens(itens) {
+  const mapa = new Map()
+  for (const i of itens) {
+    if (!mapa.has(i.cod_contrato)) {
+      mapa.set(i.cod_contrato, {
+        cod_contrato: i.cod_contrato, objeto_contrato: i.objeto_contrato, fornecedor: i.fornecedor,
+        status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
+        total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
+        valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
+        destino: i.destino, company_id: i.company_id,
+        itens: [],
+      })
+    }
+    mapa.get(i.cod_contrato).itens.push(i)
+  }
+  for (const c of mapa.values()) c.itens.sort((a, b) => a.item_num - b.item_num)
+  return [...mapa.values()].sort((a, b) => Number(b.cod_contrato) - Number(a.cod_contrato))
+}
+
+/* Itens de um contrato, com o saldo em destaque — usada tanto no
+   sheet de estado da medição quanto no de agendar/mudar, sempre com
+   o mesmo objetivo: mostrar, no momento de decidir, se ainda sobra
+   quantidade contratada ou se precisa de aditivo antes de medir. */
+function TabelaItensContrato({ itens }) {
+  return (
+    <div>
+      <div className="t-micro" style={{ marginBottom: 6 }}>
+        Itens do contrato — pra saber se precisa de aditivo antes de medir
+      </div>
+      <div className="scroll-x">
+        <table className="tbl">
+          <thead>
+            <tr><th>Item</th><th>Unid</th><th>Qtde</th><th>Medida</th><th>Saldo</th></tr>
+          </thead>
+          <tbody>
+            {itens.map((i) => {
+              const saldoBaixo = Number(i.qtde_a_medir) <= 0
+              return (
+                <tr key={i.id}>
+                  <td className="t-strong">{i.descricao_item}</td>
+                  <td className="t-caption">{i.unidade || '—'}</td>
+                  <td className="t-num">{formatarNumero(i.qtde_item)}</td>
+                  <td className="t-num">{formatarNumero(i.qtde_medida)}</td>
+                  <td className="t-num" style={saldoBaixo ? { color: 'var(--danger)', fontWeight: 700 } : undefined}>
+                    {formatarNumero(i.qtde_a_medir)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="t-caption" style={{ color: 'var(--text-2)', marginTop: 4 }}>
+        Saldo em vermelho = já usou (quase) toda a quantidade contratada desse item — provavelmente precisa de aditivo antes de medir mais.
+      </div>
+    </div>
+  )
+}
+
 export default function Contratos({ voltar, perfil, params = {} }) {
   const dados = useDados()
   const podeEditar = perfil.role !== 'campo'
@@ -144,24 +209,7 @@ function AbaDados({ itens, dados, podeEditar }) {
      clicar abre e mostra item a item. A busca só filtra QUAIS
      contratos aparecem (e, dentro deles, quais itens) — continua
      fechado até a pessoa clicar, mesmo com filtro ativo. */
-  const contratosAgrupados = useMemo(() => {
-    const mapa = new Map()
-    for (const i of itens) {
-      if (!mapa.has(i.cod_contrato)) {
-        mapa.set(i.cod_contrato, {
-          cod_contrato: i.cod_contrato, objeto_contrato: i.objeto_contrato, fornecedor: i.fornecedor,
-          status_contrato: i.status_contrato, situacao_contrato: i.situacao_contrato,
-          total_contrato: i.total_contrato, saldo_contrato: i.saldo_contrato,
-          valor_medido_contrato: i.valor_medido_contrato, retido: i.retido, a_pagar: i.a_pagar,
-          destino: i.destino, company_id: i.company_id,
-          itens: [],
-        })
-      }
-      mapa.get(i.cod_contrato).itens.push(i)
-    }
-    for (const c of mapa.values()) c.itens.sort((a, b) => a.item_num - b.item_num)
-    return [...mapa.values()].sort((a, b) => Number(b.cod_contrato) - Number(a.cod_contrato))
-  }, [itens])
+  const contratosAgrupados = useMemo(() => agruparContratosComItens(itens), [itens])
 
   const lista = useMemo(() => {
     const b = busca.trim().toLowerCase()
@@ -751,6 +799,8 @@ function AbaControleMedicao({ dados, podeEditar }) {
   const [detalheId, setDetalheId] = useState(null)
 
   const medicoes = dados.medicoesProgramadas || []
+  const contratosAgrupados = useMemo(() => agruparContratosComItens(dados.contratos || []), [dados.contratos])
+  const contratosPorCodigo = useMemo(() => new Map(contratosAgrupados.map((c) => [c.cod_contrato, c])), [contratosAgrupados])
 
   const ocorrenciasDoPeriodo = useMemo(() => {
     const lista = []
@@ -777,7 +827,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
   }, [ocorrenciasDoPeriodo])
 
   /* "empresa|AAAA-MM" -> valor medido no módulo Produtividade naquele mês. */
-  const { medidoPorEmpresaMes, empresasComItens } = useMemo(() => {
+  const { medidoPorEmpresaMes, empresasComItens, itensPorId } = useMemo(() => {
     const itensPorId = new Map((dados.contratos || []).map((i) => [i.id, i]))
     const empresasComItens = new Set((dados.contratos || []).filter((i) => i.company_id).map((i) => i.company_id))
     const medidoPorEmpresaMes = new Map()
@@ -789,8 +839,23 @@ function AbaControleMedicao({ dados, podeEditar }) {
       const valor = (Number(ev.quantidade) || 0) * (Number(item.preco_item) || 0)
       medidoPorEmpresaMes.set(chave, (medidoPorEmpresaMes.get(chave) || 0) + valor)
     }
-    return { medidoPorEmpresaMes, empresasComItens }
+    return { medidoPorEmpresaMes, empresasComItens, itensPorId }
   }, [dados.contratos, dados.eventosProducao])
+
+  /* "codContrato|AAAA-MM" -> valor lançado no boletim manual naquele
+     mês — canal totalmente separado do de Produtividade acima (serviço
+     mensal/fixo, sem marcação física), nunca somado com ele: cada um
+     aparece na tela como sua própria linha. */
+  const manualPorContratoMes = useMemo(() => {
+    const mapa = new Map()
+    for (const m of dados.medicoesManuais || []) {
+      const item = itensPorId.get(m.contract_item_id)
+      if (!item) continue
+      const chave = `${item.cod_contrato}|${m.periodo}`
+      mapa.set(chave, (mapa.get(chave) || 0) + (Number(m.valor) || 0))
+    }
+    return mapa
+  }, [dados.medicoesManuais, itensPorId])
 
   const abrirNova = () => { setContexto({ modo: 'nova' }); setSheetAberta(true) }
   const abrirMudarOcorrencia = (oc) => {
@@ -830,7 +895,9 @@ function AbaControleMedicao({ dados, podeEditar }) {
               <div className="stack-1">
                 {lista.map((oc) => {
                   const nomeEmpresa = dados.nomeDe(dados.empresas, oc.company_id)
+                  const contrato = oc.cod_contrato ? contratosPorCodigo.get(oc.cod_contrato) : null
                   const valorMedido = medidoPorEmpresaMes.get(`${oc.company_id}|${data.slice(0, 7)}`) || 0
+                  const valorManual = oc.cod_contrato ? (manualPorContratoMes.get(`${oc.cod_contrato}|${data.slice(0, 7)}`) || 0) : 0
                   const temItens = empresasComItens.has(oc.company_id)
                   return (
                     <div
@@ -843,17 +910,27 @@ function AbaControleMedicao({ dados, podeEditar }) {
                             className="t-strong" style={{ fontSize: 13, cursor: 'pointer', textDecoration: 'underline dotted' }}
                             onClick={() => setDetalheId(oc.id)}
                           >
-                            {nomeEmpresa}
+                            {contrato ? `Contrato ${contrato.cod_contrato} — ${nomeEmpresa}` : nomeEmpresa}
                           </span>
                           <Chip tom={infoStatus(oc.status).tom}>{infoStatus(oc.status).rotulo}</Chip>
                           {oc.recorrente && <Chip tom="info">Recorrente · todo dia {oc.dia_mes}</Chip>}
                         </div>
+                        {!oc.cod_contrato && (
+                          <div className="t-caption" style={{ color: 'var(--danger)' }}>
+                            Ainda não ligada a um contrato específico — clique em "Mudar" para escolher.
+                          </div>
+                        )}
                         {oc.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{oc.observacao}</div>}
                         <div className="t-caption" style={{ marginTop: 2 }}>
                           {temItens
                             ? <>Medido no mês (Produtividade): <strong>{formatarDinheiro(valorMedido)}</strong></>
                             : 'Sem item de contrato vinculado a essa empresa ainda'}
                         </div>
+                        {valorManual > 0 && (
+                          <div className="t-caption">
+                            Medido no mês (manual): <strong>{formatarDinheiro(valorManual)}</strong>
+                          </div>
+                        )}
                         {podeEditar && oc.recorrente && (
                           <div className="row-flex" style={{ gap: 10 }}>
                             <button
@@ -893,6 +970,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
         contexto={contexto}
         periodo={periodo}
         dados={dados}
+        contratosAgrupados={contratosAgrupados}
         onFechar={() => setSheetAberta(false)}
       />
 
@@ -901,6 +979,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
         ocorrencia={ocorrenciaDetalhe}
         periodo={periodo}
         dados={dados}
+        contrato={ocorrenciaDetalhe?.cod_contrato ? contratosPorCodigo.get(ocorrenciaDetalhe.cod_contrato) : null}
         valorMedido={ocorrenciaDetalhe ? (medidoPorEmpresaMes.get(`${ocorrenciaDetalhe.company_id}|${periodo}`) || 0) : 0}
         temItens={ocorrenciaDetalhe ? empresasComItens.has(ocorrenciaDetalhe.company_id) : false}
         podeEditar={podeEditar}
@@ -939,7 +1018,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
    exibição) — separado do "mudar data", porque isso é sobre O QUE
    está acontecendo com a medição (precisa de aditivo? já foi feita?
    nota em lançamento?), não sobre quando ela é. */
-function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, valorMedido, temItens, podeEditar, onFechar }) {
+function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, contrato, valorMedido, temItens, podeEditar, onFechar }) {
   const [salvando, setSalvando] = useState(false)
 
   const nomeEmpresa = ocorrencia ? dados.nomeDe(dados.empresas, ocorrencia.company_id) : ''
@@ -955,7 +1034,7 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, valorMedido, t
   }
 
   return (
-    <Sheet aberto={aberto} titulo={nomeEmpresa} onFechar={onFechar}>
+    <Sheet aberto={aberto} titulo={contrato ? `Contrato ${contrato.cod_contrato} — ${nomeEmpresa}` : nomeEmpresa} onFechar={onFechar}>
       {ocorrencia && (
         <div className="stack-2">
           <div className="t-caption">
@@ -971,6 +1050,9 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, valorMedido, t
                 : 'Sem item de contrato vinculado a essa empresa ainda'}
             </div>
           </div>
+
+          {contrato && <TabelaItensContrato itens={contrato.itens} />}
+
           <Campo label="Estado da medição">
             <div className="stack-1">
               {STATUS_MEDICAO.map((s) => (
@@ -985,9 +1067,142 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, valorMedido, t
               ))}
             </div>
           </Campo>
+
+          {contrato && (
+            <BoletimManual contrato={contrato} periodo={periodo} dados={dados} podeEditar={podeEditar} />
+          )}
         </div>
       )}
     </Sheet>
+  )
+}
+
+/* Boletim de medição "manual": pra item de contrato mensal/fixo (ex.:
+   mobilização, administração local) que não passa por marcação física
+   no Produtividade — a pessoa lança direto quanto foi medido naquele
+   mês. Canal separado de propósito: nunca lê nem escreve em cima do
+   que vem de Produtividade (eventosProducao/marcadoresProducao), só
+   soma ao lado (ver manualPorContratoMes em AbaControleMedicao). */
+function BoletimManual({ contrato, periodo, dados, podeEditar }) {
+  const [lancando, setLancando] = useState(false)
+  const [itemId, setItemId] = useState('')
+  const [quantidade, setQuantidade] = useState('1')
+  const [valor, setValor] = useState('')
+  const [observacao, setObservacao] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [excluindo, setExcluindo] = useState(null)
+
+  const entradas = useMemo(() => {
+    const idsDoContrato = new Set(contrato.itens.map((i) => i.id))
+    return (dados.medicoesManuais || [])
+      .filter((m) => m.periodo === periodo && idsDoContrato.has(m.contract_item_id))
+      .sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1))
+  }, [dados.medicoesManuais, contrato, periodo])
+
+  const itemEscolhido = contrato.itens.find((i) => i.id === itemId)
+
+  const escolherItem = (id) => {
+    setItemId(id)
+    const item = contrato.itens.find((i) => i.id === id)
+    if (item) setValor(String((Number(quantidade) || 0) * (Number(item.preco_item) || 0)))
+  }
+
+  const mudarQuantidade = (texto) => {
+    setQuantidade(texto)
+    if (itemEscolhido) setValor(String((Number(texto) || 0) * (Number(itemEscolhido.preco_item) || 0)))
+  }
+
+  const abrirNovo = () => {
+    setItemId(''); setQuantidade('1'); setValor(''); setObservacao(''); setLancando(true)
+  }
+
+  const salvar = async () => {
+    if (!itemId || !Number(valor)) return
+    setSalvando(true)
+    try {
+      const salvo = await dados.salvarMedicaoManual({ contract_item_id: itemId, periodo, quantidade, valor, observacao })
+      if (salvo) setLancando(false)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="row-between" style={{ alignItems: 'center', marginBottom: 6 }}>
+        <div className="t-micro">Boletim de medição manual — serviços mensais/fixos ({rotuloMes(periodo)})</div>
+        {podeEditar && !lancando && (
+          <button className="btn btn-ghost btn-sm" onClick={abrirNovo}>
+            <Icon name="mais_sinal" size={14} /> Lançar
+          </button>
+        )}
+      </div>
+
+      {entradas.length === 0 && !lancando && (
+        <div className="t-caption" style={{ color: 'var(--text-2)' }}>Nada lançado à mão neste mês ainda.</div>
+      )}
+
+      {entradas.length > 0 && (
+        <div className="stack-1" style={{ marginBottom: lancando ? 10 : 0 }}>
+          {entradas.map((m) => {
+            const item = contrato.itens.find((i) => i.id === m.contract_item_id)
+            return (
+              <div key={m.id} className="row-between card-flat" style={{ padding: 8, alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="t-strong" style={{ fontSize: 12 }}>{item?.descricao_item || 'Item removido'}</div>
+                  <div className="t-caption">{formatarNumero(m.quantidade)} × {formatarDinheiro(Number(m.valor) / (Number(m.quantidade) || 1))} = {formatarDinheiro(m.valor)}</div>
+                  {m.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{m.observacao}</div>}
+                </div>
+                {podeEditar && (
+                  <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setExcluindo(m)}>
+                    <Icon name="x" size={14} />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {lancando && (
+        <div className="stack-1 card-flat" style={{ padding: 10 }}>
+          <Campo label="Item do contrato">
+            <select className="sel" value={itemId} onChange={(e) => escolherItem(e.target.value)}>
+              <option value="">Selecione…</option>
+              {contrato.itens.map((i) => (
+                <option key={i.id} value={i.id}>{i.descricao_item}</option>
+              ))}
+            </select>
+          </Campo>
+          <div className="row-flex">
+            <Campo label="Quantidade">
+              <input className="ipt" type="number" min="0" step="any" value={quantidade} onChange={(e) => mudarQuantidade(e.target.value)} />
+            </Campo>
+            <Campo label="Valor" dica={itemEscolhido ? `Sugerido: ${formatarNumero(quantidade)} × ${formatarDinheiro(itemEscolhido.preco_item)}` : undefined}>
+              <input className="ipt" type="number" min="0" step="any" value={valor} onChange={(e) => setValor(e.target.value)} />
+            </Campo>
+          </div>
+          <Campo label="Observação (opcional)">
+            <input className="ipt" value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Ex.: mobilização de setembro" />
+          </Campo>
+          <div className="row-flex">
+            <button className="btn btn-secondary grow" onClick={() => setLancando(false)}>Cancelar</button>
+            <button className="btn btn-primary grow" disabled={!itemId || !Number(valor) || salvando} onClick={salvar}>
+              {salvando ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Confirmar
+        aberto={Boolean(excluindo)}
+        titulo="Excluir este lançamento manual?"
+        texto={excluindo ? `${formatarDinheiro(excluindo.valor)} sai do boletim deste mês. Isso não tem volta.` : ''}
+        perigo
+        onCancelar={() => setExcluindo(null)}
+        onOk={async () => { const m = excluindo; setExcluindo(null); if (m) await dados.excluirMedicaoManual(m.id) }}
+      />
+    </div>
   )
 }
 
@@ -998,8 +1213,8 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, valorMedido, t
    - 'ocorrencia': muda só o mês em exibição de uma recorrência —
      exclui aquele mês da série e cria uma medição avulsa no lugar.
    - 'avulsa': edita uma medição avulsa já existente. */
-function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) {
-  const [companyId, setCompanyId] = useState('')
+function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, contratosAgrupados, onFechar }) {
+  const [codContrato, setCodContrato] = useState('')
   const [recorrente, setRecorrente] = useState(false)
   const [diaMes, setDiaMes] = useState(1)
   const [data, setData] = useState('')
@@ -1013,17 +1228,17 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) 
   useEffect(() => {
     if (!aberto) return
     if (modo === 'serie') {
-      setCompanyId(item.company_id); setRecorrente(true); setDiaMes(item.dia_mes || 1)
+      setCodContrato(item.cod_contrato || ''); setRecorrente(true); setDiaMes(item.dia_mes || 1)
       setData(''); setObservacao(item.observacao || '')
     } else if (modo === 'ocorrencia') {
       const dia = Math.min(item.dia_mes, ultimoDiaDoMes(periodo))
-      setCompanyId(item.company_id); setRecorrente(false)
+      setCodContrato(item.cod_contrato || ''); setRecorrente(false)
       setData(`${periodo}-${String(dia).padStart(2, '0')}`); setObservacao(item.observacao || '')
     } else if (modo === 'avulsa') {
-      setCompanyId(item.company_id); setRecorrente(false)
+      setCodContrato(item.cod_contrato || ''); setRecorrente(false)
       setData(item.data); setObservacao(item.observacao || '')
     } else {
-      setCompanyId(''); setRecorrente(false); setDiaMes(1)
+      setCodContrato(''); setRecorrente(false); setDiaMes(1)
       setData(hojeISO()); setObservacao('')
     }
   }, [aberto, modo, item, periodo])
@@ -1035,21 +1250,23 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) 
     avulsa: 'Mudar data da medição',
   }[modo]
 
+  const contratoSelecionado = contratosAgrupados.find((c) => c.cod_contrato === codContrato) || null
+  const companyId = contratoSelecionado?.company_id || null
+  const podeSalvar = Boolean(codContrato && companyId) && (recorrente ? Boolean(diaMes) : Boolean(data))
+
   const salvar = async () => {
-    if (!companyId) return
-    if (recorrente && !diaMes) return
-    if (!recorrente && !data) return
+    if (!podeSalvar) return
     setSalvando(true)
     try {
       if (modo === 'ocorrencia') {
         await dados.excluirOcorrenciaRecorrente(item.id, periodo)
-        const salvo = await dados.salvarMedicaoProgramada({ company_id: companyId, recorrente: false, data, observacao })
+        const salvo = await dados.salvarMedicaoProgramada({ company_id: companyId, cod_contrato: codContrato, recorrente: false, data, observacao })
         if (salvo) onFechar()
         return
       }
       const salvo = await dados.salvarMedicaoProgramada({
         id: modo === 'serie' || modo === 'avulsa' ? item.id : undefined,
-        company_id: companyId, recorrente, dia_mes: diaMes, data, observacao,
+        company_id: companyId, cod_contrato: codContrato, recorrente, dia_mes: diaMes, data, observacao,
       })
       if (salvo) onFechar()
     } finally {
@@ -1061,14 +1278,25 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) 
     <>
       <Sheet aberto={aberto} titulo={titulo} onFechar={onFechar}>
         <div className="stack-2">
-          <Campo label="Empresa">
-            <select className="sel" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+          <Campo label="Contrato">
+            <select className="sel" value={codContrato} onChange={(e) => setCodContrato(e.target.value)}>
               <option value="">Selecione…</option>
-              {(dados.empresas || []).filter((e) => e.ativo !== false).map((e) => (
-                <option key={e.id} value={e.id}>{e.nome}</option>
+              {contratosAgrupados.map((c) => (
+                <option key={c.cod_contrato} value={c.cod_contrato} disabled={!c.company_id}>
+                  Contrato {c.cod_contrato} — {c.fornecedor || c.objeto_contrato || 'sem descrição'}
+                  {!c.company_id ? ' (sem empresa vinculada)' : ''}
+                </option>
               ))}
             </select>
           </Campo>
+
+          {codContrato && !companyId && (
+            <div className="t-caption" style={{ color: 'var(--danger)' }}>
+              Esse contrato ainda não tem empresa vinculada — vá em "Todos os dados", abra o contrato e defina a empresa antes de agendar a medição.
+            </div>
+          )}
+
+          {contratoSelecionado && <TabelaItensContrato itens={contratoSelecionado.itens} />}
 
           {modo === 'nova' && (
             <div className="row-wrap" style={{ gap: 6 }}>
@@ -1126,7 +1354,7 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) 
 
           <button
             className="btn btn-primary btn-block"
-            disabled={!companyId || (recorrente ? !diaMes : !data) || salvando}
+            disabled={!podeSalvar || salvando}
             onClick={salvar}
           >
             {salvando ? 'Salvando…' : 'Salvar'}
@@ -1143,7 +1371,7 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, onFechar }) 
       <Confirmar
         aberto={excluindoSerie}
         titulo="Excluir toda a recorrência?"
-        texto={item ? `${dados.nomeDe(dados.empresas, item.company_id)} — todo dia ${item.dia_mes}, em todos os meses.` : ''}
+        texto={item ? `${item.cod_contrato ? `Contrato ${item.cod_contrato}` : dados.nomeDe(dados.empresas, item.company_id)} — todo dia ${item.dia_mes}, em todos os meses.` : ''}
         perigo
         onCancelar={() => setExcluindoSerie(false)}
         onOk={async () => {

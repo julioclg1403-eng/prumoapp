@@ -208,7 +208,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
       estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
       tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao,
-      medicoesProgramadas, medicaoFechamentos,
+      medicoesProgramadas, medicaoFechamentos, medicoesManuais,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -264,6 +264,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('production_marker_events').select('*, equipe:production_marker_event_workers(worker_id)').order('data_execucao', { ascending: false })),
       buscarPaginado(() => supabase.from('contract_measurement_dates').select('*').order('data')),
       buscarPaginado(() => supabase.from('production_measurement_closures').select('*').order('criado_em', { ascending: false })),
+      buscarPaginado(() => supabase.from('contract_manual_measurements').select('*').order('periodo', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -277,7 +278,7 @@ export function DadosProvider({ perfil, children }) {
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
       movimentosEstoque, isencoesTreinamento, regrasNotificacao,
       tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao, medicoesProgramadas,
-      medicaoFechamentos].find((r) => r.error)
+      medicaoFechamentos, medicoesManuais].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -344,6 +345,7 @@ export function DadosProvider({ perfil, children }) {
       contratos: contratos.data || [],
       medicoesProgramadas: medicoesProgramadas.data || [],
       medicaoFechamentos: medicaoFechamentos.data || [],
+      medicoesManuais: medicoesManuais.data || [],
       previsionProjectLinks: previsionProjectLinks.data || [],
       motivosNaoExecutado: motivosNaoExecutado.data || [],
       metasMensais: metasMensais.data || [],
@@ -486,6 +488,7 @@ export function DadosProvider({ perfil, children }) {
       contratos: filtrar(tudo.contratos),
       medicoesProgramadas: filtrar(tudo.medicoesProgramadas),
       medicaoFechamentos: filtrar(tudo.medicaoFechamentos),
+      medicoesManuais: filtrar(tudo.medicoesManuais),
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
       metasMensais: filtrar(tudo.metasMensais),
@@ -2578,6 +2581,7 @@ export function DadosProvider({ perfil, children }) {
       const { organization_id, worksite_id } = escopo()
       const linha = {
         organization_id, worksite_id, company_id: item.company_id,
+        cod_contrato: item.cod_contrato || null,
         recorrente: Boolean(item.recorrente),
         data: item.recorrente ? null : item.data,
         dia_mes: item.recorrente ? item.dia_mes : null,
@@ -2662,6 +2666,42 @@ export function DadosProvider({ perfil, children }) {
       return true
     },
     [tudo, checar],
+  )
+
+  /* Boletim de medição "manual": item de contrato mensal/fixo (não
+     passa por marcação no Produtividade) — uma linha por item x
+     período. Valor congela na hora do lançamento (quem chama já
+     manda pronto, calculado com o preço do item NESTE momento),
+     pra um boletim já registrado não mudar sozinho se o preço for
+     atualizado numa reimportação futura da planilha. */
+  const salvarMedicaoManual = useCallback(
+    async (item) => {
+      const { organization_id, worksite_id } = escopo()
+      const linha = {
+        organization_id, worksite_id, contract_item_id: item.contract_item_id,
+        periodo: item.periodo, quantidade: Number(item.quantidade) || 0, valor: Number(item.valor) || 0,
+        observacao: (item.observacao || '').trim() || null,
+        autor_id: perfil.id,
+      }
+      const salvo = checar(
+        await supabase.from('contract_manual_measurements').insert(linha).select('*').single(),
+        'salvar a medição manual',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({ ...t, medicoesManuais: [salvo, ...t.medicoesManuais] }))
+      return salvo
+    },
+    [escopo, perfil.id, checar],
+  )
+
+  const excluirMedicaoManual = useCallback(
+    async (id) => {
+      const r = await supabase.from('contract_manual_measurements').delete().eq('id', id)
+      if (r.error) { checar(r, 'excluir a medição manual'); return false }
+      setTudo((t) => t && ({ ...t, medicoesManuais: t.medicoesManuais.filter((x) => x.id !== id) }))
+      return true
+    },
+    [checar],
   )
 
   // ── Controle de refeições (Almoxarifado) ───────────────────
@@ -4033,6 +4073,7 @@ export function DadosProvider({ perfil, children }) {
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
       salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente, salvarStatusMedicao,
+      salvarMedicaoManual, excluirMedicaoManual,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal,
@@ -4075,6 +4116,7 @@ export function DadosProvider({ perfil, children }) {
       excluirPedidoSuprimento, reativarPedidoSuprimento,
       importarContratos, definirDestinoContrato, definirEmpresaContrato,
       salvarMedicaoProgramada, excluirMedicaoProgramada, excluirOcorrenciaRecorrente, salvarStatusMedicao,
+      salvarMedicaoManual, excluirMedicaoManual,
       salvarRefeicao, excluirRefeicao,
       salvarPlanejado, salvarPlanejadosEmLote, marcarDaPlanilha, preencherEmpresaPlanejada, removerPlanejado, salvarOverridePlanejamento,
       salvarMotivoNaoExecutado, salvarMetaMensal, definirPapel,
