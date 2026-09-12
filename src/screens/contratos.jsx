@@ -901,6 +901,9 @@ function AbaControleMedicao({ dados, podeEditar }) {
                   const valorMedido = medidoPorEmpresaMes.get(`${oc.company_id}|${data.slice(0, 7)}`) || 0
                   const valorManual = oc.cod_contrato ? (manualPorContratoMes.get(`${oc.cod_contrato}|${data.slice(0, 7)}`) || 0) : 0
                   const temItens = empresasComItens.has(oc.company_id)
+                  const saldoInfo = contrato
+                    ? (contrato.itens.some((i) => Number(i.qtde_a_medir) <= 0) ? 'baixo' : 'ok')
+                    : null
                   return (
                     <div
                       key={oc.id} className="row-between"
@@ -915,6 +918,16 @@ function AbaControleMedicao({ dados, podeEditar }) {
                             {contrato ? `Contrato ${contrato.cod_contrato} — ${nomeEmpresa}` : nomeEmpresa}
                           </span>
                           <Chip tom={infoStatus(oc.status).tom}>{infoStatus(oc.status).rotulo}</Chip>
+                          {saldoInfo === 'baixo' && (
+                            <span title="Saldo esgotado em algum item do contrato — provavelmente precisa de aditivo antes de medir mais.">
+                              <Icon name="alerta" size={14} style={{ color: 'var(--danger)' }} />
+                            </span>
+                          )}
+                          {saldoInfo === 'ok' && (
+                            <span title="Saldo OK em todos os itens do contrato.">
+                              <Icon name="check" size={14} style={{ color: 'var(--success)' }} />
+                            </span>
+                          )}
                           {oc.recorrente && <Chip tom="info">Recorrente · todo dia {oc.dia_mes}</Chip>}
                         </div>
                         {!oc.cod_contrato && (
@@ -1022,6 +1035,7 @@ function AbaControleMedicao({ dados, podeEditar }) {
    nota em lançamento?), não sobre quando ela é. */
 function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, contrato, valorMedido, temItens, podeEditar, onFechar }) {
   const [salvando, setSalvando] = useState(false)
+  const [salvandoEmpresa, setSalvandoEmpresa] = useState(false)
 
   const nomeEmpresa = ocorrencia
     ? (ocorrencia.company_id ? dados.nomeDe(dados.empresas, ocorrencia.company_id) : (contrato?.fornecedor || '—'))
@@ -1046,13 +1060,30 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, contrato, valo
             {ocorrencia.recorrente ? ` · recorrente, todo dia ${ocorrencia.dia_mes}` : ''}
           </div>
           {ocorrencia.observacao && <div className="t-caption" style={{ color: 'var(--text-2)' }}>{ocorrencia.observacao}</div>}
-          <div className="card-flat">
+          <div className="card-flat stack-1">
             <div className="t-caption">Cruzamento com Produtividade</div>
             <div className="t-caption" style={{ marginTop: 2 }}>
               {temItens
                 ? <>Medido no mês: <strong>{formatarDinheiro(valorMedido)}</strong></>
                 : 'Sem item de contrato vinculado a essa empresa ainda'}
             </div>
+            {contrato && !contrato.company_id && podeEditar && (
+              <select
+                className="sel" disabled={salvandoEmpresa}
+                value=""
+                onChange={async (e) => {
+                  if (!e.target.value) return
+                  setSalvandoEmpresa(true)
+                  await dados.definirEmpresaContrato(contrato.cod_contrato, e.target.value)
+                  setSalvandoEmpresa(false)
+                }}
+              >
+                <option value="">{salvandoEmpresa ? 'Salvando…' : 'Vincular empresa a este contrato…'}</option>
+                {(dados.empresas || []).filter((e) => e.ativo !== false).map((e) => (
+                  <option key={e.id} value={e.id}>{e.nome}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {contrato && <TabelaItensContrato itens={contrato.itens} />}
@@ -1225,6 +1256,7 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, contratosAgr
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [excluindoSerie, setExcluindoSerie] = useState(false)
+  const [salvandoEmpresa, setSalvandoEmpresa] = useState(false)
 
   const modo = contexto?.modo || 'nova'
   const item = contexto?.item
@@ -1295,8 +1327,25 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, contratosAgr
           </Campo>
 
           {codContrato && !companyId && (
-            <div className="t-caption" style={{ color: 'var(--text-2)' }}>
-              Esse contrato ainda não tem empresa vinculada (Todos os dados → abrir o contrato → Empresa vinculada) — dá pra agendar assim mesmo, só o cruzamento com Produtividade não vai aparecer até vincular.
+            <div className="card-flat stack-1" style={{ padding: 10 }}>
+              <div className="t-caption" style={{ color: 'var(--text-2)' }}>
+                Esse contrato ainda não tem empresa vinculada — sem isso, o cruzamento com Produtividade não aparece. Dá pra agendar assim mesmo, ou vincular agora:
+              </div>
+              <select
+                className="sel" disabled={salvandoEmpresa}
+                value=""
+                onChange={async (e) => {
+                  if (!e.target.value) return
+                  setSalvandoEmpresa(true)
+                  await dados.definirEmpresaContrato(codContrato, e.target.value)
+                  setSalvandoEmpresa(false)
+                }}
+              >
+                <option value="">{salvandoEmpresa ? 'Salvando…' : 'Vincular empresa…'}</option>
+                {(dados.empresas || []).filter((e) => e.ativo !== false).map((e) => (
+                  <option key={e.id} value={e.id}>{e.nome}</option>
+                ))}
+              </select>
             </div>
           )}
 
