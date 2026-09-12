@@ -1207,9 +1207,78 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, contrato, valo
           {contrato && (
             <BoletimManual contrato={contrato} periodo={periodo} dados={dados} podeEditar={podeEditar} />
           )}
+
+          {contrato && <SaldoPosMedicao contrato={contrato} periodo={periodo} dados={dados} />}
         </div>
       )}
     </Sheet>
+  )
+}
+
+/* Cruza o saldo importado (última planilha) com o que já foi medido
+   ESTE MÊS dentro do próprio app — manual ou via Produtividade — pra
+   saber se ainda sobra saldo de verdade agora, não só na data da
+   última importação. Sem isso, um item que zerou o saldo só apareceria
+   vermelho na próxima vez que a planilha fosse reimportada, o que pode
+   ser semanas depois de já ter estourado. */
+function SaldoPosMedicao({ contrato, periodo, dados }) {
+  const linhas = useMemo(() => {
+    return contrato.itens.map((item) => {
+      const manual = (dados.medicoesManuais || [])
+        .filter((m) => m.contract_item_id === item.id && m.periodo === periodo)
+        .reduce((s, m) => s + (Number(m.quantidade) || 0), 0)
+      const producao = (dados.eventosProducao || [])
+        .filter((ev) => ev.contract_item_id === item.id && ev.data_execucao && ev.data_execucao.slice(0, 7) === periodo)
+        .reduce((s, ev) => s + (Number(ev.quantidade) || 0), 0)
+      const medidoNoMes = manual + producao
+      const saldoAtual = Number(item.qtde_a_medir) || 0
+      const saldoProjetado = saldoAtual - medidoNoMes
+      return { item, medidoNoMes, saldoAtual, saldoProjetado }
+    })
+  }, [contrato, periodo, dados.medicoesManuais, dados.eventosProducao])
+
+  const problematicos = linhas.filter((l) => l.medidoNoMes > 0 && l.saldoProjetado <= 0)
+
+  return (
+    <div>
+      <div className="t-micro" style={{ marginBottom: 6 }}>
+        Itens do contrato — pós medição do mês ({rotuloMes(periodo)})
+      </div>
+
+      {problematicos.length > 0 && (
+        <div className="alert danger" style={{ marginBottom: 8 }}>
+          <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+            <Icon name="alerta" size={16} />
+            <strong>Este contrato precisa de aditivo</strong>
+          </div>
+          <div style={{ marginTop: 4 }}>
+            {problematicos.length === 1
+              ? `O item "${problematicos[0].item.descricao_item}" não tem saldo suficiente pra cobrir o que já foi medido este mês.`
+              : `${problematicos.length} itens não têm saldo suficiente pra cobrir o que já foi medido este mês: ${problematicos.map((l) => l.item.descricao_item).join(', ')}.`}
+          </div>
+        </div>
+      )}
+
+      <div className="scroll-x">
+        <table className="tbl">
+          <thead>
+            <tr><th>Item</th><th>Saldo (última planilha)</th><th>Medido este mês (app)</th><th>Saldo projetado</th></tr>
+          </thead>
+          <tbody>
+            {linhas.map((l) => (
+              <tr key={l.item.id}>
+                <td className="t-strong">{l.item.descricao_item}</td>
+                <td className="t-num">{formatarNumero(l.saldoAtual)}</td>
+                <td className="t-num">{l.medidoNoMes > 0 ? formatarNumero(l.medidoNoMes) : '—'}</td>
+                <td className="t-num" style={l.saldoProjetado <= 0 && l.medidoNoMes > 0 ? { color: 'var(--danger)', fontWeight: 700 } : undefined}>
+                  {formatarNumero(l.saldoProjetado)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
