@@ -1728,6 +1728,12 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
               corCss = etapaInfo?.cor ? `var(--${etapaInfo.cor})` : 'var(--text-3)'
             }
             if (m.forma === 'area') {
+              /* Borda sempre 100% opaca (não leva o `opacity`, que
+                 antes lavava tudo — contorno e preenchimento juntos)
+                 — pedido do Julio pra dar pra ver sem precisar de
+                 zoom grande. O preenchimento continua translúcido,
+                 só que bem mais forte (0.4 → 0.55), pra não esconder
+                 o desenho da planta debaixo. */
               return (
                 <button
                   key={m.id}
@@ -1737,10 +1743,12 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
                     position: 'absolute',
                     left: `${m.x}%`, top: `${m.y}%`,
                     width: `${Math.max(0.5, (m.x2 ?? m.x) - m.x)}%`, height: `${Math.max(0.5, (m.y2 ?? m.y) - m.y)}%`,
-                    padding: 0, border: `2px solid ${corCss}`,
-                    background: corCss, opacity: 0.4, cursor: 'pointer',
+                    padding: 0, border: `3px solid ${corCss}`,
+                    background: 'transparent', cursor: 'pointer',
                   }}
-                />
+                >
+                  <span style={{ position: 'absolute', inset: 0, background: corCss, opacity: 0.55, pointerEvents: 'none' }} />
+                </button>
               )
             }
             return (
