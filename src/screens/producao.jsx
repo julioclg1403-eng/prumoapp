@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, formatarDataHora, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, formatarDataHora, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento, custoMedioEpiComFallback } from '../lib/dominio'
 import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
@@ -1220,7 +1220,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
         </div>
       )}
 
-      {abaServico === 'medicao' && <AbaMedicao servico={servico} dados={dados} />}
+      {abaServico === 'medicao' && <AbaMedicao servico={servico} dados={dados} podeEditar={podeEditar} />}
       {abaServico === 'rendimento' && <AbaRendimento servico={servico} tipo={tipo} dados={dados} />}
 
       <EnviarPlantaSheet aberto={enviando} onFechar={() => setEnviando(false)} dados={dados} servico={servico} />
@@ -2634,7 +2634,7 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
 
 /* ── Medição ────────────────────────────────────────────────── */
 
-function AbaMedicao({ servico, dados }) {
+function AbaMedicao({ servico, dados, podeEditar }) {
   const hoje = hojeISO()
   const tipo = dados.tiposServico?.find((t) => t.id === servico.service_type_id)
   const [periodoModo, setPeriodoModo] = useState('mes')
@@ -2642,6 +2642,9 @@ function AbaMedicao({ servico, dados }) {
   const [periodoMes, setPeriodoMes] = useState(hoje.slice(0, 7))
   const [periodoInicio, setPeriodoInicio] = useState(hoje)
   const [periodoFim, setPeriodoFim] = useState(hoje)
+  const [fechando, setFechando] = useState(false)
+  const [salvandoFechamento, setSalvandoFechamento] = useState(false)
+  const [excluindoFechamento, setExcluindoFechamento] = useState(null)
 
   /* Só conta marcador de uma planta DESTE serviço — "controle apenas
      daquele serviço", pedido do Julio — e só marcador ativo (nem ele
@@ -2746,6 +2749,94 @@ function AbaMedicao({ servico, dados }) {
 
   const totalValorPeriodo = porItem.reduce((s, x) => s + x.valorPeriodo, 0)
 
+  /* Desconto no boletim: refeição e EPI que a empresa do serviço
+     consumiu no MESMO período, pra chegar no valor líquido a pagar —
+     pedido do Julio. Conta TODA a empresa na obra (não só o time
+     deste serviço), porque a mesma empreiteira pode ter gente em
+     mais de uma frente — decisão explícita dele. Só calcula quando o
+     serviço tem empresa vinculada; sem isso não tem a quem atribuir
+     o consumo. */
+  const refeicoesNoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      dados.refeicoes || [], periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (r) => r.data,
+    ),
+    [dados.refeicoes, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+  const precoRefeicao = Number(dados.obra.preco_refeicao) || 0
+  const refeicoesDaEmpresa = useMemo(() => {
+    if (!servico.company_id) return 0
+    let total = 0
+    for (const r of refeicoesNoPeriodo) {
+      for (const workerId of r.worker_ids || []) {
+        const colaborador = dados.colaboradorPorId(workerId)
+        const companyId = colaborador?.company_id || r.company_id || null
+        if (companyId === servico.company_id) total += 1
+      }
+    }
+    return total
+  }, [refeicoesNoPeriodo, dados, servico.company_id])
+  const valorRefeicoes = refeicoesDaEmpresa * precoRefeicao
+
+  const saidasEpiNoPeriodo = useMemo(
+    () => filtrarPorPeriodo(
+      dados.saidasEpi || [], periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (s) => s.data,
+    ),
+    [dados.saidasEpi, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+  const custoMedioEpiMap = useMemo(
+    () => custoMedioEpiComFallback(dados.materiaisEpi, dados.entradasEpi, dados.suprimentos),
+    [dados.materiaisEpi, dados.entradasEpi, dados.suprimentos],
+  )
+  const epiDaEmpresa = useMemo(() => {
+    if (!servico.company_id) return { total: 0, entregas: 0 }
+    let total = 0
+    let entregas = 0
+    for (const s of saidasEpiNoPeriodo) {
+      if (!s.worker_id) continue
+      const colaborador = dados.colaboradorPorId(s.worker_id)
+      if (colaborador?.company_id !== servico.company_id) continue
+      total += (Number(s.quantidade) || 0) * (custoMedioEpiMap.get(s.material_id) || 0)
+      entregas += 1
+    }
+    return { total, entregas }
+  }, [saidasEpiNoPeriodo, dados, servico.company_id, custoMedioEpiMap])
+
+  const totalDesconto = valorRefeicoes + epiDaEmpresa.total
+  const valorLiquidoPeriodo = totalValorPeriodo - totalDesconto
+  const nomeEmpresaServico = servico.company_id ? dados.nomeDe(dados.empresas, servico.company_id) : null
+
+  const rotuloPeriodoAtual = rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })
+
+  /* Fechamentos SÓ deste serviço, mais recente primeiro — é um
+     carimbo/histórico (decisão do Julio), não trava nada: dá pra
+     fechar de novo o mesmo período, ou excluir um fechamento feito
+     por engano. */
+  const fechamentosDoServico = useMemo(
+    () => (dados.medicaoFechamentos || []).filter((f) => f.service_id === servico.id)
+      .sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1)),
+    [dados.medicaoFechamentos, servico.id],
+  )
+
+  const confirmarFechamento = async () => {
+    setSalvandoFechamento(true)
+    const salvo = await dados.fecharMedicao({
+      service_id: servico.id, periodo_modo: periodoModo,
+      periodo: { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      rotulo_periodo: rotuloPeriodoAtual,
+      valor_medido: totalValorPeriodo, valor_desconto: totalDesconto, valor_liquido: valorLiquidoPeriodo,
+      snapshot: porItem.map(({ item, quantidadePeriodo, valorPeriodo }) => ({
+        descricao: item.descricao_item, cod_contrato: item.cod_contrato,
+        quantidade: quantidadePeriodo, unidade: item.unidade, valor: valorPeriodo,
+      })),
+    })
+    setSalvandoFechamento(false)
+    if (salvo) setFechando(false)
+  }
+
   return (
     <div className="stack-2">
       <SecaoRecolhivel
@@ -2764,10 +2855,50 @@ function AbaMedicao({ servico, dados }) {
       <div className="row-wrap" style={{ gap: 10 }}>
         <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Valor medido no período" valor={formatarDinheiro(totalValorPeriodo)} /></div>
         <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato medidos" valor={String(porItem.length)} /></div>
+        {nomeEmpresaServico && (
+          <div style={{ flex: '1 1 160px' }}>
+            <Indicador rotulo={`Líquido (após desconto de ${nomeEmpresaServico})`} valor={formatarDinheiro(valorLiquidoPeriodo)} />
+          </div>
+        )}
       </div>
 
       {porItem.length > 0 && (
-        <div><BotaoRelatorio rotulo="Boletim de medição" /></div>
+        <div className="row-flex" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <BotaoRelatorio rotulo="Boletim de medição" />
+          {podeEditar && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setFechando(true)}>
+              <Icon name="check" size={14} /> Fechar medição deste período
+            </button>
+          )}
+        </div>
+      )}
+
+      {fechamentosDoServico.length > 0 && (
+        <SecaoRecolhivel titulo="Histórico de fechamentos" contador={fechamentosDoServico.length}>
+          <div className="stack-1">
+            {fechamentosDoServico.map((f) => (
+              <div key={f.id} className="card-flat row-between" style={{ alignItems: 'center', padding: 10 }}>
+                <div>
+                  <div className="t-strong" style={{ fontSize: 13 }}>{f.rotulo_periodo}</div>
+                  <div className="t-caption">
+                    Fechado em {formatarData(f.criado_em.slice(0, 10))} por {dados.perfilPorId?.(f.autor_id)?.nome || 'alguém removido'}
+                  </div>
+                </div>
+                <div className="row-flex" style={{ gap: 6, alignItems: 'center', flex: 'none' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="t-strong" style={{ fontSize: 13 }}>{formatarDinheiro(f.valor_liquido)}</div>
+                    {f.valor_desconto > 0 && <div className="t-caption">medido {formatarDinheiro(f.valor_medido)} − {formatarDinheiro(f.valor_desconto)}</div>}
+                  </div>
+                  {podeEditar && (
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setExcluindoFechamento(f)} aria-label="Excluir fechamento">
+                      <Icon name="x" size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SecaoRecolhivel>
       )}
 
       {porItem.length === 0 ? (
@@ -2806,6 +2937,31 @@ function AbaMedicao({ servico, dados }) {
             Valor medido: <strong>{formatarDinheiro(totalValorPeriodo)}</strong> ·
             Itens de contrato medidos: <strong>{porItem.length}</strong>
           </div>
+          {nomeEmpresaServico && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, marginTop: 10 }}>
+                Itens a serem descontados — {nomeEmpresaServico} (mesmo período, toda a obra)
+              </div>
+              {totalDesconto === 0 ? (
+                <div style={{ fontSize: 12, color: '#71717A', marginTop: 2 }}>Nenhum desconto no período.</div>
+              ) : (
+                <div style={{ fontSize: 12, color: '#52525B', marginTop: 2 }}>
+                  {refeicoesDaEmpresa > 0 && (
+                    <div>Refeições: {refeicoesDaEmpresa} × {formatarDinheiro(precoRefeicao)} = {formatarDinheiro(valorRefeicoes)}</div>
+                  )}
+                  {epiDaEmpresa.total > 0 && (
+                    <div>EPI: {plural(epiDaEmpresa.entregas, 'entrega', 'entregas')} = {formatarDinheiro(epiDaEmpresa.total)}</div>
+                  )}
+                </div>
+              )}
+              <div style={{ fontSize: 13, marginTop: 8 }}>
+                Valor de desconto: <strong>{formatarDinheiro(totalDesconto)}</strong>
+              </div>
+              <div style={{ fontSize: 14, marginTop: 6, paddingTop: 6, borderTop: '1px solid #18181B' }}>
+                Valor líquido da medição: <strong>{formatarDinheiro(valorLiquidoPeriodo)}</strong>
+              </div>
+            </>
+          )}
         </SecaoRelatorio>
 
         {/* Resumo de todos os itens, logo no início — pedido do
@@ -2866,6 +3022,24 @@ function AbaMedicao({ servico, dados }) {
           </div>
         ))}
       </RelatorioFolha>
+
+      <Confirmar
+        aberto={fechando}
+        titulo="Fechar a medição deste período?"
+        texto={`${rotuloPeriodoAtual} — valor medido ${formatarDinheiro(totalValorPeriodo)}${totalDesconto > 0 ? ` − ${formatarDinheiro(totalDesconto)} de desconto` : ''} = líquido ${formatarDinheiro(valorLiquidoPeriodo)}. Só registra um carimbo no histórico — não trava nem impede editar os eventos depois.`}
+        rotuloOk={salvandoFechamento ? 'Salvando…' : 'Fechar medição'}
+        onOk={confirmarFechamento}
+        onCancelar={() => setFechando(false)}
+      />
+
+      <Confirmar
+        aberto={Boolean(excluindoFechamento)}
+        titulo="Excluir este fechamento?"
+        texto={excluindoFechamento ? `«${excluindoFechamento.rotulo_periodo}» sai do histórico. Isso não mexe nos eventos de produção, só no registro do fechamento.` : ''}
+        perigo
+        onOk={async () => { const f = excluindoFechamento; setExcluindoFechamento(null); if (f) await dados.excluirFechamentoMedicao(f.id) }}
+        onCancelar={() => setExcluindoFechamento(null)}
+      />
     </div>
   )
 }

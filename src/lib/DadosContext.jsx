@@ -208,7 +208,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
       estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
       tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao,
-      medicoesProgramadas,
+      medicoesProgramadas, medicaoFechamentos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -263,6 +263,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('production_markers').select('*')),
       buscarPaginado(() => supabase.from('production_marker_events').select('*, equipe:production_marker_event_workers(worker_id)').order('data_execucao', { ascending: false })),
       buscarPaginado(() => supabase.from('contract_measurement_dates').select('*').order('data')),
+      buscarPaginado(() => supabase.from('production_measurement_closures').select('*').order('criado_em', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -275,7 +276,8 @@ export function DadosProvider({ perfil, children }) {
       tiposTreinamento, treinamentosColaboradores, suprimentos, entregasEquipamento, contratos,
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
       movimentosEstoque, isencoesTreinamento, regrasNotificacao,
-      tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao, medicoesProgramadas].find((r) => r.error)
+      tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao, medicoesProgramadas,
+      medicaoFechamentos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -341,6 +343,7 @@ export function DadosProvider({ perfil, children }) {
       entregasEquipamento: entregasEquipamento.data || [],
       contratos: contratos.data || [],
       medicoesProgramadas: medicoesProgramadas.data || [],
+      medicaoFechamentos: medicaoFechamentos.data || [],
       previsionProjectLinks: previsionProjectLinks.data || [],
       motivosNaoExecutado: motivosNaoExecutado.data || [],
       metasMensais: metasMensais.data || [],
@@ -482,6 +485,7 @@ export function DadosProvider({ perfil, children }) {
       entregasEquipamento: filtrar(tudo.entregasEquipamento),
       contratos: filtrar(tudo.contratos),
       medicoesProgramadas: filtrar(tudo.medicoesProgramadas),
+      medicaoFechamentos: filtrar(tudo.medicaoFechamentos),
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
       metasMensais: filtrar(tudo.metasMensais),
@@ -3745,6 +3749,41 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Fechar medição: só um carimbo/histórico (decisão explícita do
+     Julio — não trava nada, não impede editar/excluir eventos depois
+     do fechamento). Guarda um snapshot do que foi reportado naquele
+     boletim (itens, valores, desconto, líquido) pra ficar registrado
+     o que foi oficialmente medido daquele período, mesmo que os
+     dados de produção mudem depois. */
+  const fecharMedicao = useCallback(
+    async (payload) => {
+      const { organization_id, worksite_id } = escopo()
+      const salvo = checar(
+        await supabase.from('production_measurement_closures').insert({
+          organization_id, worksite_id, autor_id: perfil.id,
+          service_id: payload.service_id, periodo_modo: payload.periodo_modo, periodo: payload.periodo,
+          rotulo_periodo: payload.rotulo_periodo, valor_medido: payload.valor_medido,
+          valor_desconto: payload.valor_desconto, valor_liquido: payload.valor_liquido,
+          snapshot: payload.snapshot || [],
+        }).select('*').single(),
+        'fechar a medição',
+      )
+      if (!salvo) return null
+      setTudo((t) => t && ({ ...t, medicaoFechamentos: [salvo, ...t.medicaoFechamentos] }))
+      return salvo
+    },
+    [escopo, perfil.id, checar],
+  )
+
+  const excluirFechamentoMedicao = useCallback(
+    async (id) => {
+      const r = await supabase.from('production_measurement_closures').delete().eq('id', id)
+      if (r.error) { checar(r, 'excluir o fechamento da medição'); return }
+      setTudo((t) => t && ({ ...t, medicaoFechamentos: t.medicaoFechamentos.filter((f) => f.id !== id) }))
+    },
+    [checar],
+  )
+
   /* Corrige um evento do histórico já lançado (etapa/colaborador/
      data/contrato/quantidade/observação errados) — não cria evento
      novo, edita o que já existe. Se for o evento mais recente do
@@ -4008,6 +4047,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador,
+      fecharMedicao, excluirFechamentoMedicao,
       editarGeometriaMarcador,
       definirCorColaborador,
     }),
@@ -4050,6 +4090,7 @@ export function DadosProvider({ perfil, children }) {
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
       enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador,
+      fecharMedicao, excluirFechamentoMedicao,
       editarGeometriaMarcador,
       definirCorColaborador,
     ],

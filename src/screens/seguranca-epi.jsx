@@ -12,7 +12,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataCurta, formatarDinheiro, plural, saldoEstoque, normalizarParaCasar, resumoRecebidoSuprimentos,
-  insumoCorrespondeMaterial, filtrarPorPeriodo, rotuloPeriodo,
+  insumoCorrespondeMaterial, filtrarPorPeriodo, rotuloPeriodo, custoMedioEpiComFallback,
 } from '../lib/dominio'
 import { linkQrMaterial, gerarQRDataURL, abrirJanelaEtiquetas, escreverEtiquetas } from '../lib/qrEstoque'
 import {
@@ -162,27 +162,21 @@ export default function SegurancaEpi({ perfil, params = {} }) {
     [materiais, dados.entradasEpi, dados.saidasEpi],
   )
 
-  /* Custo de cada EPI, com fallback pro Suprimentos: quando não tem
-     entrada com "Valor total" lançado (custoMedio zerado — inclusive
-     EPI recebido antes do app existir), usa a média do preço dos
-     pedidos confirmados do Suprimentos vinculados a esse EPI, mesmo
-     casamento por nome/apelido já usado na reconciliação de estoque
-     (resumoRecebidoSuprimentos). Alimenta Estoque Atual, Dashboard,
-     Relatório de estoque e o relatório de gastos por colaborador/
-     empresa — tudo que mostra valor de EPI usa este cálculo, tanto
-     pro que já está no catálogo quanto pra EPI novo cadastrado depois
-     (roda de novo sempre que materiais/entradas/suprimentos mudam). */
+  /* Custo de cada EPI, com fallback pro Suprimentos — cálculo
+     compartilhado com o desconto de EPI no Boletim de medição
+     (Produtividade), ver custoMedioEpiComFallback em lib/dominio.js.
+     Alimenta Estoque Atual, Dashboard, Relatório de estoque e o
+     relatório de gastos por colaborador/empresa — tudo que mostra
+     valor de EPI usa este cálculo, tanto pro que já está no catálogo
+     quanto pra EPI novo cadastrado depois. */
+  const custoMedioEpiMap = useMemo(
+    () => custoMedioEpiComFallback(materiais, dados.entradasEpi, dados.suprimentos),
+    [materiais, dados.entradasEpi, dados.suprimentos],
+  )
   const saldosComCusto = useMemo(() => saldos.map((s) => {
-    if (s.custoMedio > 0) return s
-    const precos = (dados.suprimentos || [])
-      .filter((p) => p.destino === 'epi' && p.estagio === '5 - Confirmado' && p.preco != null
-        && (insumoCorrespondeMaterial(p.insumo, s.material.nome)
-          || (s.material.apelidos || []).some((ap) => normalizarParaCasar(ap) === normalizarParaCasar(p.insumo))))
-      .map((p) => Number(p.preco))
-    if (precos.length === 0) return s
-    const custoMedio = precos.reduce((a, v) => a + v, 0) / precos.length
-    return { ...s, custoMedio, custoTotal: s.saldo * custoMedio }
-  }), [saldos, dados.suprimentos])
+    const custoMedio = custoMedioEpiMap.get(s.material.id) ?? 0
+    return custoMedio === s.custoMedio ? s : { ...s, custoMedio, custoTotal: s.saldo * custoMedio }
+  }), [saldos, custoMedioEpiMap])
 
   const saldosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()

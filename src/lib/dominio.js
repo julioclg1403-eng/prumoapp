@@ -1320,6 +1320,34 @@ export function saldoEstoque(materiais, entradas, saidas) {
   })
 }
 
+/* Custo unitário de cada EPI, com fallback pro Suprimentos: quando
+   não tem entrada com "Valor total" lançado (custoMedio zerado —
+   inclusive EPI recebido antes do app existir), usa a média do preço
+   dos pedidos confirmados do Suprimentos vinculados a esse EPI, mesmo
+   casamento por nome/apelido já usado na reconciliação de estoque
+   (resumoRecebidoSuprimentos). Extraído de Segurança > EPI pra
+   também alimentar o desconto de EPI no Boletim de medição
+   (Produtividade) — mesmo cálculo, uma fonte só. */
+export function custoMedioEpiComFallback(materiaisEpi, entradasEpi, suprimentos) {
+  const mapa = new Map()
+  for (const m of (materiaisEpi || [])) {
+    const entradasDoMaterial = (entradasEpi || []).filter((e) => e.material_id === m.id)
+    const quantidadeEntrada = entradasDoMaterial.reduce((s, e) => s + Number(e.quantidade || 0), 0)
+    const custoTotal = entradasDoMaterial.reduce((s, e) => s + Number(e.valor_total || 0), 0)
+    let custoMedio = quantidadeEntrada > 0 ? custoTotal / quantidadeEntrada : 0
+    if (custoMedio === 0) {
+      const precos = (suprimentos || [])
+        .filter((p) => p.destino === 'epi' && p.estagio === '5 - Confirmado' && p.preco != null
+          && (insumoCorrespondeMaterial(p.insumo, m.nome)
+            || (m.apelidos || []).some((ap) => normalizarParaCasar(ap) === normalizarParaCasar(p.insumo))))
+        .map((p) => Number(p.preco))
+      if (precos.length > 0) custoMedio = precos.reduce((s, v) => s + v, 0) / precos.length
+    }
+    mapa.set(m.id, custoMedio)
+  }
+  return mapa
+}
+
 /* Saldo do Almoxarifado (não de EPI, que continua em saldoEstoque
    acima) a partir do "Relatório de Estoque" importado da UAU
    (lib/planilhaMovimentoEstoque.js), não mais de entrada−saída
