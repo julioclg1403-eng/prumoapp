@@ -23,6 +23,13 @@ const QUALIDADE = 0.82
 
 export const TAMANHO_MAXIMO_BYTES = 10 * 1024 * 1024
 
+/* Nome do arquivo é sempre um UUID novo (upsert: false) — o conteúdo
+   nunca muda depois de enviado. Por isso cache de 1 ano é seguro: sem
+   risco de foto desatualizada, e visualizações repetidas (a mesma foto
+   vista por gente diferente, ou de novo) passam a vir do CDN em vez de
+   contar como Saída (Egress) do banco. */
+const CACHE_UM_ANO = '31536000'
+
 /* ── Compressão ─────────────────────────────────────────────── */
 
 export async function comprimirImagem(arquivo) {
@@ -100,7 +107,7 @@ export async function enviarFoto({
 
   const envio = await supabase.storage
     .from('fotos')
-    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false })
+    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false, cacheControl: CACHE_UM_ANO })
 
   if (envio.error) {
     return { erro: `Não consegui enviar a foto. ${envio.error.message}` }
@@ -171,7 +178,7 @@ export async function enviarFotoPendencia({
 
   const envio = await supabase.storage
     .from('fotos')
-    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false })
+    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false, cacheControl: CACHE_UM_ANO })
   if (envio.error) {
     return { erro: `Não consegui enviar a foto. ${envio.error.message}` }
   }
@@ -230,7 +237,7 @@ async function enviarFotoGenerica({
 
   const envio = await supabase.storage
     .from('fotos')
-    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false })
+    .upload(caminho, comprimida.blob, { contentType: 'image/jpeg', upsert: false, cacheControl: CACHE_UM_ANO })
   if (envio.error) {
     return { erro: `Não consegui enviar a foto. ${envio.error.message}` }
   }

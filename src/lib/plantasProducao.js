@@ -10,6 +10,13 @@ import { supabase } from './supabase'
 
 export const TAMANHO_MAXIMO_BYTES = 20 * 1024 * 1024
 
+/* Nome do arquivo é sempre um UUID novo (upsert: false) — o conteúdo
+   nunca muda depois de enviado. Cache de 1 ano é seguro: sem risco de
+   planta desatualizada, e visualizações repetidas (a mesma planta aberta
+   várias vezes, por gente diferente, pra marcar produção) passam a vir
+   do CDN em vez de contar como Saída (Egress) do banco. */
+const CACHE_UM_ANO = '31536000'
+
 export async function enviarPlantaProducao({ arquivo, organizationId, obraId, nome, autorId = null, serviceId, localId = null }) {
   if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
     return { erro: 'Este arquivo passa de 20 MB.' }
@@ -23,7 +30,7 @@ export async function enviarPlantaProducao({ arquivo, organizationId, obraId, no
 
   const envio = await supabase.storage
     .from('anexos')
-    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false })
+    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false, cacheControl: CACHE_UM_ANO })
   if (envio.error) {
     return { erro: `Não consegui enviar a planta. ${envio.error.message}` }
   }

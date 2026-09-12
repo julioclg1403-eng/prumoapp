@@ -13,6 +13,12 @@ import { supabase } from './supabase'
 export const TAMANHO_MAXIMO_BYTES = 20 * 1024 * 1024
 const TIPOS_ACEITOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 
+/* Nome do arquivo é sempre um UUID novo (upsert: false) — o conteúdo
+   nunca muda depois de enviado. Cache de 1 ano é seguro: sem risco de
+   anexo desatualizado, e visualizações repetidas passam a vir do CDN
+   em vez de contar como Saída (Egress) do banco. */
+const CACHE_UM_ANO = '31536000'
+
 function extensaoDe(arquivo) {
   const doNome = arquivo.name?.split('.').pop()?.toLowerCase()
   if (doNome && doNome.length <= 5) return doNome
@@ -35,7 +41,7 @@ export async function enviarAnexoApontamento({ arquivo, organizationId, obraId, 
 
   const envio = await supabase.storage
     .from('anexos')
-    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false })
+    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false, cacheControl: CACHE_UM_ANO })
   if (envio.error) {
     return { erro: `Não consegui enviar o anexo. ${envio.error.message}` }
   }
@@ -87,7 +93,7 @@ export async function enviarAnexoPendencia({ arquivo, organizationId, obraId, is
 
   const envio = await supabase.storage
     .from('anexos')
-    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false })
+    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false, cacheControl: CACHE_UM_ANO })
   if (envio.error) {
     return { erro: `Não consegui enviar o anexo. ${envio.error.message}` }
   }
@@ -141,7 +147,7 @@ export async function enviarAnexoComentario({ arquivo, obraId, noteId }) {
 
   const envio = await supabase.storage
     .from('anexos')
-    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false })
+    .upload(caminho, arquivo, { contentType: arquivo.type, upsert: false, cacheControl: CACHE_UM_ANO })
   if (envio.error) return { erro: `Não consegui enviar "${arquivo.name}". ${envio.error.message}` }
 
   return { caminho, nome: arquivo.name, tipo: arquivo.type, tamanho: arquivo.size }
