@@ -476,14 +476,22 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
         <polyline points={linhaBase} fill="none" stroke="var(--danger)" strokeWidth={2} strokeDasharray="5,3" />
         <polyline points={linhaPrevisto} fill="none" stroke="var(--graphite)" strokeWidth={2} />
 
-        {pontos.map((p, i) => (
-          <text
-            key={`lbl-${i}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9"
-            fill={i === idxAtivo ? 'var(--text)' : 'var(--text-3)'} fontWeight={i === idxAtivo ? 700 : 400}
-          >
-            {dataCurta(p.data)}
-          </text>
-        ))}
+        {pontos.map((p, i) => {
+          /* Ano só aparece no primeiro rótulo e sempre que vira o ano
+             — sem isso, um gráfico de vários anos (comum aqui, a obra
+             toda) mostra "31/12" e "31/01" emendados sem dizer se é o
+             mesmo ano virando o mês ou um ano inteiro adiante. */
+          const anoVirou = i === 0 || p.data.slice(0, 4) !== pontos[i - 1].data.slice(0, 4)
+          const rotulo = anoVirou ? `${dataCurta(p.data)}/${p.data.slice(2, 4)}` : dataCurta(p.data)
+          return (
+            <text
+              key={`lbl-${i}`} x={x(i)} y={H - PAD_BOT + 15} textAnchor="middle" fontSize="9"
+              fill={i === idxAtivo ? 'var(--text)' : 'var(--text-3)'} fontWeight={i === idxAtivo ? 700 : 400}
+            >
+              {rotulo}
+            </text>
+          )
+        })}
 
         {/* Faixas de toque invisíveis — mais fáceis de acertar no dedo do
             que os pontos finos da linha. */}
@@ -498,7 +506,7 @@ export function CurvaSPrevision({ scurve, vazio = 'Nada aqui ainda.' }) {
       </svg>
 
       <div className="row-wrap t-caption" style={{ gap: 12, marginTop: 2, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
-        <span className="t-strong">{dataCurta(atual.data)}</span>
+        <span className="t-strong">{dataCurta(atual.data)}/{atual.data.slice(0, 4)}</span>
         <span style={{ color: 'var(--danger)' }}>Base {atual.base.toFixed(2)}%</span>
         <span style={{ color: 'var(--graphite)' }}>Previsto {atual.previsto.toFixed(2)}%</span>
         <span style={{ color: 'var(--info)' }}>
