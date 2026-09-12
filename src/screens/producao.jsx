@@ -1332,6 +1332,16 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
      visual/rastreabilidade — a quantidade continua vindo dos campos
      de dimensão digitados, igual o pino. */
   const [formaMarcacao, setFormaMarcacao] = useState('ponto')
+  /* Múltiplas marcações: pra quando o MESMO elemento se repete em
+     vários pontos da planta (ex.: 50 estacas iguais) — pedido do
+     Julio pra não redigir a mesma informação (dimensão, estágio,
+     colaborador, contrato) 50 vezes. Só faz sentido com ponto (não
+     área): cada toque vira um item pendente na lista, sem abrir
+     formulário — o formulário só abre uma vez, no fim, com os campos
+     compartilhados, e vira um marcador+evento por ponto ao salvar. */
+  const [modoMultiplo, setModoMultiplo] = useState(false)
+  const [pontosMultiplos, setPontosMultiplos] = useState([])
+  const [concluindoMultiplo, setConcluindoMultiplo] = useState(false)
   /* Cor do pino: por estágio (padrão, do Catálogo) ou por colaborador
      — pedido do Julio pra bater o olho e ver quem fez o quê, quando
      estágios diferentes acabam com a mesma cor. */
@@ -1440,6 +1450,10 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
       setRedesenhando(null)
       return
     }
+    if (modoMultiplo) {
+      setPontosMultiplos((p) => [...p, { x, y, pagina }])
+      return
+    }
     setNovoPonto({ forma: 'ponto', x, y, pagina })
   }
 
@@ -1537,7 +1551,8 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
       {carregando && <div className="t-caption">Carregando planta…</div>}
 
       {!carregando && !erro && (
-        <div className="row-between" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div className="stack-1">
+          {/* Linha 1 — o que fazer no toque: marcar ou só navegar. */}
           <div className="row-flex" style={{ gap: 4 }}>
             <button
               className={`btn btn-sm ${ferramenta === 'marcar' ? 'btn-dark' : 'btn-secondary'}`}
@@ -1554,46 +1569,57 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
               ✋ Mão
             </button>
           </div>
+
+          {/* Linha 2 — só aparece marcando: que forma marcar. Ícone só,
+             pra não competir visualmente com a linha 1 (o que já é a
+             informação mais importante da tela). */}
           {ferramenta === 'marcar' && (
             <div className="row-flex" style={{ gap: 4 }}>
               <button
                 className={`btn btn-sm ${formaMarcacao === 'ponto' ? 'btn-dark' : 'btn-secondary'}`}
                 onClick={() => setFormaMarcacao('ponto')}
                 title="Marcar um ponto"
+                aria-label="Marcar um ponto"
               >
-                📍 Ponto
+                📍
               </button>
               <button
                 className={`btn btn-sm ${formaMarcacao === 'area' ? 'btn-dark' : 'btn-secondary'}`}
-                onClick={() => setFormaMarcacao('area')}
+                onClick={() => { setFormaMarcacao('area'); setModoMultiplo(false) }}
                 title="Marcar uma área (arraste um retângulo)"
+                aria-label="Marcar uma área"
               >
-                ▭ Área
+                ▭
               </button>
+              {formaMarcacao === 'ponto' && (
+                <button
+                  className={`btn btn-sm ${modoMultiplo ? 'btn-dark' : 'btn-secondary'}`}
+                  onClick={() => setModoMultiplo((v) => !v)}
+                  title="Múltiplas marcações — o mesmo elemento em vários pontos (ex.: várias estacas iguais)"
+                >
+                  📌 Múltiplas
+                </button>
+              )}
             </div>
           )}
-          <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
-            <span className="t-caption">Cor:</span>
+
+          {/* Linha 3 — como está vendo (independe do que vai tocar):
+             cor dos pinos e zoom, sempre visíveis mas separados das
+             ações de marcar acima. */}
+          <div className="row-between" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <button
-              className={`btn btn-sm ${corPor === 'etapa' ? 'btn-dark' : 'btn-secondary'}`}
-              onClick={() => setCorPor('etapa')}
-              title="Colorir os pinos pelo estágio"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setCorPor((v) => (v === 'etapa' ? 'colaborador' : 'etapa'))}
+              title="Alternar cor dos pinos entre estágio e colaborador"
             >
-              Estágio
+              Cor: {corPor === 'etapa' ? 'Estágio' : 'Colaborador'}
             </button>
-            <button
-              className={`btn btn-sm ${corPor === 'colaborador' ? 'btn-dark' : 'btn-secondary'}`}
-              onClick={() => setCorPor('colaborador')}
-              title="Colorir os pinos por quem fez o último evento"
-            >
-              Colaborador
-            </button>
-          </div>
-          <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
-            <button className="btn btn-ghost btn-sm" onClick={zoomOut} disabled={zoom <= ZOOM_MIN} aria-label="Diminuir zoom">−</button>
-            <span className="t-caption" style={{ minWidth: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-            <button className="btn btn-ghost btn-sm" onClick={zoomIn} disabled={zoom >= ZOOM_MAX} aria-label="Aumentar zoom">+</button>
-            <button className="btn btn-ghost btn-sm" onClick={() => setZoom(1)} disabled={zoom === 1}>Ajustar</button>
+            <div className="row-flex" style={{ gap: 4, alignItems: 'center' }}>
+              <button className="btn btn-ghost btn-sm" onClick={zoomOut} disabled={zoom <= ZOOM_MIN} aria-label="Diminuir zoom">−</button>
+              <span className="t-caption" style={{ minWidth: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+              <button className="btn btn-ghost btn-sm" onClick={zoomIn} disabled={zoom >= ZOOM_MAX} aria-label="Aumentar zoom">+</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setZoom(1)} disabled={zoom === 1}>Ajustar</button>
+            </div>
           </div>
         </div>
       )}
@@ -1612,9 +1638,22 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
         <div className="t-caption">
           {ferramenta !== 'marcar'
             ? 'Arraste pra navegar pela planta — a roda do mouse dá zoom.'
-            : formaMarcacao === 'ponto'
-              ? 'Toque num ponto vazio da planta pra marcar um elemento novo.'
-              : 'Arraste um retângulo na planta pra marcar uma área.'}
+            : formaMarcacao !== 'ponto'
+              ? 'Arraste um retângulo na planta pra marcar uma área.'
+              : modoMultiplo
+                ? 'Toque em cada ponto do mesmo elemento (ex.: cada estaca) — o formulário com as informações em comum abre só no fim, ao concluir.'
+                : 'Toque num ponto vazio da planta pra marcar um elemento novo.'}
+        </div>
+      )}
+      {!carregando && !erro && modoMultiplo && pontosMultiplos.length > 0 && (
+        <div className="alert info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span>{plural(pontosMultiplos.length, 'ponto marcado', 'pontos marcados')} — toque num ponto pra remover.</span>
+          <div className="row-flex" style={{ gap: 6, flex: 'none' }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setPontosMultiplos([])}>Limpar</button>
+            <button className="btn btn-primary btn-sm" onClick={() => setConcluindoMultiplo(true)}>
+              Concluir ({pontosMultiplos.length})
+            </button>
+          </div>
         </div>
       )}
       {!carregando && !erro && corPor === 'colaborador' && legendaColaboradores.length > 0 && (
@@ -1710,6 +1749,26 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
               />
             )
           })}
+          {modoMultiplo && pontosMultiplos.map((p, i) => (
+            p.pagina !== pagina ? null : (
+              <button
+                key={`pendente-${i}`}
+                onClick={(e) => { e.stopPropagation(); setPontosMultiplos((lista) => lista.filter((_, idx) => idx !== i)) }}
+                aria-label={`Remover ponto ${i + 1}`}
+                title="Toque pra remover"
+                style={{
+                  position: 'absolute', left: `${p.x}%`, top: `${p.y}%`,
+                  width: 20, height: 20, padding: 0, borderRadius: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'var(--primary)', color: '#fff', fontSize: 10, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: '2px solid var(--surface, #fff)', boxShadow: '0 1px 3px rgba(0,0,0,.4)', cursor: 'pointer',
+                }}
+              >
+                {i + 1}
+              </button>
+            )
+          ))}
           {areaEmDesenho && (
             <div
               style={{
@@ -1729,6 +1788,13 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
         <MarcadorSheet
           ponto={novoPonto} planta={planta} servico={servico} tipo={tipo} dados={dados}
           onFechar={() => setNovoPonto(null)}
+        />
+      )}
+      {concluindoMultiplo && (
+        <MarcadorMultiploSheet
+          pontos={pontosMultiplos} planta={planta} servico={servico} tipo={tipo} dados={dados}
+          onFechar={() => setConcluindoMultiplo(false)}
+          onSalvo={() => { setConcluindoMultiplo(false); setPontosMultiplos([]); setModoMultiplo(false) }}
         />
       )}
       {marcadorAberto && (
@@ -2035,6 +2101,153 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
         )}
 
         <Campo label="Observação" dica="Opcional.">
+          <textarea className="ipt" rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+        </Campo>
+      </div>
+    </Sheet>
+  )
+}
+
+/* ── Múltiplas marcações: mesmo elemento em vários pontos ──────
+   Um formulário só (dimensões, estágio, colaborador, data, contrato,
+   observação) vira um marcador + evento POR PONTO já tocado na
+   planta — pedido do Julio pra não redigir a mesma informação 50
+   vezes (ex.: 50 estacas iguais). "Nome base" + número sequencial dá
+   identificação própria pra cada elemento (Estaca 1, Estaca 2…),
+   mesmo com os outros campos idênticos — sem isso, todo o histórico/
+   detalhe apareceria com o mesmo nome pra elementos diferentes. */
+function MarcadorMultiploSheet({ pontos, planta, servico, tipo, dados, onFechar, onSalvo }) {
+  const hoje = hojeISO()
+  const [nomeBase, setNomeBase] = useState('')
+  const [dimensoes, setDimensoes] = useState(() => Object.fromEntries((tipo?.campos_dimensao || []).map((c) => [c.chave, ''])))
+  const [etapa, setEtapa] = useState(tipo?.etapas?.[0]?.chave || '')
+  const [workerIds, setWorkerIds] = useState([])
+  const [dataExecucao, setDataExecucao] = useState(hoje)
+  const [contractItemId, setContractItemId] = useState('')
+  const [quantidade, setQuantidade] = useState('')
+  const [observacao, setObservacao] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [progresso, setProgresso] = useState(0)
+  const [erro, setErro] = useState('')
+
+  const quantidadeCalculada = tipo ? calcularQuantidade(tipo.formula, dimensoes) : null
+  const diarioDoDia = dataExecucao ? diarioDaData(dados.diarios || [], dataExecucao, dados.obra.id) : null
+  const contratoSelecionado = contractItemId ? (dados.contratos || []).find((i) => i.id === contractItemId) : null
+  const quantidadeEvento = quantidade === '' ? quantidadeCalculada : Number(quantidade)
+  const unidadeRotulo = ROTULO_UNIDADE[tipo?.unidade_resultado] || tipo?.unidade_resultado || ''
+
+  const podeSalvar = nomeBase.trim() && etapa && dataExecucao && quantidadeCalculada != null
+
+  const salvar = async () => {
+    setSalvando(true)
+    setErro('')
+    setProgresso(0)
+    const base = nomeBase.trim()
+    for (let i = 0; i < pontos.length; i++) {
+      const p = pontos[i]
+      const r = await dados.salvarMarcador({
+        plan_id: planta.id, service_type_id: tipo.id, elemento: `${base} ${i + 1}`,
+        forma: 'ponto', x: p.x, y: p.y, pagina: p.pagina,
+        dimensoes: Object.fromEntries(Object.entries(dimensoes).map(([k, v]) => [k, Number(v) || 0])),
+        quantidade_calculada: quantidadeCalculada,
+        evento: {
+          etapa, worker_ids: workerIds, data_execucao: dataExecucao,
+          contract_item_id: contractItemId || null,
+          quantidade: quantidadeEvento,
+          observacao: observacao.trim() || null,
+        },
+      })
+      if (!r) {
+        setSalvando(false)
+        setErro(`Salvei ${i} de ${pontos.length} — parei num erro. As já salvas continuam valendo; ajuste e tente marcar o restante de novo.`)
+        return
+      }
+      setProgresso(i + 1)
+    }
+    setSalvando(false)
+    onSalvo()
+  }
+
+  return (
+    <Sheet
+      aberto titulo={`Múltiplas marcações (${pontos.length})`} onFechar={onFechar}
+      rodape={
+        <div className="row-flex">
+          <button className="btn btn-secondary grow" onClick={onFechar} disabled={salvando}>Cancelar</button>
+          <button className="btn btn-primary grow" onClick={salvar} disabled={salvando || !podeSalvar}>
+            {salvando ? `Salvando ${progresso}/${pontos.length}…` : `Salvar ${pontos.length} marcações`}
+          </button>
+        </div>
+      }
+    >
+      <div className="stack-2">
+        <div className="t-caption">{servico.nome} · {tipo?.nome} · {plural(pontos.length, 'ponto marcado', 'pontos marcados')} na planta</div>
+        <div className="alert info">
+          As informações abaixo entram iguais em cada uma das {pontos.length} marcações — cada ponto vira um elemento
+          separado (histórico, contrato e rendimento continuam contando por elemento, igual sempre).
+        </div>
+        {erro && <div className="alert danger">{erro}</div>}
+
+        <Campo label="Nome base do elemento" dica='Ex.: "Estaca" — cada marcação recebe um número (Estaca 1, Estaca 2…).'>
+          <input className="ipt" autoFocus value={nomeBase} onChange={(e) => setNomeBase(e.target.value)} placeholder="Estaca" />
+        </Campo>
+
+        <Campo label="Dimensões" dica="Iguais pra todas as marcações deste lote.">
+          <div className="row-wrap" style={{ gap: 8 }}>
+            {(tipo?.campos_dimensao || []).map((c) => (
+              <div key={c.chave} style={{ flex: '1 1 100px' }}>
+                <div className="t-caption" style={{ marginBottom: 2 }}>{c.rotulo}</div>
+                <input
+                  className="ipt" type="number" inputMode="decimal" step="0.01" min="0"
+                  value={dimensoes[c.chave] ?? ''}
+                  onChange={(e) => setDimensoes((d) => ({ ...d, [c.chave]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="t-caption" style={{ marginTop: 6 }}>
+            Quantidade calculada (por elemento): <strong>{quantidadeCalculada != null ? `${quantidadeCalculada.toLocaleString('pt-BR')} ${unidadeRotulo}` : '—'}</strong>
+            {quantidadeCalculada != null && (
+              <> · Total do lote: <strong>{(quantidadeCalculada * pontos.length).toLocaleString('pt-BR')} {unidadeRotulo}</strong></>
+            )}
+          </div>
+        </Campo>
+
+        <Campo label="Estágio atual">
+          <select className="sel" value={etapa} onChange={(e) => setEtapa(e.target.value)}>
+            {(tipo?.etapas || []).map((e) => <option key={e.chave} value={e.chave}>{e.rotulo}</option>)}
+          </select>
+        </Campo>
+
+        <Campo label="Data de execução">
+          <input className="ipt" type="date" value={dataExecucao} onChange={(e) => setDataExecucao(e.target.value)} />
+        </Campo>
+
+        <Campo label="Colaborador(es)" dica="Opcional — vale pra todas as marcações deste lote; o rendimento de cada um é dividido pela equipe, por elemento.">
+          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
+        </Campo>
+
+        <Campo label="Item de contrato" dica="Opcional — o mesmo item vale pra todas as marcações deste lote.">
+          <BuscarItemContrato dados={dados} servico={servico} valor={contractItemId} onEscolher={setContractItemId} />
+        </Campo>
+
+        {contratoSelecionado && (
+          <Campo label="Quantidade a medir por elemento" dica="Nasce igual à quantidade calculada — vale por elemento, não pelo lote inteiro.">
+            <input
+              className="ipt" type="number" inputMode="decimal" step="0.01"
+              value={quantidade} placeholder={String(quantidadeCalculada ?? '')}
+              onChange={(e) => setQuantidade(e.target.value)}
+            />
+            <AvisoSaldoContrato
+              contratoItem={contratoSelecionado}
+              quantidade={quantidadeEvento != null ? quantidadeEvento * pontos.length : null}
+              dados={dados}
+            />
+          </Campo>
+        )}
+
+        <Campo label="Observação" dica="Opcional — vale pra todas as marcações deste lote.">
           <textarea className="ipt" rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} />
         </Campo>
       </div>
