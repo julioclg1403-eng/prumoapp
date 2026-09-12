@@ -1259,25 +1259,23 @@ function SaldoPosMedicao({ contrato, periodo, dados }) {
         </div>
       )}
 
-      <div className="scroll-x">
-        <table className="tbl">
-          <thead>
-            <tr><th>Item</th><th>Saldo (última planilha)</th><th>Medido este mês (app)</th><th>Saldo projetado</th></tr>
-          </thead>
-          <tbody>
-            {linhas.map((l) => (
-              <tr key={l.item.id}>
-                <td className="t-strong">{l.item.descricao_item}</td>
-                <td className="t-num">{formatarNumero(l.saldoAtual)}</td>
-                <td className="t-num">{l.medidoNoMes > 0 ? formatarNumero(l.medidoNoMes) : '—'}</td>
-                <td className="t-num" style={l.saldoProjetado <= 0 && l.medidoNoMes > 0 ? { color: 'var(--danger)', fontWeight: 700 } : undefined}>
-                  {formatarNumero(l.saldoProjetado)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <table className="tbl tbl-compact">
+        <thead>
+          <tr><th>Item</th><th>Saldo antes</th><th>Medido no mês</th><th>Saldo agora</th></tr>
+        </thead>
+        <tbody>
+          {linhas.map((l) => (
+            <tr key={l.item.id}>
+              <td className="t-strong">{l.item.descricao_item}</td>
+              <td className="t-num">{formatarNumero(l.saldoAtual)}</td>
+              <td className="t-num">{l.medidoNoMes > 0 ? formatarNumero(l.medidoNoMes) : '—'}</td>
+              <td className="t-num" style={l.saldoProjetado <= 0 && l.medidoNoMes > 0 ? { color: 'var(--danger)', fontWeight: 700 } : undefined}>
+                {formatarNumero(l.saldoProjetado)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

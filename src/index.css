@@ -248,6 +248,12 @@ html, body, #root {
 .tbl tr:last-child td { border-bottom: 0; }
 .scroll-x { overflow-x: auto; }
 
+/* Variante compacta — tabela pequena dentro de um Sheet estreito,
+   onde a versão normal (padding/fonte de tabela de página cheia)
+   força barra de rolagem lateral à toa. */
+.tbl-compact th { padding: 6px 5px; font-size: 9px; white-space: normal; }
+.tbl-compact td { padding: 6px 5px; font-size: 11px; }
+
 /* ── Estado vazio ── */
 .empty { text-align: center; padding: 40px 20px; color: var(--text-3); }
 .empty .t { color: var(--text-2); font-weight: 600; margin-bottom: 4px; }
