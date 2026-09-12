@@ -2261,7 +2261,7 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
   const [novoEvento, setNovoEvento] = useState(false)
   const [editando, setEditando] = useState(false)
   const [eventoEditando, setEventoEditando] = useState(null)
-  const [confirmarArquivar, setConfirmarArquivar] = useState(false)
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false)
 
   /* `marcadorInicial` é o que estava na hora do clique no pino — um
      "novo evento" muda o etapa_atual no banco, e sem reler daqui o
@@ -2317,8 +2317,8 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
             <button className="btn btn-primary btn-sm grow" onClick={() => setNovoEvento(true)}>
               <Icon name="mais_sinal" size={14} /> Novo evento
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setConfirmarArquivar(true)}>
-              <Icon name="x" size={14} /> Arquivar
+            <button className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setConfirmarExcluir(true)}>
+              <Icon name="x" size={14} /> Excluir
             </button>
           </div>
         )}
@@ -2374,12 +2374,12 @@ function DetalheMarcadorSheet({ marcador: marcadorInicial, dados, podeEditar, on
       )}
 
       <Confirmar
-        aberto={confirmarArquivar}
-        titulo="Arquivar marcação?"
-        texto={`«${marcador.elemento}» some da planta, mas o histórico continua guardado. Nada é apagado.`}
-        rotuloOk="Arquivar" perigo
-        onOk={async () => { setConfirmarArquivar(false); await dados.arquivarMarcador(marcador.id); onFechar() }}
-        onCancelar={() => setConfirmarArquivar(false)}
+        aberto={confirmarExcluir}
+        titulo="Excluir esta marcação?"
+        texto={`«${marcador.elemento}» some da planta e todo o histórico de eventos dele (${eventos.length}) é apagado de vez — inclusive o que já contava pra medição e rendimento. Isso não tem volta.`}
+        rotuloOk="Excluir" perigo
+        onOk={async () => { setConfirmarExcluir(false); await dados.excluirMarcador(marcador.id); onFechar() }}
+        onCancelar={() => setConfirmarExcluir(false)}
       />
     </Sheet>
   )
@@ -3048,16 +3048,16 @@ function DetalheColaboradorRendimentoSheet({ colaborador, eventos, unidade, dado
         ))}
       </div>
 
-      {/* "Excluir" aqui arquiva o marcador (mesma ação de sempre, na
-         planta) — some do rendimento e da medição, mas o histórico
-         continua guardado, só não conta mais como ativo. Não é o
-         "excluir permanentemente" do Serviço (esse apaga de vez). */}
+      {/* Exclui de vez o marcador inteiro (mesma ação de "Excluir" na
+         planta) — leva junto todo o histórico de eventos dele, não só
+         este. Não é o "excluir permanentemente" do Serviço (esse é o
+         serviço inteiro). */}
       <Confirmar
         aberto={!!arquivando}
         titulo="Excluir esta marcação da produtividade?"
-        texto={arquivando ? `«${arquivando.elemento}» some do rendimento e da medição — o histórico continua guardado, mas ele deixa de contar como marcação ativa.` : ''}
+        texto={arquivando ? `«${arquivando.elemento}» e todo o histórico de eventos dele somem de vez do rendimento e da medição. Isso não tem volta.` : ''}
         rotuloOk="Excluir" perigo
-        onOk={async () => { const ev = arquivando; setArquivando(null); if (ev) await dados.arquivarMarcador(ev.marker_id) }}
+        onOk={async () => { const ev = arquivando; setArquivando(null); if (ev) await dados.excluirMarcador(ev.marker_id) }}
         onCancelar={() => setArquivando(null)}
       />
     </Sheet>

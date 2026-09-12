@@ -3726,13 +3726,20 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, perfil.id, tudo, salvarEquipeDoEvento],
   )
 
-  const arquivarMarcador = useCallback(
+  /* Exclui de vez — pedido do Julio no lugar de só arquivar. Apaga a
+     linha de production_markers; o banco tem ON DELETE CASCADE pra
+     production_marker_events (e dali pra production_marker_event_workers),
+     então um `delete` só aqui já leva o histórico de eventos junto,
+     sem precisar apagar tabela por tabela na mão. Sem volta — RLS já
+     restringe a gestão (mesma regra de arquivar). */
+  const excluirMarcador = useCallback(
     async (id) => {
-      const r = await supabase.from('production_markers').update({ ativo: false }).eq('id', id)
-      if (r.error) { checar(r, 'arquivar a marcação'); return }
+      const r = await supabase.from('production_markers').delete().eq('id', id)
+      if (r.error) { checar(r, 'excluir a marcação'); return }
       setTudo((t) => t && ({
         ...t,
-        marcadoresProducao: t.marcadoresProducao.map((m) => (m.id === id ? { ...m, ativo: false } : m)),
+        marcadoresProducao: t.marcadoresProducao.filter((m) => m.id !== id),
+        eventosProducao: t.eventosProducao.filter((ev) => ev.marker_id !== id),
       }))
     },
     [checar],
@@ -4000,7 +4007,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador,
       editarGeometriaMarcador,
       definirCorColaborador,
     }),
@@ -4042,7 +4049,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, arquivarMarcador, editarMarcador, editarEventoMarcador,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador,
       editarGeometriaMarcador,
       definirCorColaborador,
     ],
