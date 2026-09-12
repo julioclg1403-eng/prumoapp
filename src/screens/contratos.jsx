@@ -894,8 +894,10 @@ function AbaControleMedicao({ dados, podeEditar }) {
               <div className="t-strong" style={{ fontSize: 14 }}>{formatarData(data)}</div>
               <div className="stack-1">
                 {lista.map((oc) => {
-                  const nomeEmpresa = dados.nomeDe(dados.empresas, oc.company_id)
                   const contrato = oc.cod_contrato ? contratosPorCodigo.get(oc.cod_contrato) : null
+                  const nomeEmpresa = oc.company_id
+                    ? dados.nomeDe(dados.empresas, oc.company_id)
+                    : (contrato?.fornecedor || dados.nomeDe(dados.empresas, oc.company_id))
                   const valorMedido = medidoPorEmpresaMes.get(`${oc.company_id}|${data.slice(0, 7)}`) || 0
                   const valorManual = oc.cod_contrato ? (manualPorContratoMes.get(`${oc.cod_contrato}|${data.slice(0, 7)}`) || 0) : 0
                   const temItens = empresasComItens.has(oc.company_id)
@@ -1021,7 +1023,9 @@ function AbaControleMedicao({ dados, podeEditar }) {
 function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, contrato, valorMedido, temItens, podeEditar, onFechar }) {
   const [salvando, setSalvando] = useState(false)
 
-  const nomeEmpresa = ocorrencia ? dados.nomeDe(dados.empresas, ocorrencia.company_id) : ''
+  const nomeEmpresa = ocorrencia
+    ? (ocorrencia.company_id ? dados.nomeDe(dados.empresas, ocorrencia.company_id) : (contrato?.fornecedor || '—'))
+    : ''
 
   const escolher = async (status) => {
     if (!ocorrencia || !podeEditar) return
@@ -1252,7 +1256,7 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, contratosAgr
 
   const contratoSelecionado = contratosAgrupados.find((c) => c.cod_contrato === codContrato) || null
   const companyId = contratoSelecionado?.company_id || null
-  const podeSalvar = Boolean(codContrato && companyId) && (recorrente ? Boolean(diaMes) : Boolean(data))
+  const podeSalvar = Boolean(codContrato) && (recorrente ? Boolean(diaMes) : Boolean(data))
 
   const salvar = async () => {
     if (!podeSalvar) return
@@ -1282,7 +1286,7 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, contratosAgr
             <select className="sel" value={codContrato} onChange={(e) => setCodContrato(e.target.value)}>
               <option value="">Selecione…</option>
               {contratosAgrupados.map((c) => (
-                <option key={c.cod_contrato} value={c.cod_contrato} disabled={!c.company_id}>
+                <option key={c.cod_contrato} value={c.cod_contrato}>
                   Contrato {c.cod_contrato} — {c.fornecedor || c.objeto_contrato || 'sem descrição'}
                   {!c.company_id ? ' (sem empresa vinculada)' : ''}
                 </option>
@@ -1291,8 +1295,8 @@ function SheetMedicaoProgramada({ aberto, contexto, periodo, dados, contratosAgr
           </Campo>
 
           {codContrato && !companyId && (
-            <div className="t-caption" style={{ color: 'var(--danger)' }}>
-              Esse contrato ainda não tem empresa vinculada — vá em "Todos os dados", abra o contrato e defina a empresa antes de agendar a medição.
+            <div className="t-caption" style={{ color: 'var(--text-2)' }}>
+              Esse contrato ainda não tem empresa vinculada (Todos os dados → abrir o contrato → Empresa vinculada) — dá pra agendar assim mesmo, só o cruzamento com Produtividade não vai aparecer até vincular.
             </div>
           )}
 
