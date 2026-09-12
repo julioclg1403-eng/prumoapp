@@ -208,7 +208,7 @@ export function DadosProvider({ perfil, children }) {
       suprimentos, entregasEquipamento, contratos, previsionProjectLinks, motivosNaoExecutado, metasMensais,
       estruturaPlanejada, estruturaCustos, movimentosEstoque, isencoesTreinamento, regrasNotificacao,
       tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao,
-      medicoesProgramadas, medicaoFechamentos, medicoesManuais,
+      medicoesProgramadas, medicaoFechamentos, medicoesManuais, reimportacoesContratos,
     ] = await Promise.all([
       supabase.from('organizations').select('*').limit(1).maybeSingle(),
       buscarPaginado(() => supabase.from('worksites').select('*').order('nome')),
@@ -265,6 +265,7 @@ export function DadosProvider({ perfil, children }) {
       buscarPaginado(() => supabase.from('contract_measurement_dates').select('*').order('data')),
       buscarPaginado(() => supabase.from('production_measurement_closures').select('*').order('criado_em', { ascending: false })),
       buscarPaginado(() => supabase.from('contract_manual_measurements').select('*').order('periodo', { ascending: false })),
+      buscarPaginado(() => supabase.from('contract_reimport_reports').select('*').order('criado_em', { ascending: false })),
     ])
 
     const falhou = [org, obra, perfis, empresas, colaboradores, locais, servicos,
@@ -278,7 +279,7 @@ export function DadosProvider({ perfil, children }) {
       previsionProjectLinks, motivosNaoExecutado, metasMensais, estruturaPlanejada, estruturaCustos,
       movimentosEstoque, isencoesTreinamento, regrasNotificacao,
       tiposServico, servicosProducao, plantasProducao, marcadoresProducao, eventosProducao, medicoesProgramadas,
-      medicaoFechamentos, medicoesManuais].find((r) => r.error)
+      medicaoFechamentos, medicoesManuais, reimportacoesContratos].find((r) => r.error)
     if (falhou) {
       console.error('[Prumo] carregar dados:', falhou.error)
       avisarErro(`Não consegui carregar os dados. ${falhou.error.message}`)
@@ -346,6 +347,7 @@ export function DadosProvider({ perfil, children }) {
       medicoesProgramadas: medicoesProgramadas.data || [],
       medicaoFechamentos: medicaoFechamentos.data || [],
       medicoesManuais: medicoesManuais.data || [],
+      reimportacoesContratos: reimportacoesContratos.data || [],
       previsionProjectLinks: previsionProjectLinks.data || [],
       motivosNaoExecutado: motivosNaoExecutado.data || [],
       metasMensais: metasMensais.data || [],
@@ -489,6 +491,7 @@ export function DadosProvider({ perfil, children }) {
       medicoesProgramadas: filtrar(tudo.medicoesProgramadas),
       medicaoFechamentos: filtrar(tudo.medicaoFechamentos),
       medicoesManuais: filtrar(tudo.medicoesManuais),
+      reimportacoesContratos: filtrar(tudo.reimportacoesContratos),
       previsionProjectLinks: filtrar(tudo.previsionProjectLinks),
       motivosNaoExecutado: filtrar(tudo.motivosNaoExecutado),
       metasMensais: filtrar(tudo.metasMensais),
@@ -2495,7 +2498,7 @@ export function DadosProvider({ perfil, children }) {
      existe em vez de duplicar — a chave é (worksite, CHAVECONTRATO),
      que já vem única de fábrica lá do sistema deles. */
   const importarContratos = useCallback(
-    async (itens) => {
+    async (itens, { novos = 0, atualizados = 0, mudancas = [] } = {}) => {
       const { organization_id, worksite_id } = escopo()
       const agora = new Date().toISOString()
 
@@ -2522,6 +2525,17 @@ export function DadosProvider({ perfil, children }) {
         if (r.error) { checar(r, 'importar os contratos'); return null }
         total += (r.data || []).length
       }
+
+      /* Boletim de reimportação: só registra quando teve item já
+         existente de verdade com algum campo alterado — numa primeira
+         importação (tudo novo) não tem o que comparar. */
+      if (mudancas.length > 0) {
+        await supabase.from('contract_reimport_reports').insert({
+          organization_id, worksite_id, autor_id: perfil.id,
+          itens_novos: novos, itens_atualizados: atualizados, mudancas,
+        })
+      }
+
       await recarregar()
       return { importados: total }
     },

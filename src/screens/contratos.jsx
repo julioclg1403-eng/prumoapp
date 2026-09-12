@@ -22,8 +22,8 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDinheiro, plural } from '../lib/dominio'
-import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador, Campo, Confirmar } from '../components'
+import { hojeISO, formatarData, formatarDataHora, formatarDinheiro, plural } from '../lib/dominio'
+import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador, Campo, Confirmar, SecaoRecolhivel } from '../components'
 import { RankingBarras, GraficoDonut } from '../components/charts'
 
 const TOM_STATUS = { '1 - Aprovado': 'success', '2 - Em Aditivo': 'info', '0 - Não Aprovado': 'danger' }
@@ -59,6 +59,39 @@ function agruparContratosComItens(itens) {
   }
   for (const c of mapa.values()) c.itens.sort((a, b) => a.item_num - b.item_num)
   return [...mapa.values()].sort((a, b) => Number(b.cod_contrato) - Number(a.cod_contrato))
+}
+
+/* Compara os itens que já existiam (por chave) contra o que a nova
+   planilha traz, e devolve só os que realmente mudaram em algum campo
+   que importa. Quantidade contratada MAIOR do que estava antes só
+   acontece por aditivo (a planilha nunca reduz medição sozinha) — por
+   isso essas linhas já nascem marcadas, sem precisar a pessoa notar
+   sozinha comparando número por número. */
+const CAMPOS_REIMPORTACAO = [
+  { chave: 'qtde_item', rotulo: 'Quantidade contratada' },
+  { chave: 'preco_item', rotulo: 'Preço unitário' },
+  { chave: 'qtde_medida', rotulo: 'Quantidade medida' },
+]
+
+function calcularMudancasReimportacao(itensNovos, contratosAntigos) {
+  const antigosPorChave = new Map(contratosAntigos.map((c) => [c.chave, c]))
+  const mudancas = []
+  for (const novo of itensNovos) {
+    const antigo = antigosPorChave.get(novo.chave)
+    if (!antigo) continue
+    const campos = CAMPOS_REIMPORTACAO
+      .map((c) => ({ campo: c.rotulo, antes: antigo[c.chave], depois: novo[c.chave] }))
+      .filter((c) => Number(c.antes || 0) !== Number(c.depois || 0))
+    if (campos.length === 0) continue
+    mudancas.push({
+      cod_contrato: novo.cod_contrato,
+      item_num: novo.item_num,
+      descricao_item: novo.descricao_item,
+      campos,
+      aditivo: Number(novo.qtde_item || 0) > Number(antigo.qtde_item || 0) + 0.001,
+    })
+  }
+  return mudancas
 }
 
 /* Itens de um contrato, com o saldo em destaque — usada tanto no
@@ -230,8 +263,12 @@ function AbaDados({ itens, dados, podeEditar }) {
 
   const detalheAtual = detalhe ? itens.find((i) => i.id === detalhe.id) : null
 
+  const reimportacoes = dados.reimportacoesContratos || []
+
   return (
     <div className="stack-2">
+      {reimportacoes.length > 0 && <HistoricoReimportacoes reimportacoes={reimportacoes} dados={dados} />}
+
       <div style={{ position: 'relative' }}>
         <Icon name="busca" size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
         <input
@@ -402,6 +439,70 @@ function AbaDados({ itens, dados, podeEditar }) {
 
       <DetalheItem item={detalheAtual} onFechar={() => setDetalhe(null)} />
     </div>
+  )
+}
+
+/* Uma linha por reimportação de planilha que alterou algo em item já
+   existente — o boletim fica registrado pra sempre (não é derivado
+   dos dados atuais, senão sumiria assim que a próxima reimportação
+   sobrescrevesse os números). Aditivo (quantidade contratada subiu)
+   vem destacado, mas as outras mudanças (preço, medição) também
+   ficam visíveis — às vezes é isso que explica um número que mudou
+   sozinho de uma hora pra outra. */
+function HistoricoReimportacoes({ reimportacoes, dados }) {
+  const [abertoId, setAbertoId] = useState(null)
+  return (
+    <SecaoRecolhivel titulo="Histórico de reimportações" contador={reimportacoes.length}>
+      <div className="stack-1">
+        {reimportacoes.map((r) => {
+          const mudancas = r.mudancas || []
+          const aditivos = mudancas.filter((m) => m.aditivo)
+          const aberto = abertoId === r.id
+          return (
+            <div key={r.id} className="card-flat" style={{ padding: 10 }}>
+              <div
+                className="row-between" style={{ alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setAbertoId((v) => (v === r.id ? null : r.id))}
+              >
+                <div>
+                  <div className="t-strong" style={{ fontSize: 13 }}>{formatarDataHora(r.criado_em)}</div>
+                  <div className="t-caption">
+                    {dados.perfilPorId?.(r.autor_id)?.nome || 'alguém removido'} ·{' '}
+                    {plural(r.itens_novos, 'item novo', 'itens novos')} ·{' '}
+                    {plural(mudancas.length, 'item alterado', 'itens alterados')}
+                    {aditivos.length > 0 && <> · <strong style={{ color: 'var(--danger)' }}>{plural(aditivos.length, 'aditivo', 'aditivos')}</strong></>}
+                  </div>
+                </div>
+                <Icon name="avancar" size={13} style={{ transform: `rotate(${aberto ? 90 : 0}deg)`, transition: 'transform .15s' }} />
+              </div>
+              {aberto && mudancas.length > 0 && (
+                <div className="stack-1" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                  {mudancas.map((m, i) => (
+                    <div
+                      key={`${m.cod_contrato}-${m.item_num}-${i}`}
+                      style={{
+                        fontSize: 12, padding: 8, borderRadius: 8,
+                        border: `1px solid ${m.aditivo ? 'var(--danger)' : 'var(--border)'}`,
+                        background: m.aditivo ? 'var(--danger-tint)' : 'var(--surface-2)',
+                      }}
+                    >
+                      <div className="row-between">
+                        <strong>{m.descricao_item}</strong>
+                        {m.aditivo && <Chip tom="danger">Aditivo</Chip>}
+                      </div>
+                      <div style={{ marginTop: 2, color: 'var(--text-2)' }}>Contrato {m.cod_contrato}</div>
+                      {m.campos.map((c) => (
+                        <div key={c.campo}>{c.campo}: {formatarNumero(c.antes)} → <strong>{formatarNumero(c.depois)}</strong></div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </SecaoRecolhivel>
   )
 }
 
@@ -1464,7 +1565,8 @@ function ImportarContratos({ aberto, onFechar, dados }) {
       const { lerPlanilhaContratos } = await import('../lib/planilhaContratos')
       const lido = await lerPlanilhaContratos(arquivo)
       const itens = lido.itens.map((i) => ({ ...i, acao: chavesExistentes.has(i.chave) ? 'atualiza' : 'novo' }))
-      setResultado({ ...lido, itens })
+      const mudancas = calcularMudancasReimportacao(itens, dados.contratos || [])
+      setResultado({ ...lido, itens, mudancas })
     } catch (err) {
       setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
     } finally {
@@ -1474,14 +1576,16 @@ function ImportarContratos({ aberto, onFechar, dados }) {
 
   const novos = (resultado?.itens || []).filter((i) => i.acao === 'novo').length
   const atualizados = (resultado?.itens || []).filter((i) => i.acao === 'atualiza').length
+  const mudancas = resultado?.mudancas || []
+  const aditivos = mudancas.filter((m) => m.aditivo)
 
   const confirmar = async () => {
     if (!resultado?.itens?.length) return
     setImportandoAgora(true)
     try {
-      const r = await dados.importarContratos(resultado.itens)
+      const r = await dados.importarContratos(resultado.itens, { novos, atualizados, mudancas })
       if (!r) return
-      setFeito({ ...r, novos, atualizados })
+      setFeito({ ...r, novos, atualizados, aditivos: aditivos.length })
     } finally {
       setImportandoAgora(false)
     }
@@ -1496,6 +1600,11 @@ function ImportarContratos({ aberto, onFechar, dados }) {
               {plural(feito.novos, 'item novo importado', 'itens novos importados')} e{' '}
               {plural(feito.atualizados, 'atualizado', 'atualizados')}.
             </div>
+            {feito.aditivos > 0 && (
+              <div className="alert info">
+                {plural(feito.aditivos, 'item teve', 'itens tiveram')} a quantidade contratada aumentada — provavelmente {feito.aditivos === 1 ? 'foi feito um aditivo' : 'foram feitos aditivos'}. Dá pra ver o boletim completo em "Histórico de reimportações".
+              </div>
+            )}
             <button className="btn btn-primary btn-block" onClick={fechar}>Fechar</button>
           </>
         ) : (
@@ -1520,6 +1629,36 @@ function ImportarContratos({ aberto, onFechar, dados }) {
                 <div className="alert info">
                   {plural(novos, 'item novo', 'itens novos')} · {plural(atualizados, 'atualização', 'atualizações')}.
                 </div>
+
+                {mudancas.length > 0 && (
+                  <div>
+                    <div className="t-micro" style={{ marginBottom: 6 }}>
+                      Boletim de reimportação — {plural(mudancas.length, 'item com valor alterado', 'itens com valor alterado')}
+                      {aditivos.length > 0 && `, ${plural(aditivos.length, 'aditivo detectado', 'aditivos detectados')}`}
+                    </div>
+                    <div className="stack-1" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                      {mudancas.map((m, i) => (
+                        <div
+                          key={`${m.cod_contrato}-${m.item_num}-${i}`}
+                          style={{
+                            fontSize: 12, padding: 8, borderRadius: 8,
+                            border: `1px solid ${m.aditivo ? 'var(--danger)' : 'var(--border)'}`,
+                            background: m.aditivo ? 'var(--danger-tint)' : 'var(--surface-2)',
+                          }}
+                        >
+                          <div className="row-between">
+                            <strong>{m.descricao_item}</strong>
+                            {m.aditivo && <Chip tom="danger">Aditivo</Chip>}
+                          </div>
+                          <div style={{ marginTop: 2, color: 'var(--text-2)' }}>Contrato {m.cod_contrato}</div>
+                          {m.campos.map((c) => (
+                            <div key={c.campo}>{c.campo}: {formatarNumero(c.antes)} → <strong>{formatarNumero(c.depois)}</strong></div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div style={{ maxHeight: 300, overflowY: 'auto' }} className="stack-1">
                   {resultado.itens.slice(0, 100).map((i) => (
