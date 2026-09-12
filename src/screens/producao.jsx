@@ -1128,13 +1128,17 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
             <div className="stack-1">
               {plantas.map((p) => {
                 const qtdeMarcadores = (dados.marcadoresProducao || []).filter((m) => m.plan_id === p.id && m.ativo !== false).length
+                const localNome = p.local_id ? dados.nomeDe(dados.locais, p.local_id, '') : ''
                 return (
                   <div key={p.id} className="card-flat row-between" style={{ alignItems: 'center', padding: 0 }}>
                     <button
                       className="card-tap" style={{ textAlign: 'left', flex: 1, border: 'none', background: 'none' }}
                       onClick={() => setPlantaAberta(p)}
                     >
-                      <div className="t-strong">{p.nome}</div>
+                      <div className="row-flex" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {localNome && <Chip tom="info">{localNome}</Chip>}
+                        <span className="t-strong">{p.nome}</span>
+                      </div>
                       <div className="t-caption">{plural(qtdeMarcadores, 'marcação', 'marcações')} · enviada {formatarData(p.created_at.slice(0, 10))}</div>
                     </button>
                     <div className="row-flex" style={{ gap: 4, paddingRight: 14, flex: 'none' }}>
@@ -1156,7 +1160,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
             </div>
           )}
 
-          <Sheet aberto={Boolean(plantaRenomeando)} titulo="Renomear local" onFechar={() => setPlantaRenomeando(null)}>
+          <Sheet aberto={Boolean(plantaRenomeando)} titulo="Editar planta" onFechar={() => setPlantaRenomeando(null)}>
             <div className="stack-2">
               <CampoLocalCadastro dados={dados} localId={localIdPlanta} setLocalId={setLocalIdPlanta} nome={nomePlanta} setNome={setNomePlanta} />
               <button
@@ -1225,35 +1229,37 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   )
 }
 
-/* ── Escolher local (dos Cadastros) ou digitar um nome novo ────
-   Os "Locais" já cadastrados em Cadastros existem pra isso — em vez
-   de digitar de novo o nome toda vez que importa uma planta, vincula
-   direto ao cadastro (production_plans.local_id), do mesmo jeito que
-   Planejamento, Segurança e Projetos já fazem. Quem não achar o local
-   na lista ainda pode digitar um nome livre. */
+/* ── Escolher local (dos Cadastros) + identificação própria ────
+   Os "Locais" já cadastrados em Cadastros existem pra vincular a
+   planta a um pavimento/área consistente com o resto do app — mas o
+   NOME da planta é outra coisa, independente: duas plantas do MESMO
+   local (ex.: duas do Térreo, uma de estaca outra de bloco) precisam
+   de identificação própria pra não ficarem com o mesmo título na
+   lista. Antes, escolher um local sobrescrevia o nome (e escondia o
+   campo) — travava exatamente esse caso. Agora o nome fica sempre
+   editável; escolher um local só SUGERE o nome dele quando o campo
+   ainda está vazio, sem forçar depois. */
 function CampoLocalCadastro({ dados, localId, setLocalId, nome, setNome }) {
   const locais = (dados.locais || []).filter((l) => l.ativo !== false)
   return (
     <>
-      <Campo label="Local (dos cadastros)" dica="Vincula esta planta a um local já cadastrado em Cadastros — mantém o nome consistente com o resto do app.">
+      <Campo label="Local (dos cadastros)" dica="Vincula esta planta a um local já cadastrado em Cadastros — aparece junto do nome na lista, pra saber de cara onde é.">
         <select
           className="sel" value={localId || ''}
           onChange={(e) => {
             const id = e.target.value
             setLocalId(id)
             const l = locais.find((x) => x.id === id)
-            if (l) setNome(l.nome)
+            if (l && !nome.trim()) setNome(l.nome)
           }}
         >
-          <option value="">Digitar nome manualmente…</option>
+          <option value="">Sem local vinculado</option>
           {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
         </select>
       </Campo>
-      {!localId && (
-        <Campo label="Nome do local">
-          <input className="ipt" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pavimento térreo — estrutural" />
-        </Campo>
-      )}
+      <Campo label="Identificação desta planta" dica='Ex.: "Armação de estaca", "Armação de bloco" — útil pra distinguir duas plantas do mesmo local.'>
+        <input className="ipt" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Armação de estaca" />
+      </Campo>
     </>
   )
 }
@@ -1530,7 +1536,10 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
     <div className="stack-2">
       <div className="row-between" style={{ alignItems: 'center' }}>
         <button className="btn btn-ghost btn-sm" onClick={voltar}><Icon name="voltar" size={16} /> {servico.nome}</button>
-        <div className="t-strong" style={{ fontSize: 14 }}>{planta.nome}</div>
+        <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+          {planta.local_id && <Chip tom="info">{dados.nomeDe(dados.locais, planta.local_id, '')}</Chip>}
+          <span className="t-strong" style={{ fontSize: 14 }}>{planta.nome}</span>
+        </div>
         {pdfDoc && pdfDoc.numPages > 1 ? (
           <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
             <button className="btn btn-ghost btn-sm" disabled={pagina <= 1} onClick={() => setPagina((p) => p - 1)}>‹</button>
