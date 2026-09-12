@@ -1,9 +1,31 @@
+// Mesmo padrão de defesa em profundidade de redefinir-senha e
+// transcrever-audio: verify_jwt (config da plataforma) já barra quem
+// não está autenticado, mas confere de novo aqui dentro -- se algum
+// dia o verify_jwt for desligado por engano no painel, o endpoint não
+// vira um proxy público e gratuito pra API paga da Anthropic. Origem
+// restrita ao domínio real do app pelo mesmo motivo.
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const ORIGENS_PERMITIDAS = new Set([
+  'https://prumoapp-kohl.vercel.app',
+  'http://localhost:5173',
+])
+
+function corsHeaders(origin: string | null) {
+  const permitida = origin && ORIGENS_PERMITIDAS.has(origin) ? origin : 'https://prumoapp-kohl.vercel.app'
+  return {
+    'Access-Control-Allow-Origin': permitida,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Vary': 'Origin',
+  }
 }
+
+const admin = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+)
 
 function montarSystemPrompt(contexto: { agora_iso?: string; fuso?: string } | undefined) {
   let infoData = ''
@@ -61,8 +83,24 @@ feito ou encontrado — nunca termine só com a chamada da ferramenta, sem expli
 }
 
 Deno.serve(async (req) => {
+  const CORS = corsHeaders(req.headers.get('Origin'))
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: CORS })
+  }
+
+  const jwt = (req.headers.get('Authorization') || '').replace('Bearer ', '')
+  if (!jwt) {
+    return new Response(JSON.stringify({ error: 'Não autenticado.' }), {
+      status: 401,
+      headers: { ...CORS, 'content-type': 'application/json' },
+    })
+  }
+  const quemChama = await admin.auth.getUser(jwt)
+  if (quemChama.error || !quemChama.data.user) {
+    return new Response(JSON.stringify({ error: 'Não autenticado.' }), {
+      status: 401,
+      headers: { ...CORS, 'content-type': 'application/json' },
+    })
   }
 
   try {
@@ -95,17 +133,17 @@ Deno.serve(async (req) => {
       console.error('Anthropic API error:', response.status, JSON.stringify(data))
       return new Response(JSON.stringify({ error: data?.error?.message || 'Erro ao falar com a IA' }), {
         status: 500,
-        headers: { ...corsHeaders, 'content-type': 'application/json' },
+        headers: { ...CORS, 'content-type': 'application/json' },
       })
     }
 
     return new Response(JSON.stringify({ content: data.content, stop_reason: data.stop_reason }), {
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
+      headers: { ...CORS, 'content-type': 'application/json' },
     })
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
+      headers: { ...CORS, 'content-type': 'application/json' },
     })
   }
 })

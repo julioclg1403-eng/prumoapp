@@ -41,9 +41,9 @@ export default function Login() {
       return
     }
 
-    if (senha.length < 6) {
+    if (senha.length < 8) {
       setEnviando(false)
-      setErro('A senha precisa ter pelo menos 6 caracteres.')
+      setErro('A senha precisa ter pelo menos 8 caracteres.')
       return
     }
 
@@ -155,7 +155,7 @@ export default function Login() {
               />
             </Campo>
 
-            <Campo label="Senha" dica={criando ? 'Mínimo de 6 caracteres.' : undefined}>
+            <Campo label="Senha" dica={criando ? 'Mínimo de 8 caracteres.' : undefined}>
               <input
                 className="ipt" type="password"
                 autoComplete={criando ? 'new-password' : 'current-password'}
