@@ -26,6 +26,7 @@ import {
   Icon, PageHeader, Sheet, Campo, Confirmar, Vazio, ItemLista, Selecionavel, SecaoRecolhivel, ChipToggle,
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
+import { GraficoColunas } from '../components/charts'
 
 /* Cada tipo de relatório que a exportação sabe montar — marcados por
    padrão (comportamento de antes: exportava tudo), mas a pessoa pode
@@ -45,6 +46,13 @@ function ultimoDiaDoMes(mesISO) {
   const [ano, mes] = mesISO.split('-').map(Number)
   const d = new Date(ano, mes, 0) // dia 0 do mês seguinte = último dia do mês atual
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/* Rótulo curto pra caber na coluna do gráfico — o nome inteiro
+   continua disponível no tooltip (GraficoColunas usa item.titulo). */
+function truncar(s, n = 13) {
+  if (!s) return s
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s
 }
 
 function normalizarComparar(s) {
@@ -317,6 +325,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const [buscaAdicionar, setBuscaAdicionar] = useState('')
   const [confirmar, setConfirmar] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [dashboardAberto, setDashboardAberto] = useState(true)
   const [modoRelatorio, setModoRelatorio] = useState('periodo') // 'dia' | 'mes' | 'periodo'
   const [relatorioDia, setRelatorioDia] = useState(hoje)
   const [relatorioMes, setRelatorioMes] = useState(() => hoje.slice(0, 7))
@@ -389,6 +398,22 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const matrizColabServico = useMemo(
     () => matrizColaboradorServico(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
+  )
+
+  /* Top 8 de cada — o resto já está nas listas completas do
+     Relatório logo abaixo, o gráfico é só pra bater o olho e ver
+     quem mais pesa. */
+  const graficoServicos = useMemo(
+    () => servicosDoPeriodo.slice(0, 8).map((s) => ({
+      chave: s.servico, rotulo: truncar(s.servico), titulo: s.servico, valor: s.total,
+    })),
+    [servicosDoPeriodo],
+  )
+  const graficoEmpresas = useMemo(
+    () => resumoPeriodo.porEmpresa.slice(0, 8).map((e) => ({
+      chave: e.companyId || 'sem-empresa', rotulo: truncar(e.nome), titulo: e.nome, valor: e.total,
+    })),
+    [resumoPeriodo.porEmpresa],
   )
 
   /* Vincular direto do relatório: pega o lançamento daquele dia (o
@@ -517,6 +542,30 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           </button>
         }
       />
+
+      <SecaoRecolhivel
+        titulo="Dashboard"
+        aberto={dashboardAberto}
+        onToggle={() => setDashboardAberto((v) => !v)}
+        resumo={
+          modoRelatorio === 'dia' ? formatarDataCurta(relatorioDia)
+            : modoRelatorio === 'mes' ? rotuloMes(relatorioMes)
+              : `${formatarDataCurta(periodoIni)}–${formatarDataCurta(periodoFim)}`
+        }
+      >
+        <div>
+          <div className="t-micro" style={{ marginBottom: 6 }}>
+            Frentes de serviço que mais consumiram {servicosDoPeriodo.length > 8 ? '(top 8)' : ''}
+          </div>
+          <GraficoColunas itens={graficoServicos} formatarValor={(v) => String(v)} />
+        </div>
+        <div>
+          <div className="t-micro" style={{ marginBottom: 6 }}>
+            Empresas que mais consumiram {resumoPeriodo.porEmpresa.length > 8 ? '(top 8)' : ''}
+          </div>
+          <GraficoColunas itens={graficoEmpresas} formatarValor={(v) => String(v)} />
+        </div>
+      </SecaoRecolhivel>
 
       <SecaoRecolhivel
         titulo="Relatório"
