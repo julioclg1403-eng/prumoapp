@@ -2758,7 +2758,10 @@ function AbaMedicao({ servico, dados, podeEditar }) {
      o consumo. */
   const refeicoesNoPeriodo = useMemo(
     () => filtrarPorPeriodo(
-      dados.refeicoes || [], periodoModo,
+      /* Só almoço — Refeições agora também lança Lanche, que tem seu
+         próprio preço e não entra nesse desconto (o boletim sempre
+         representou o almoço, desde antes do Lanche existir). */
+      (dados.refeicoes || []).filter((r) => (r.tipo || 'almoco') === 'almoco'), periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
       (r) => r.data,
     ),

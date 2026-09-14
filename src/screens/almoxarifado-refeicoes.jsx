@@ -24,7 +24,7 @@ import {
 } from '../lib/dominio'
 import {
   Icon, PageHeader, Sheet, Campo, Confirmar, Vazio, ItemLista, Selecionavel, SecaoRecolhivel, ChipToggle,
-  RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
+  RelatorioFolha, SecaoRelatorio, TabelaRelatorio, Segmentos,
 } from '../components'
 import { GraficoColunas } from '../components/charts'
 
@@ -320,6 +320,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const hoje = hojeISO()
   const podeExcluir = perfil?.role !== 'campo'
 
+  const [tipo, setTipo] = useState('almoco')
   const [mes, setMes] = useState(() => hoje.slice(0, 7))
   const [editando, setEditando] = useState(null)
   const [buscaAdicionar, setBuscaAdicionar] = useState('')
@@ -336,11 +337,23 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const [precoInput, setPrecoInput] = useState('')
   const [salvandoPreco, setSalvandoPreco] = useState(false)
 
-  const precoRefeicao = Number(dados.obra.preco_refeicao) || 0
+  const rotuloTipo = tipo === 'lanche' ? 'Lanche' : 'Almoço'
+  const rotuloTipoPlural = tipo === 'lanche' ? 'lanches' : 'almoços'
+
+  /* Refeições filtradas pelo tipo em exibição — tudo daqui pra baixo
+     (resumo do mês, relatório, dashboard) trabalha só em cima disso,
+     nunca de dados.refeicoes direto, senão Almoço e Lanche vazariam
+     um dentro do outro. */
+  const refeicoesDoTipo = useMemo(
+    () => (dados.refeicoes || []).filter((r) => (r.tipo || 'almoco') === tipo),
+    [dados.refeicoes, tipo],
+  )
+
+  const precoRefeicao = Number(tipo === 'lanche' ? dados.obra.preco_lanche : dados.obra.preco_refeicao) || 0
 
   const salvarPreco = async () => {
     setSalvandoPreco(true)
-    await dados.salvarPrecoRefeicao(precoInput === '' ? null : Number(precoInput))
+    await dados.salvarPrecoRefeicao(precoInput === '' ? null : Number(precoInput), tipo)
     setSalvandoPreco(false)
     setEditandoPreco(false)
   }
@@ -354,8 +367,8 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   }
 
   const resumo = useMemo(
-    () => resumoRefeicoesDoMes(dados.refeicoes, dados.empresas, dados.colaboradores, mes),
-    [dados.refeicoes, dados.empresas, dados.colaboradores, mes],
+    () => resumoRefeicoesDoMes(refeicoesDoTipo, dados.empresas, dados.colaboradores, mes),
+    [refeicoesDoTipo, dados.empresas, dados.colaboradores, mes],
   )
   const registrosOrdenados = useMemo(
     () => [...resumo.registros].sort((a, b) => (a.data < b.data ? 1 : -1)),
@@ -373,15 +386,15 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   }
 
   const registrosDoRelatorio = useMemo(() => {
-    return (dados.refeicoes || []).filter((r) => r.data >= periodoIni && r.data <= periodoFim)
-  }, [dados.refeicoes, periodoIni, periodoFim])
+    return refeicoesDoTipo.filter((r) => r.data >= periodoIni && r.data <= periodoFim)
+  }, [refeicoesDoTipo, periodoIni, periodoFim])
   const diasDoRelatorio = useMemo(
     () => agruparRefeicoesPorDia(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
   const resumoPeriodo = useMemo(
-    () => resumoRefeicoesPorPeriodo(dados.refeicoes, dados.empresas, dados.colaboradores, periodoIni, periodoFim),
-    [dados.refeicoes, dados.empresas, dados.colaboradores, periodoIni, periodoFim],
+    () => resumoRefeicoesPorPeriodo(refeicoesDoTipo, dados.empresas, dados.colaboradores, periodoIni, periodoFim),
+    [refeicoesDoTipo, dados.empresas, dados.colaboradores, periodoIni, periodoFim],
   )
   const servicosDoPeriodo = useMemo(
     () => resumoServicosPorPeriodo(dados, registrosDoRelatorio),
@@ -451,7 +464,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const abrirNovo = () => {
     setBuscaAdicionar('')
     const comAtividade = colaboradoresDoDiario(dados, hoje).filter((c) => c.atividades.length > 0)
-    setEditando({ data: hoje, quantidade: '', fornecedor: '', worker_ids: comAtividade.map((c) => c.workerId) })
+    setEditando({ data: hoje, quantidade: '', fornecedor: '', tipo, worker_ids: comAtividade.map((c) => c.workerId) })
   }
 
   const salvar = async () => {
@@ -464,7 +477,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
   const pedirExcluir = (item) => setConfirmar({
     titulo: 'Excluir lançamento?',
-    texto: `${item.quantidade} refeições em ${formatarDataCurta(item.data)} saem do histórico. Isso não tem volta.`,
+    texto: `${item.quantidade} ${rotuloTipoPlural} em ${formatarDataCurta(item.data)} saem do histórico. Isso não tem volta.`,
     rotuloOk: 'Excluir', perigo: true,
     onOk: async () => { setConfirmar(null); await dados.excluirRefeicao(item.id) },
   })
@@ -535,12 +548,20 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
     <div className="page stack-2">
       <PageHeader
         titulo="Refeições"
-        sub={`${plural(resumo.registros.length, 'lançamento', 'lançamentos')} em ${rotuloMes(mes).toLowerCase()}`}
+        sub={`${plural(resumo.registros.length, 'lançamento', 'lançamentos')} de ${rotuloTipo.toLowerCase()} em ${rotuloMes(mes).toLowerCase()}`}
         acao={
           <button className="btn btn-primary" onClick={abrirNovo}>
-            <Icon name="mais_sinal" size={18} /> Nova refeição
+            <Icon name="mais_sinal" size={18} /> Novo {rotuloTipo.toLowerCase()}
           </button>
         }
+      />
+
+      <Segmentos
+        valor={tipo} onChange={setTipo}
+        opcoes={[
+          { valor: 'almoco', rotulo: 'Almoço' },
+          { valor: 'lanche', rotulo: 'Lanche' },
+        ]}
       />
 
       <SecaoRecolhivel
@@ -641,9 +662,9 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
         <div className="card-flat" style={{ padding: 10 }}>
           <div className="row-between" style={{ alignItems: 'center' }}>
             <div>
-              <div className="t-micro">Preço da refeição</div>
+              <div className="t-micro">Preço do {rotuloTipo.toLowerCase()}</div>
               <div className="t-strong" style={{ fontSize: 15 }}>
-                {precoRefeicao > 0 ? `${formatarDinheiro(precoRefeicao)}/refeição` : 'Não cadastrado'}
+                {precoRefeicao > 0 ? `${formatarDinheiro(precoRefeicao)}/${rotuloTipo.toLowerCase()}` : 'Não cadastrado'}
               </div>
             </div>
             {podeExcluir && (
@@ -658,7 +679,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           {precoRefeicao > 0 && (
             <div className="t-caption" style={{ marginTop: 6 }}>
               Valor estimado no período: <strong>{formatarDinheiro(resumoPeriodo.totalGeral * precoRefeicao)}</strong>
-              {' '}({resumoPeriodo.totalGeral} refeições lançadas × {formatarDinheiro(precoRefeicao)})
+              {' '}({resumoPeriodo.totalGeral} {rotuloTipoPlural} lançados × {formatarDinheiro(precoRefeicao)})
             </div>
           )}
         </div>
@@ -861,9 +882,9 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
       {registrosOrdenados.length === 0 ? (
         <div className="card-flat">
           <Vazio
-            titulo="Nenhuma refeição lançada"
+            titulo={`Nenhum ${rotuloTipo.toLowerCase()} lançado`}
             texto={`Nenhum lançamento em ${rotuloMes(mes).toLowerCase()}. Toda vez que o restaurante servir, lança aqui.`}
-            acao={<button className="btn btn-primary" onClick={abrirNovo}>Nova refeição</button>}
+            acao={<button className="btn btn-primary" onClick={abrirNovo}>Novo {rotuloTipo.toLowerCase()}</button>}
           />
         </div>
       ) : (
@@ -909,7 +930,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
       <Sheet
         aberto={Boolean(editando)}
-        titulo={editando?.id ? 'Editar lançamento' : 'Nova refeição'}
+        titulo={editando?.id ? 'Editar lançamento' : `Novo ${rotuloTipo.toLowerCase()}`}
         onFechar={() => setEditando(null)}
         rodape={
           <div className="row-flex">
@@ -1079,7 +1100,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
 
       <Sheet
         aberto={editandoPreco}
-        titulo="Preço da refeição"
+        titulo={`Preço do ${rotuloTipo.toLowerCase()}`}
         onFechar={() => setEditandoPreco(false)}
         rodape={
           <div className="row-flex">
@@ -1091,7 +1112,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
         }
       >
         <Campo
-          label="Preço por refeição"
+          label={`Preço por ${rotuloTipo.toLowerCase()}`}
           dica="Estimativa pra saber quanto está sendo gasto — Refeições não controla nota fiscal como Estoque e EPI, então multiplica esse valor pela quantidade lançada no período."
         >
           <input
@@ -1103,7 +1124,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
       </Sheet>
 
       <RelatorioFolha
-        titulo="Refeições"
+        titulo={rotuloTipo}
         sub={periodoIni === periodoFim ? formatarData(periodoIni) : `${formatarData(periodoIni)} a ${formatarData(periodoFim)}`}
         obra={dados.obra.nome} org={dados.org.nome}
       >
@@ -1115,10 +1136,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           <>
             <SecaoRelatorio titulo="Resumo">
               <div style={{ fontSize: 13 }}>
-                Refeições lançadas: <strong>{resumoPeriodo.totalGeral}</strong>
+                {rotuloTipo} lançados: <strong>{resumoPeriodo.totalGeral}</strong>
                 {precoRefeicao > 0 && (
                   <>
-                    {' '}· Preço por refeição: <strong>{formatarDinheiro(precoRefeicao)}</strong>
+                    {' '}· Preço por {rotuloTipo.toLowerCase()}: <strong>{formatarDinheiro(precoRefeicao)}</strong>
                     {' '}· Valor estimado: <strong>{formatarDinheiro(resumoPeriodo.totalGeral * precoRefeicao)}</strong>
                   </>
                 )}
@@ -1175,7 +1196,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
               </SecaoRelatorio>
             )}
             {tiposRelatorio.has('diario') && diasDoRelatorio.map((dia) => (
-              <SecaoRelatorio key={dia.data} titulo={`${formatarData(dia.data)} — ${plural(dia.quantidade, 'refeição', 'refeições')}`}>
+              <SecaoRelatorio key={dia.data} titulo={`${formatarData(dia.data)} — ${dia.quantidade} ${dia.quantidade === 1 ? rotuloTipo.toLowerCase() : rotuloTipoPlural}`}>
                 {dia.pessoas.length === 0 ? (
                   <div style={{ fontSize: 12, color: '#71717A' }}>Nenhum colaborador vinculado nesse lançamento.</div>
                 ) : (

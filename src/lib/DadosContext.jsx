@@ -873,10 +873,11 @@ export function DadosProvider({ perfil, children }) {
      valor de verdade rastreado por entrada. Fica no worksite porque
      cada obra pode negociar um preço diferente com o fornecedor. */
   const salvarPrecoRefeicao = useCallback(
-    async (preco) => {
+    async (preco, tipo = 'almoco') => {
+      const coluna = tipo === 'lanche' ? 'preco_lanche' : 'preco_refeicao'
       const atualizado = checar(
-        await supabase.from('worksites').update({ preco_refeicao: preco }).eq('id', obraId).select('*').single(),
-        'salvar o preço da refeição',
+        await supabase.from('worksites').update({ [coluna]: preco }).eq('id', obraId).select('*').single(),
+        `salvar o preço do ${tipo === 'lanche' ? 'lanche' : 'almoço'}`,
       )
       if (!atualizado) return
       setTudo((t) => t && ({
@@ -2726,6 +2727,7 @@ export function DadosProvider({ perfil, children }) {
         organization_id, worksite_id,
         company_id: item.company_id || null,
         data: item.data,
+        tipo: item.tipo === 'lanche' ? 'lanche' : 'almoco',
         quantidade: Number(item.quantidade),
         fornecedor: item.fornecedor || null,
         worker_ids: item.worker_ids || [],
@@ -2746,8 +2748,8 @@ export function DadosProvider({ perfil, children }) {
       }))
       if (!item.id) {
         notificarRegra('refeicoes', {
-          titulo: 'Refeição lançada',
-          corpo: `${perfil.nome} lançou ${linha.quantidade} refeições em ${linha.data.split('-').reverse().join('/')}`,
+          titulo: linha.tipo === 'lanche' ? 'Lanche lançado' : 'Almoço lançado',
+          corpo: `${perfil.nome} lançou ${linha.quantidade} ${linha.tipo === 'lanche' ? 'lanches' : 'almoços'} em ${linha.data.split('-').reverse().join('/')}`,
         })
       }
       return salvo
