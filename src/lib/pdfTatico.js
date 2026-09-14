@@ -185,21 +185,52 @@ function corDaLinha(y, faixasDeCor) {
 
 /* ── Acha as colunas a partir do cabeçalho (só existe na 1ª página) ── */
 
+/* Procura os cabeçalhos alvo dentro dos itens de UMA linha, sem
+   sobrescrever o que já veio de fora (achadoBase) — é o que permite
+   completar uma linha com o que faltou olhando pra vizinha, sem a
+   vizinha "roubar" uma coluna que a linha principal já achou. */
+function acharNaLinha(linha, achadoBase) {
+  const achado = { ...achadoBase }
+  for (const item of linha.itens) {
+    const norm = normalizar(item.texto)
+    if (!norm) continue
+    for (const [coluna, alvos] of Object.entries(CABECALHOS)) {
+      if (achado[coluna]) continue
+      const bate = alvos.some((a) => norm === a || norm.startsWith(a) || (norm.length >= 4 && a.startsWith(norm)))
+      if (bate) achado[coluna] = item
+    }
+  }
+  return achado
+}
+
 function acharColunas(linhasPagina1) {
   let melhor = null
-  for (const linha of linhasPagina1) {
-    const achado = {}
-    for (const item of linha.itens) {
-      const norm = normalizar(item.texto)
-      if (!norm) continue
-      for (const [coluna, alvos] of Object.entries(CABECALHOS)) {
-        if (achado[coluna]) continue
-        const bate = alvos.some((a) => norm === a || norm.startsWith(a) || (norm.length >= 4 && a.startsWith(norm)))
-        if (bate) achado[coluna] = item
-      }
-    }
+  for (let idx = 0; idx < linhasPagina1.length; idx++) {
+    const linha = linhasPagina1[idx]
+    let achado = acharNaLinha(linha, {})
+    /* Um título de duas palavras (ex.: "Início do Serviço") às vezes
+       quebra dentro da própria célula do cabeçalho — "Início do" cai
+       um pouco acima da linha principal, "Serviço" um pouco abaixo,
+       fora da tolerância normal de agrupar linha (visto num relatório
+       real: a coluna ficou estreita demais pro título inteiro numa
+       linha só). Sem isso, nenhuma linha reúne as 5 colunas exigidas
+       e o import inteiro é recusado como "não reconheci a tabela".
+       Completa com as vizinhas (a linha principal sempre tem
+       prioridade — só preenche o que faltou, nunca substitui). */
+    const anterior = linhasPagina1[idx - 1]
+    const proxima = linhasPagina1[idx + 1]
+    if (anterior) achado = acharNaLinha(anterior, achado)
+    if (proxima) achado = acharNaLinha(proxima, achado)
     if (achado.servico && achado.lote && achado.inicio && achado.acao && achado.responsavel) {
-      if (!melhor || Object.keys(achado).length > Object.keys(melhor.achado).length) melhor = { linha, achado }
+      const nAchado = Object.keys(achado).length
+      const nMelhor = melhor ? Object.keys(melhor.achado).length : -1
+      /* Em empate, prefere a linha com mais itens próprios — é a
+         linha principal de verdade (a vizinha que só emprestou um
+         fragmento costuma ter 1-2 itens só), e é dela que vêm os
+         marcadores de fronteira (M.O/MAT./EQP...) usados abaixo. */
+      if (!melhor || nAchado > nMelhor || (nAchado === nMelhor && linha.itens.length > melhor.linha.itens.length)) {
+        melhor = { linha, achado }
+      }
     }
   }
   if (!melhor) return null
