@@ -258,14 +258,26 @@ function acharColunas(linhasPagina1) {
   // "01/09/26") com um título comprido — o meio do caminho até o
   // título de "Ação de remoção" fica bem depois de onde os dados de
   // ação realmente começam (a coluna dela também é mais larga que o
-  // título sugere), cortando o começo da ação. Dou pouco mais que a
-  // largura de uma data à coluna de início, e o resto vai para a ação.
+  // título sugere), cortando o começo da ação. Em vez de chutar um
+  // deslocamento fixo a partir do título do cabeçalho (que varia de
+  // posição dependendo de como o título quebrou entre linhas — ver
+  // acharNaLinha acima), mede a borda direita das DATAS de verdade
+  // que aparecem na tabela: elas nunca mentem sobre onde a coluna de
+  // início realmente termina. Nunca deixa a coluna menor que 40pt
+  // (uma data mal caberia menos que isso) nem maior que o meio do
+  // caminho original calculado acima.
   if (limites.inicio && limites.acao) {
-    const x1Estreito = achado.inicio.x + 90
-    if (x1Estreito < limites.inicio.x1) {
-      limites.inicio = { ...limites.inicio, x1: x1Estreito }
-      limites.acao = { ...limites.acao, x0: x1Estreito }
+    let bordaDireitaDatas = achado.inicio.x + 40
+    for (const linha of linhasPagina1) {
+      for (const item of linha.itens) {
+        if (item.x < achado.inicio.x - 10 || item.x >= achado.acao.x) continue
+        if (!dataDoTexto(item.texto)) continue
+        bordaDireitaDatas = Math.max(bordaDireitaDatas, item.x + (item.largura || 0))
+      }
     }
+    const x1Estreito = Math.min(bordaDireitaDatas + 15, limites.inicio.x1)
+    limites.inicio = { ...limites.inicio, x1: x1Estreito }
+    limites.acao = { ...limites.acao, x0: x1Estreito }
   }
   // Mesma história para "Status" (só um símbolo, sem largura de
   // texto de verdade) vs. "Motivo" — o meio do caminho até o
