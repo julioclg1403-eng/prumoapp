@@ -532,6 +532,14 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
   const [nomeArquivo, setNomeArquivo] = useState('')
   const [importando, setImportando] = useState(false)
   const [feito, setFeito] = useState(null)
+  const [criandoLocal, setCriandoLocal] = useState(null)
+  /* Guarda o módulo (não só a função) depois do primeiro import
+     dinâmico — pdfPlanejamento arrasta o pdfjs-dist (pesado) junto,
+     então um import estático no topo do arquivo colocaria isso no
+     bundle principal à toa. Reaproveitar o módulo já carregado é o
+     que permite recasar os pacotes depois (ver itens abaixo) sem
+     reimportar nem reler o PDF. */
+  const [pdfModulo, setPdfModulo] = useState(null)
 
   const fechar = () => {
     setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
@@ -546,8 +554,9 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
     setResultado(null)
     setFeito(null)
     try {
-      const { lerPlanejamentoDoPDF } = await import('../lib/pdfPlanejamento')
-      const lido = await lerPlanejamentoDoPDF(arquivo, {
+      const modulo = await import('../lib/pdfPlanejamento')
+      setPdfModulo(modulo)
+      const lido = await modulo.lerPlanejamentoDoPDF(arquivo, {
         servicos: dados.servicos, locais: dados.locais, empresas: dados.empresas, diasDaSemana: dias,
       })
       setResultado(lido)
@@ -558,7 +567,24 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
     }
   }
 
-  const validos = (resultado?.itens || []).filter((i) => i.valido)
+  /* Recasa contra o cadastro de locais ATUAL a cada render — é o que
+     faz um item de "local não cadastrado" virar válido sozinho assim
+     que a pessoa clica em "+ Cadastrar este local" abaixo, sem
+     precisar reler o PDF. */
+  const itens = useMemo(() => {
+    if (!resultado?.itensBrutos || !pdfModulo) return resultado?.itens || []
+    return pdfModulo.casarPacotes(resultado.itensBrutos, {
+      servicos: dados.servicos, locais: dados.locais, empresas: dados.empresas, diasDaSemana: dias,
+    })
+  }, [resultado, pdfModulo, dados.servicos, dados.locais, dados.empresas, dias])
+
+  const cadastrarLocal = async (nomeLocal) => {
+    setCriandoLocal(nomeLocal)
+    await dados.salvarCadastro('locais', { nome: nomeLocal })
+    setCriandoLocal(null)
+  }
+
+  const validos = itens.filter((i) => i.valido)
 
   /* Quantos dias-de-planejamento novos isso realmente cria — um
      pacote pode estar ativo em vários dias da semana, e alguns
@@ -712,13 +738,13 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
                 <div className="alert info">
                   {plural(totalDiasNovos, 'dia de planejamento novo', 'dias de planejamento novos')}
                   {servicosNovos.length > 0 && ` · ${plural(servicosNovos.length, 'serviço novo', 'serviços novos')}`}
-                  {resultado.itens.length > validos.length
-                    ? ` · ${plural(resultado.itens.length - validos.length, 'pacote com problema', 'pacotes com problema')} (não entram)`
+                  {itens.length > validos.length
+                    ? ` · ${plural(itens.length - validos.length, 'pacote com problema', 'pacotes com problema')} (não entram)`
                     : ''}.
                 </div>
 
                 <div style={{ maxHeight: 320, overflowY: 'auto' }} className="stack-1">
-                  {resultado.itens.map((it) => (
+                  {itens.map((it) => (
                     <div
                       key={it.linha}
                       style={{
@@ -744,7 +770,21 @@ function ImportarPDFSemanal({ aberto, onFechar, dados, dias, inicio }) {
                           </div>
                         </div>
                       ) : (
-                        <div style={{ marginTop: 4 }}>— {it.problemas.join(', ')}</div>
+                        <div style={{ marginTop: 4 }}>
+                          — {it.problemas.join(', ')}
+                          {it.localTexto && !it.local && (
+                            <div style={{ marginTop: 4 }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled={criandoLocal === it.localTexto}
+                                onClick={() => cadastrarLocal(it.localTexto)}
+                              >
+                                {criandoLocal === it.localTexto ? 'Cadastrando…' : `+ Cadastrar local "${it.localTexto}"`}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   ))}

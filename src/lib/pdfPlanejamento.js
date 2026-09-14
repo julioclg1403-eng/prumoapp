@@ -68,18 +68,13 @@ function casarEmpresa(texto, lista) {
   return candidatos.length === 1 ? candidatos[0] : null
 }
 
-/* Devolve um item por PACOTE (não por dia) — a tela decide como
-   desdobrar em dias. Serviço sem correspondência vale NULL (vai
-   ser criado, como material novo na requisição). Local sem
-   correspondência TAMBÉM vale null, mas esse não é criado sozinho:
-   local é usado em toda a obra, então uma correspondência errada
-   aqui contamina o seletor de local para todo mundo — fica
-   marcado como problema, para a pessoa decidir. */
-export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSemana, empresas }) {
-  const lido = await lerCronogramaDoPDF(arquivo)
-  if (lido.erroGeral) return lido
-
-  const itens = lido.itens.map((it) => {
+/* Separado de lerPlanejamentoDoPDF pra poder re-rodar só o casamento
+   depois que a pessoa cadastra um local que faltava, sem reler o PDF
+   inteiro — é o que permite a tela oferecer "+ Cadastrar este local"
+   direto na lista de problemas e o item virar válido na hora, assim
+   que dados.locais atualizar. */
+export function casarPacotes(itensBrutos, { servicos, locais, diasDaSemana, empresas }) {
+  return itensBrutos.map((it) => {
     const { servicoTexto, localTexto } = dividirPacote(it.descricao)
     const servico = casar(servicoTexto, servicos)
     const local = casar(localTexto, locais)
@@ -105,6 +100,20 @@ export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSe
       problemas,
     }
   })
+}
 
-  return { itens, erroGeral: null }
+/* Devolve um item por PACOTE (não por dia) — a tela decide como
+   desdobrar em dias. Serviço sem correspondência vale NULL (vai
+   ser criado, como material novo na requisição). Local sem
+   correspondência TAMBÉM vale null, mas esse não é criado sozinho:
+   local é usado em toda a obra, então uma correspondência errada
+   aqui contamina o seletor de local para todo mundo — fica
+   marcado como problema, para a pessoa decidir (ou cadastrar ali
+   mesmo, ver casarPacotes acima). */
+export async function lerPlanejamentoDoPDF(arquivo, { servicos, locais, diasDaSemana, empresas }) {
+  const lido = await lerCronogramaDoPDF(arquivo)
+  if (lido.erroGeral) return lido
+
+  const itens = casarPacotes(lido.itens, { servicos, locais, diasDaSemana, empresas })
+  return { itens, itensBrutos: lido.itens, erroGeral: null }
 }
