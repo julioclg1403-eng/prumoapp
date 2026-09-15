@@ -29,7 +29,7 @@ import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import {
-  Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 import { RankingBarras, GraficoColunas, CurvaProducao, CurvaMultipla } from '../components/charts'
@@ -354,11 +354,15 @@ function ServicoSheet({ dados, servico, onFechar }) {
           label="Tipo(s) de serviço"
           dica="Define a fórmula, as dimensões e os estágios de cada elemento (Cadastros → Catálogo de Serviços). Pode marcar mais de um — ex.: Escavação em m³ e em m, no mesmo serviço; ao marcar um elemento novo, você escolhe qual tipo usar."
         >
-          <div className="row-wrap" style={{ gap: 6 }}>
+          <div className="stack-1" style={{ maxHeight: 280, overflowY: 'auto' }}>
             {tiposAtivos.map((t) => (
-              <ChipToggle key={t.id} ativo={tipoIds.includes(t.id)} onClick={() => alternarTipo(t.id)}>
-                {t.nome}
-              </ChipToggle>
+              <label
+                key={t.id} className="card-flat row-flex"
+                style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
+              >
+                <input type="checkbox" checked={tipoIds.includes(t.id)} onChange={() => alternarTipo(t.id)} />
+                <span className="grow">{t.nome}</span>
+              </label>
             ))}
           </div>
           {tiposAtivos.length === 0 && (
