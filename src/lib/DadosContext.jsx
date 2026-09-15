@@ -3561,9 +3561,16 @@ export function DadosProvider({ perfil, children }) {
      ligar etapas entre serviços diferentes sozinho). */
   const salvarServico = useCallback(
     async (item) => {
+      /* Um serviço pode ter mais de um tipo (fórmula/unidade) — ex.:
+         Escavação em m³ e em m, no mesmo serviço. service_type_id
+         continua gravado como o primeiro do array ("tipo principal"),
+         pra quem ainda lê só esse campo (dashboard, painel SINAPI)
+         não quebrar — mas quem marca um elemento novo escolhe entre
+         TODOS os tipos de service_type_ids quando tem mais de um. */
+      const tipoIds = item.service_type_ids?.length ? item.service_type_ids : (item.service_type_id ? [item.service_type_id] : [])
       const linha = {
         organization_id: perfil.organization_id, worksite_id: obraId,
-        nome: item.nome, service_type_id: item.service_type_id,
+        nome: item.nome, service_type_id: tipoIds[0] || null, service_type_ids: tipoIds,
         company_id: item.company_id || null, cod_contrato: item.cod_contrato || null,
         funcionarios_ids: item.funcionarios_ids || [],
       }

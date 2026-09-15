@@ -29,7 +29,7 @@ import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import {
-  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
+  Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 import { RankingBarras, GraficoColunas, CurvaProducao, CurvaMultipla } from '../components/charts'
@@ -38,6 +38,19 @@ const PALETA_GRAFICO = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'v
 const comCores = (itens) => itens.map((item, i) => ({ ...item, cor: PALETA_GRAFICO[i % PALETA_GRAFICO.length] }))
 
 const ROTULO_UNIDADE = { m3: 'm³', m2: 'm²', ml: 'ml', un: 'un', kg: 'kg' }
+
+/* Um serviço pode ter mais de um tipo (fórmula/unidade) cadastrado —
+   ex.: Escavação em m³ e em m, no mesmo serviço, sem precisar de um
+   segundo serviço só pra unidade diferente. service_type_ids é o
+   array de verdade; service_type_id (singular) é mantido só como
+   "tipo principal" pra quem ainda não foi adaptado pra escolher
+   entre vários. */
+function tiposDoServico(dados, servico) {
+  const ids = servico?.service_type_ids?.length
+    ? servico.service_type_ids
+    : (servico?.service_type_id ? [servico.service_type_id] : [])
+  return ids.map((id) => dados.tiposServico?.find((t) => t.id === id)).filter(Boolean)
+}
 
 /* Cor estável por colaborador (hash do id → matiz), pra "colorir por
    colaborador" na planta — usada só quando a pessoa não escolheu uma
@@ -225,7 +238,8 @@ function AbaServicos({ dados, perfil, podeEditar }) {
       ) : (
         <div className="stack-1">
           {servicos.map((s) => {
-            const tipo = dados.tiposServico?.find((t) => t.id === s.service_type_id)
+            const tiposDoS = tiposDoServico(dados, s)
+            const tipo = tiposDoS[0] || null
             const empresa = s.company_id ? dados.nomeDe(dados.empresas, s.company_id) : null
             const qtdePlantas = (dados.plantasProducao || []).filter((p) => p.service_id === s.id && p.ativo !== false).length
             const quantidadePeriodo = quantidadePorServico.get(s.id) || 0
@@ -236,7 +250,7 @@ function AbaServicos({ dados, perfil, podeEditar }) {
                   <div>
                     <div className="t-strong">{s.nome}</div>
                     <div className="t-caption">
-                      {tipo?.nome || 'Tipo removido'}
+                      {tipo?.nome || 'Tipo removido'}{tiposDoS.length > 1 && ` +${tiposDoS.length - 1}`}
                       {empresa && ` · ${empresa}`}
                       {s.cod_contrato && ` · Contrato ${s.cod_contrato}`}
                       {` · ${plural(qtdePlantas, 'planta', 'plantas')}`}
@@ -262,10 +276,13 @@ function AbaServicos({ dados, perfil, podeEditar }) {
 
 function ServicoSheet({ dados, servico, onFechar }) {
   const [nome, setNome] = useState(servico?.nome || '')
-  const [tipoId, setTipoId] = useState(servico?.service_type_id || '')
   const [companyId, setCompanyId] = useState(servico?.company_id || '')
   const [codContrato, setCodContrato] = useState(servico?.cod_contrato || '')
   const [funcionariosIds, setFuncionariosIds] = useState(servico?.funcionarios_ids || [])
+  const [tipoIds, setTipoIds] = useState(() => {
+    if (servico?.service_type_ids?.length) return servico.service_type_ids
+    return servico?.service_type_id ? [servico.service_type_id] : []
+  })
   const [salvando, setSalvando] = useState(false)
   const [confirmarArquivar, setConfirmarArquivar] = useState(false)
   const [confirmarExcluir, setConfirmarExcluir] = useState(false)
@@ -299,12 +316,16 @@ function ServicoSheet({ dados, servico, onFechar }) {
     return [...porCodigo.values()]
   }, [dados.contratos, companyId])
 
-  const podeSalvar = nome.trim() && tipoId
+  const podeSalvar = nome.trim() && tipoIds.length > 0
+
+  const alternarTipo = (id) => {
+    setTipoIds((atual) => (atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]))
+  }
 
   const salvar = async () => {
     setSalvando(true)
     const ok = await dados.salvarServico({
-      id: servico?.id, nome: nome.trim(), service_type_id: tipoId,
+      id: servico?.id, nome: nome.trim(), service_type_ids: tipoIds,
       company_id: companyId || null, cod_contrato: codContrato || null,
       funcionarios_ids: funcionariosIds,
     })
@@ -329,11 +350,17 @@ function ServicoSheet({ dados, servico, onFechar }) {
           <input className="ipt" autoFocus value={nome} onChange={(e) => setNome(e.target.value)} />
         </Campo>
 
-        <Campo label="Tipo de serviço" dica="Define a fórmula, as dimensões e os estágios (Cadastros → Catálogo de Serviços).">
-          <select className="sel" value={tipoId} onChange={(e) => setTipoId(e.target.value)}>
-            <option value="">Escolha</option>
-            {tiposAtivos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
-          </select>
+        <Campo
+          label="Tipo(s) de serviço"
+          dica="Define a fórmula, as dimensões e os estágios de cada elemento (Cadastros → Catálogo de Serviços). Pode marcar mais de um — ex.: Escavação em m³ e em m, no mesmo serviço; ao marcar um elemento novo, você escolhe qual tipo usar."
+        >
+          <div className="row-wrap" style={{ gap: 6 }}>
+            {tiposAtivos.map((t) => (
+              <ChipToggle key={t.id} ativo={tipoIds.includes(t.id)} onClick={() => alternarTipo(t.id)}>
+                {t.nome}
+              </ChipToggle>
+            ))}
+          </div>
           {tiposAtivos.length === 0 && (
             <div className="t-caption" style={{ marginTop: 4 }}>
               Nenhum tipo cadastrado ainda — cadastre em Cadastros → Catálogo de Serviços.
@@ -511,7 +538,8 @@ function AbaServicosPorEmpresa({ dados, perfil, podeEditar }) {
         <div className="t-strong" style={{ fontSize: 16 }}>{empresaAtual.nome}</div>
         <div className="stack-1">
           {empresaAtual.servicos.map((s) => {
-            const tipo = dados.tiposServico?.find((t) => t.id === s.service_type_id)
+            const tiposDoS = tiposDoServico(dados, s)
+            const tipo = tiposDoS[0] || null
             const qtdePlantas = (dados.plantasProducao || []).filter((p) => p.service_id === s.id && p.ativo !== false).length
             return (
               <button key={s.id} className="card-tap" style={{ textAlign: 'left', width: '100%' }} onClick={() => setServicoAberto(s)}>
@@ -519,7 +547,7 @@ function AbaServicosPorEmpresa({ dados, perfil, podeEditar }) {
                   <div>
                     <div className="t-strong">{s.nome}</div>
                     <div className="t-caption">
-                      {tipo?.nome || 'Tipo removido'}
+                      {tipo?.nome || 'Tipo removido'}{tiposDoS.length > 1 && ` +${tiposDoS.length - 1}`}
                       {s.cod_contrato && ` · Contrato ${s.cod_contrato}`}
                       {` · ${plural(qtdePlantas, 'planta', 'plantas')}`}
                     </div>
@@ -961,7 +989,8 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
 
   const plantas = (dados.plantasProducao || []).filter((p) => p.service_id === servico.id && p.ativo !== false)
   const plantaAtual = plantaAberta && plantas.find((p) => p.id === plantaAberta.id)
-  const tipo = dados.tiposServico?.find((t) => t.id === servico.service_type_id)
+  const tipos = useMemo(() => tiposDoServico(dados, servico), [dados, servico])
+  const tipo = tipos[0]
 
   /* Notificação de marcação incompleta — pedido repetido do Julio:
      achar isso hoje exigia abrir marcador por marcador até topar com
@@ -1015,7 +1044,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   if (plantaAtual) {
     return (
       <VisualizarPlanta
-        planta={plantaAtual} servico={servico} tipo={tipo} dados={dados} perfil={perfil} podeEditar={podeEditar}
+        planta={plantaAtual} servico={servico} tipo={tipo} tipos={tipos} dados={dados} perfil={perfil} podeEditar={podeEditar}
         marcadorParaAbrir={abrirPendencia?.marcador}
         voltar={() => { setPlantaAberta(null); setAbrirPendencia(null) }}
       />
@@ -1032,7 +1061,9 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
         <div className="row-between" style={{ alignItems: 'flex-start' }}>
           <div>
             <div className="t-strong" style={{ fontSize: 16 }}>{servico.nome}</div>
-            <div className="t-caption">{tipo?.nome || 'Tipo removido'}</div>
+            <div className="t-caption">
+              {tipos.length ? tipos.map((t) => t.nome).join(' · ') : 'Tipo removido'}
+            </div>
           </div>
           {ehAdmin && (
             <button className="btn btn-ghost btn-sm" onClick={() => setEditando(true)}>
@@ -1221,7 +1252,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
       )}
 
       {abaServico === 'medicao' && <AbaMedicao servico={servico} dados={dados} podeEditar={podeEditar} />}
-      {abaServico === 'rendimento' && <AbaRendimento servico={servico} tipo={tipo} dados={dados} />}
+      {abaServico === 'rendimento' && <AbaRendimento servico={servico} tipo={tipo} tipos={tipos} dados={dados} />}
 
       <EnviarPlantaSheet aberto={enviando} onFechar={() => setEnviando(false)} dados={dados} servico={servico} />
       {editando && <ServicoSheet dados={dados} servico={servico} onFechar={() => setEditando(false)} />}
@@ -1318,7 +1349,7 @@ const ZOOM_MIN = 0.5
 const ZOOM_MAX = 10
 const ZOOM_PASSO = 0.5
 
-function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, voltar, marcadorParaAbrir }) {
+function VisualizarPlanta({ planta, servico, tipo, tipos, dados, perfil, podeEditar, voltar, marcadorParaAbrir }) {
   const [pdfDoc, setPdfDoc] = useState(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
@@ -1803,13 +1834,13 @@ function VisualizarPlanta({ planta, servico, tipo, dados, perfil, podeEditar, vo
 
       {novoPonto && (
         <MarcadorSheet
-          ponto={novoPonto} planta={planta} servico={servico} tipo={tipo} dados={dados}
+          ponto={novoPonto} planta={planta} servico={servico} tipos={tipos || (tipo ? [tipo] : [])} dados={dados}
           onFechar={() => setNovoPonto(null)}
         />
       )}
       {concluindoMultiplo && (
         <MarcadorMultiploSheet
-          pontos={pontosMultiplos} planta={planta} servico={servico} tipo={tipo} dados={dados}
+          pontos={pontosMultiplos} planta={planta} servico={servico} tipos={tipos || (tipo ? [tipo] : [])} dados={dados}
           onFechar={() => setConcluindoMultiplo(false)}
           onSalvo={() => { setConcluindoMultiplo(false); setPontosMultiplos([]); setModoMultiplo(false) }}
         />
@@ -2073,8 +2104,10 @@ function BuscarItemContrato({ dados, servico, valor, onEscolher }) {
 
 /* ── Nova marcação ──────────────────────────────────────────── */
 
-function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
+function MarcadorSheet({ ponto, planta, servico, tipos, dados, onFechar }) {
   const hoje = hojeISO()
+  const [tipoId, setTipoId] = useState(tipos[0]?.id || '')
+  const tipo = tipos.find((t) => t.id === tipoId) || tipos[0] || null
   const [elemento, setElemento] = useState('')
   const [dimensoes, setDimensoes] = useState(() => Object.fromEntries((tipo?.campos_dimensao || []).map((c) => [c.chave, ''])))
   const [etapa, setEtapa] = useState(tipo?.etapas?.[0]?.chave || '')
@@ -2084,6 +2117,16 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
   const [quantidade, setQuantidade] = useState('')
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  /* Trocar o tipo (só aparece quando o serviço tem mais de um) muda
+     fórmula, dimensões e estágios embaixo — zera os dois pra não
+     misturar dimensão de um tipo com fórmula de outro. */
+  const escolherTipo = (id) => {
+    setTipoId(id)
+    const novoTipo = tipos.find((t) => t.id === id)
+    setDimensoes(Object.fromEntries((novoTipo?.campos_dimensao || []).map((c) => [c.chave, ''])))
+    setEtapa(novoTipo?.etapas?.[0]?.chave || '')
+  }
 
   const quantidadeCalculada = tipo ? calcularQuantidade(tipo.formula, dimensoes) : null
   const diarioDoDia = dataExecucao ? diarioDaData(dados.diarios || [], dataExecucao, dados.obra.id) : null
@@ -2123,7 +2166,15 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
       }
     >
       <div className="stack-2">
-        <div className="t-caption">{servico.nome} · {tipo?.nome}</div>
+        <div className="t-caption">{servico.nome}{tipos.length <= 1 ? ` · ${tipo?.nome || ''}` : ''}</div>
+
+        {tipos.length > 1 && (
+          <Campo label="Tipo de elemento" dica="Este serviço tem mais de um tipo cadastrado — escolha qual fórmula/unidade vale para este elemento.">
+            <select className="sel" value={tipoId} onChange={(e) => escolherTipo(e.target.value)}>
+              {tipos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </Campo>
+        )}
 
         <Campo label="Identificação do elemento" dica='Ex.: "Sapata N12"'>
           <input className="ipt" autoFocus value={elemento} onChange={(e) => setElemento(e.target.value)} placeholder="Sapata N12" />
@@ -2201,8 +2252,10 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
    identificação própria pra cada elemento (Estaca 1, Estaca 2…),
    mesmo com os outros campos idênticos — sem isso, todo o histórico/
    detalhe apareceria com o mesmo nome pra elementos diferentes. */
-function MarcadorMultiploSheet({ pontos, planta, servico, tipo, dados, onFechar, onSalvo }) {
+function MarcadorMultiploSheet({ pontos, planta, servico, tipos, dados, onFechar, onSalvo }) {
   const hoje = hojeISO()
+  const [tipoId, setTipoId] = useState(tipos[0]?.id || '')
+  const tipo = tipos.find((t) => t.id === tipoId) || tipos[0] || null
   const [nomeBase, setNomeBase] = useState('')
   const [dimensoes, setDimensoes] = useState(() => Object.fromEntries((tipo?.campos_dimensao || []).map((c) => [c.chave, ''])))
   const [etapa, setEtapa] = useState(tipo?.etapas?.[0]?.chave || '')
@@ -2214,6 +2267,13 @@ function MarcadorMultiploSheet({ pontos, planta, servico, tipo, dados, onFechar,
   const [salvando, setSalvando] = useState(false)
   const [progresso, setProgresso] = useState(0)
   const [erro, setErro] = useState('')
+
+  const escolherTipo = (id) => {
+    setTipoId(id)
+    const novoTipo = tipos.find((t) => t.id === id)
+    setDimensoes(Object.fromEntries((novoTipo?.campos_dimensao || []).map((c) => [c.chave, ''])))
+    setEtapa(novoTipo?.etapas?.[0]?.chave || '')
+  }
 
   const quantidadeCalculada = tipo ? calcularQuantidade(tipo.formula, dimensoes) : null
   const diarioDoDia = dataExecucao ? diarioDaData(dados.diarios || [], dataExecucao, dados.obra.id) : null
@@ -2266,12 +2326,20 @@ function MarcadorMultiploSheet({ pontos, planta, servico, tipo, dados, onFechar,
       }
     >
       <div className="stack-2">
-        <div className="t-caption">{servico.nome} · {tipo?.nome} · {plural(pontos.length, 'ponto marcado', 'pontos marcados')} na planta</div>
+        <div className="t-caption">{servico.nome}{tipos.length <= 1 ? ` · ${tipo?.nome || ''}` : ''} · {plural(pontos.length, 'ponto marcado', 'pontos marcados')} na planta</div>
         <div className="alert info">
           As informações abaixo entram iguais em cada uma das {pontos.length} marcações — cada ponto vira um elemento
           separado (histórico, contrato e rendimento continuam contando por elemento, igual sempre).
         </div>
         {erro && <div className="alert danger">{erro}</div>}
+
+        {tipos.length > 1 && (
+          <Campo label="Tipo de elemento" dica="Este serviço tem mais de um tipo cadastrado — vale pra todas as marcações deste lote.">
+            <select className="sel" value={tipoId} onChange={(e) => escolherTipo(e.target.value)}>
+              {tipos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </Campo>
+        )}
 
         <Campo label="Nome base do elemento" dica='Ex.: "Estaca" — cada marcação recebe um número (Estaca 1, Estaca 2…).'>
           <input className="ipt" autoFocus value={nomeBase} onChange={(e) => setNomeBase(e.target.value)} placeholder="Estaca" />
@@ -3126,7 +3194,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
 
 /* ── Rendimento ─────────────────────────────────────────────── */
 
-function AbaRendimento({ servico, tipo, dados }) {
+function AbaRendimento({ servico, tipo: tipoUnico, tipos: tiposProp, dados }) {
   const hoje = hojeISO()
   const [periodoModo, setPeriodoModo] = useState('mes')
   const [periodoDia, setPeriodoDia] = useState(hoje)
@@ -3135,20 +3203,27 @@ function AbaRendimento({ servico, tipo, dados }) {
   const [periodoFim, setPeriodoFim] = useState(hoje)
   const [colaboradorAberto, setColaboradorAberto] = useState(null)
 
+  const tipos = tiposProp?.length ? tiposProp : (tipoUnico ? [tipoUnico] : [])
+  /* m³ e m não dá pra somar num "rendimento" só — quando o serviço
+     tem mais de um tipo, a conta precisa ficar sempre dentro de UM
+     tipo por vez (o filtro abaixo escolhe qual). Com um tipo só,
+     nada muda: nem aparece filtro nenhum. */
+  const [tipoFiltroId, setTipoFiltroId] = useState(tipos[0]?.id || '')
+  const tipo = tipos.find((t) => t.id === tipoFiltroId) || tipos[0] || null
   const unidade = ROTULO_UNIDADE[tipo?.unidade_resultado] || tipo?.unidade_resultado || ''
 
   /* Escopado a este Serviço — "controle apenas daquele serviço",
      pedido do Julio — só marcador de uma planta dele, e ativo (nem
-     ele nem o serviço arquivados). Também exclui evento de
-     colaborador arquivado/excluído (mesma regra do Dashboard de
-     rendimento — se não está demarcado/cadastrado de verdade, não
-     entra na conta). Já nasce no tipo certo (o do Serviço), então
-     não precisa mais escolher tipo nem comparar "por serviço": aqui
-     só existe um. */
+     ele nem o serviço arquivados), e do tipo escolhido acima (quando
+     o serviço tem mais de um). Também exclui evento de colaborador
+     arquivado/excluído (mesma regra do Dashboard de rendimento — se
+     não está demarcado/cadastrado de verdade, não entra na conta). */
   const eventosDoServico = useMemo(() => {
     const planIdsDoServico = new Set((dados.plantasProducao || []).filter((p) => p.service_id === servico.id).map((p) => p.id))
     const markerIdsValidos = new Set(
-      (dados.marcadoresProducao || []).filter((m) => planIdsDoServico.has(m.plan_id) && m.ativo !== false).map((m) => m.id),
+      (dados.marcadoresProducao || [])
+        .filter((m) => planIdsDoServico.has(m.plan_id) && m.ativo !== false && (tipos.length <= 1 || m.service_type_id === tipoFiltroId))
+        .map((m) => m.id),
     )
     return (dados.eventosProducao || []).filter((e) => {
       if (!markerIdsValidos.has(e.marker_id)) return false
@@ -3159,7 +3234,7 @@ function AbaRendimento({ servico, tipo, dados }) {
         return Boolean(colaborador) && colaborador.ativo !== false
       })
     })
-  }, [dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao, servico.id, dados])
+  }, [dados.plantasProducao, dados.marcadoresProducao, dados.eventosProducao, servico.id, tipos, tipoFiltroId, dados])
 
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
@@ -3204,6 +3279,13 @@ function AbaRendimento({ servico, tipo, dados }) {
 
   return (
     <div className="stack-2">
+      {tipos.length > 1 && (
+        <Segmentos
+          valor={tipoFiltroId} onChange={setTipoFiltroId}
+          opcoes={tipos.map((t) => ({ valor: t.id, rotulo: t.nome }))}
+        />
+      )}
+
       <SecaoRecolhivel
         titulo="Período"
         resumo={rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}
