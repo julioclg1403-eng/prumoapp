@@ -1869,9 +1869,20 @@ function AvisoSaldoContrato({ contratoItem, quantidade, dados }) {
    dia); com só um dos dois cadastrado, usa esse sozinho; sem nenhum,
    todo mundo ativo. A lista já aparece ao focar o campo — não precisa
    digitar nada pra ver as opções. */
-function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
+/* Adiciona um colaborador ao time fixo do serviço (funcionarios_ids)
+   — chamada quando alguém escolhe, na busca, um presente do dia que
+   ainda não estava no time. salvarServico exige o objeto inteiro
+   (nome, service_type_id…), por isso manda o `servico` completo com
+   só o array trocado, nunca um patch parcial. */
+async function adicionarAoTimeDoServico(dados, servico, colaboradorId) {
+  if (!servico || (servico.funcionarios_ids || []).includes(colaboradorId)) return
+  await dados.salvarServico({ ...servico, funcionarios_ids: [...(servico.funcionarios_ids || []), colaboradorId] })
+}
+
+function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar, onFixarNoServico }) {
   const [busca, setBusca] = useState('')
   const [aberto, setAberto] = useState(false)
+  const [fixando, setFixando] = useState(null)
   const selecionados = valores.map((id) => dados.colaboradorPorId(id)).filter(Boolean)
 
   /* Presença no diário daquele dia é o filtro que manda, sempre que
@@ -1882,19 +1893,37 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
      presença lançada no dia da marcação — pedido do Julio pra
      corrigir. Sem diário nenhum ainda pra essa data, cai pros ativos
      (não trava quem está marcando antes do diário existir). */
-  const disponiveis = useMemo(() => {
+  const presentesOuAtivos = useMemo(() => {
     const ativos = (dados.colaboradores || []).filter((c) => c.ativo !== false)
-    const base = diarioDoDia
+    return diarioDoDia
       ? ativos.filter((c) => (diarioDoDia.presencas || []).some((p) => p.presente && p.worker_id === c.id))
       : ativos
+  }, [diarioDoDia, dados.colaboradores])
 
+  const disponiveis = useMemo(() => {
     if (servico?.funcionarios_ids?.length) {
       const permitidos = new Set(servico.funcionarios_ids)
-      return base.filter((c) => permitidos.has(c.id))
+      return presentesOuAtivos.filter((c) => permitidos.has(c.id))
     }
-    if (servico?.company_id) return base.filter((c) => c.company_id === servico.company_id)
-    return base
-  }, [diarioDoDia, dados.colaboradores, servico])
+    if (servico?.company_id) return presentesOuAtivos.filter((c) => c.company_id === servico.company_id)
+    return presentesOuAtivos
+  }, [presentesOuAtivos, servico])
+
+  /* Quem está presente no dia (e é da empresa certa, se o serviço
+     tiver uma) mas ainda não está no time fixo — normalmente um
+     contratado novo que chegou depois do time ter sido montado.
+     Sem isso a pessoa simplesmente não aparece pra escolher, e
+     ninguém entende o motivo (foi o que aconteceu com um funcionário
+     novo da RB em Escavação). Escolher aqui já marca a pessoa NESTA
+     marcação E entra pro time fixo do serviço, pra não faltar de
+     novo nas próximas. */
+  const foraDoTime = useMemo(() => {
+    if (!servico?.funcionarios_ids?.length || !onFixarNoServico) return []
+    const permitidos = new Set(servico.funcionarios_ids)
+    let candidatos = presentesOuAtivos.filter((c) => !permitidos.has(c.id))
+    if (servico.company_id) candidatos = candidatos.filter((c) => c.company_id === servico.company_id)
+    return candidatos
+  }, [presentesOuAtivos, servico, onFixarNoServico])
 
   const resultados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -1903,6 +1932,23 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
     const filtrados = termo ? restantes.filter((c) => c.nome.toLowerCase().includes(termo)) : restantes
     return filtrados.slice(0, 8)
   }, [busca, disponiveis, valores])
+
+  const resultadosForaDoTime = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    const escolhidos = new Set(valores)
+    const restantes = foraDoTime.filter((c) => !escolhidos.has(c.id))
+    const filtrados = termo ? restantes.filter((c) => c.nome.toLowerCase().includes(termo)) : restantes
+    return filtrados.slice(0, 5)
+  }, [busca, foraDoTime, valores])
+
+  const escolher = (c) => { onMudar([...valores, c.id]); setBusca('') }
+
+  const escolherForaDoTime = async (c) => {
+    setFixando(c.id)
+    escolher(c)
+    await onFixarNoServico(c.id)
+    setFixando(null)
+  }
 
   const placeholder = !diarioDoDia ? (servico?.company_id ? 'Buscar na empresa do serviço…' : 'Buscar colaborador…')
     : servico?.funcionarios_ids?.length ? 'Buscar no time do serviço, presente no dia…'
@@ -1937,14 +1983,33 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar }) {
             <button
               key={c.id} type="button" className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onMudar([...valores, c.id]); setBusca('') }}
+              onClick={() => escolher(c)}
             >
               {c.nome}
             </button>
           ))}
         </div>
       )}
-      {aberto && busca.trim() && resultados.length === 0 && <div className="t-caption">Ninguém com esse nome.</div>}
+      {aberto && busca.trim() && resultados.length === 0 && resultadosForaDoTime.length === 0 && (
+        <div className="t-caption">Ninguém com esse nome.</div>
+      )}
+      {aberto && resultadosForaDoTime.length > 0 && (
+        <div className="stack-1" style={{ marginTop: resultados.length > 0 ? 8 : 0 }}>
+          <div className="t-caption" style={{ color: 'var(--text-2)' }}>
+            Presentes hoje, fora do time deste serviço — escolher já adiciona ao time:
+          </div>
+          {resultadosForaDoTime.map((c) => (
+            <button
+              key={c.id} type="button" className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }}
+              disabled={fixando === c.id}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => escolherForaDoTime(c)}
+            >
+              <Icon name="mais_sinal" size={13} /> {fixando === c.id ? 'Adicionando…' : c.nome}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -2098,7 +2163,10 @@ function MarcadorSheet({ ponto, planta, servico, tipo, dados, onFechar }) {
         </Campo>
 
         <Campo label="Colaborador(es)" dica="Opcional — escolha mais de um se o serviço foi feito por uma equipe; o rendimento de cada um é dividido pela equipe.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <BuscarColaborador
+            dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds}
+            onFixarNoServico={(id) => adicionarAoTimeDoServico(dados, servico, id)}
+          />
           <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
@@ -2241,7 +2309,10 @@ function MarcadorMultiploSheet({ pontos, planta, servico, tipo, dados, onFechar,
         </Campo>
 
         <Campo label="Colaborador(es)" dica="Opcional — vale pra todas as marcações deste lote; o rendimento de cada um é dividido pela equipe, por elemento.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <BuscarColaborador
+            dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds}
+            onFixarNoServico={(id) => adicionarAoTimeDoServico(dados, servico, id)}
+          />
           <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
@@ -2519,7 +2590,10 @@ function NovoEventoSheet({ marcador, tipo, servico, dados, onFechar }) {
         </Campo>
 
         <Campo label="Colaborador(es)" dica="Opcional — escolha mais de um se o serviço foi feito por uma equipe; o rendimento de cada um é dividido pela equipe.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <BuscarColaborador
+            dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds}
+            onFixarNoServico={(id) => adicionarAoTimeDoServico(dados, servico, id)}
+          />
           <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
@@ -2605,7 +2679,10 @@ function EditarEventoSheet({ evento, marcador, tipo, servico, dados, onFechar })
         </Campo>
 
         <Campo label="Colaborador(es)" dica="Opcional — escolha mais de um se o serviço foi feito por uma equipe; o rendimento de cada um é dividido pela equipe.">
-          <BuscarColaborador dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds} />
+          <BuscarColaborador
+            dados={dados} diarioDoDia={diarioDoDia} servico={servico} valores={workerIds} onMudar={setWorkerIds}
+            onFixarNoServico={(id) => adicionarAoTimeDoServico(dados, servico, id)}
+          />
           <div style={{ marginTop: 8 }}><SeletorCorColaborador dados={dados} workerId={workerIds[0]} /></div>
         </Campo>
 
