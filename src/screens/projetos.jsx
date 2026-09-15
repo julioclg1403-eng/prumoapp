@@ -379,7 +379,15 @@ export default function Projetos({ goto, voltar, perfil }) {
               </div>
             )}
 
-            {editando.id && !travado && (
+            {/* Mudar o status (Resolver/Reprovar/Reabrir) fecha o chamado
+               — e isso continua liberado pra todo perfil com o módulo
+               Projetos, mesmo depois de publicado (o RPC que muda o
+               status não trava por papel, só checa o módulo). O que
+               fica travado pra quem não é admin é só editar os campos
+               (AbaDetalhes, mais abaixo) — Excluir também aparece pra
+               todos, mas o banco (RLS) recusa sozinho quem não é admin,
+               com um aviso explicando. */}
+            {editando.id && (
               <div className="row-flex" style={{ flexWrap: 'wrap' }}>
                 {editando.status === 'ativo' ? (
                   <>
