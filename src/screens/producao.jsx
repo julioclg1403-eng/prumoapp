@@ -354,17 +354,7 @@ function ServicoSheet({ dados, servico, onFechar }) {
           label="Tipo(s) de serviço"
           dica="Define a fórmula, as dimensões e os estágios de cada elemento (Cadastros → Catálogo de Serviços). Pode marcar mais de um — ex.: Escavação em m³ e em m, no mesmo serviço; ao marcar um elemento novo, você escolhe qual tipo usar."
         >
-          <div className="stack-1" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            {tiposAtivos.map((t) => (
-              <label
-                key={t.id} className="card-flat row-flex"
-                style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
-              >
-                <input type="checkbox" checked={tipoIds.includes(t.id)} onChange={() => alternarTipo(t.id)} />
-                <span className="grow">{t.nome}</span>
-              </label>
-            ))}
-          </div>
+          <SelecionarTipos tiposAtivos={tiposAtivos} valores={tipoIds} onMudar={setTipoIds} />
           {tiposAtivos.length === 0 && (
             <div className="t-caption" style={{ marginTop: 4 }}>
               Nenhum tipo cadastrado ainda — cadastre em Cadastros → Catálogo de Serviços.
@@ -443,6 +433,80 @@ function ServicoSheet({ dados, servico, onFechar }) {
         />
       )}
     </Sheet>
+  )
+}
+
+/* Multi-seleção de tipo de serviço, mas fechada por padrão — com
+   muitos tipos cadastrados, uma lista sempre aberta (ou em chips
+   lado a lado) polui o formulário. Clica pra abrir, busca, marca,
+   fecha; os já escolhidos ficam sempre visíveis como chips. */
+function SelecionarTipos({ tiposAtivos, valores, onMudar }) {
+  const [aberto, setAberto] = useState(false)
+  const [busca, setBusca] = useState('')
+
+  const alternar = (id) => {
+    onMudar(valores.includes(id) ? valores.filter((x) => x !== id) : [...valores, id])
+  }
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    if (!termo) return tiposAtivos
+    return tiposAtivos.filter((t) => t.nome.toLowerCase().includes(termo))
+  }, [tiposAtivos, busca])
+
+  return (
+    <div className="stack-1">
+      {valores.length > 0 && (
+        <div className="row-wrap" style={{ gap: 6 }}>
+          {valores.map((id) => {
+            const t = tiposAtivos.find((x) => x.id === id)
+            return (
+              <Chip key={id}>
+                {t?.nome || '—'}
+                <button
+                  onClick={() => alternar(id)} aria-label="Remover"
+                  style={{ border: 0, background: 'none', cursor: 'pointer', marginLeft: 4, padding: 0, display: 'inline-flex' }}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              </Chip>
+            )
+          })}
+        </div>
+      )}
+
+      {!aberto && (
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAberto(true)}>
+          <Icon name="mais_sinal" size={13} /> Adicionar tipo
+        </button>
+      )}
+
+      {aberto && (
+        <div className="card-flat stack-1">
+          <input
+            className="ipt" autoFocus value={busca} onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar tipo de serviço…"
+          />
+          <div className="stack-1" style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {filtrados.map((t) => (
+              <label
+                key={t.id} className="row-flex" style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}
+              >
+                <input type="checkbox" checked={valores.includes(t.id)} onChange={() => alternar(t.id)} />
+                <span className="grow">{t.nome}</span>
+              </label>
+            ))}
+            {filtrados.length === 0 && <div className="t-caption">Nenhum tipo com esse nome.</div>}
+          </div>
+          <button
+            type="button" className="btn btn-secondary btn-sm"
+            onClick={() => { setAberto(false); setBusca('') }}
+          >
+            Concluído
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
