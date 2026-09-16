@@ -38,6 +38,7 @@ const TIPOS_RELATORIO = [
   { valor: 'servico', rotulo: 'Por serviço/frente' },
   { valor: 'funcao', rotulo: 'Por função' },
   { valor: 'matriz', rotulo: 'Colaborador × serviço' },
+  { valor: 'alocacao', rotulo: 'Sugestão de alocação' },
   { valor: 'frequencia', rotulo: 'Frequência' },
   { valor: 'diario', rotulo: 'Dia a dia' },
 ]
@@ -315,6 +316,24 @@ function matrizColaboradorServico(dados, registros) {
   return { servicos, linhas }
 }
 
+/* Reaproveita a matriz acima, mas vira uma linha por colaborador em
+   vez de uma coluna por serviço — pensado pra decisão de "em qual
+   função alocar essa pessoa de vez", não pra ver o cruzamento inteiro.
+   Ordena pelo serviço com maior % (o "predominante"), e lista os
+   demais junto pra mostrar o quão dividida a pessoa andou. */
+function alocacaoPorColaborador(dados, registros) {
+  const { servicos, linhas } = matrizColaboradorServico(dados, registros)
+  return linhas
+    .map((l) => {
+      const naoZero = l.celulas
+        .map((c, i) => ({ servico: servicos[i], qtd: c.qtd, percentual: c.percentual }))
+        .filter((c) => c.qtd > 0)
+        .sort((a, b) => b.percentual - a.percentual)
+      return { nome: l.nome, total: l.total, principal: naoZero[0] || null, outros: naoZero.slice(1) }
+    })
+    .sort((a, b) => (b.principal?.percentual || 0) - (a.principal?.percentual || 0))
+}
+
 export default function AlmoxarifadoRefeicoes({ perfil }) {
   const dados = useDados()
   const hoje = hojeISO()
@@ -410,6 +429,10 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   )
   const matrizColabServico = useMemo(
     () => matrizColaboradorServico(dados, registrosDoRelatorio),
+    [dados, registrosDoRelatorio],
+  )
+  const alocacaoColaboradores = useMemo(
+    () => alocacaoPorColaborador(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
 
@@ -1199,6 +1222,19 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
                   colunas={['Nome', ...matrizColabServico.servicos, 'Total']}
                   linhas={matrizColabServico.linhas.map((l) => [
                     l.nome, ...l.celulas.map((c) => (c.qtd ? `${c.percentual}% (${c.qtd})` : '—')), l.total,
+                  ])}
+                />
+              </SecaoRelatorio>
+            )}
+            {tiposRelatorio.has('alocacao') && (
+              <SecaoRelatorio titulo="Sugestão de alocação — serviço/frente onde cada um mais comeu, pra decidir uma função só">
+                <TabelaRelatorio
+                  colunas={['Nome', 'Refeições', 'Serviço predominante', '%', 'Outros serviços']}
+                  linhas={alocacaoColaboradores.map((a) => [
+                    a.nome, a.total,
+                    a.principal ? a.principal.servico : '—',
+                    a.principal ? `${a.principal.percentual}%` : '—',
+                    a.outros.length > 0 ? a.outros.map((o) => `${o.servico} (${o.percentual}%)`).join(', ') : '—',
                   ])}
                 />
               </SecaoRelatorio>
