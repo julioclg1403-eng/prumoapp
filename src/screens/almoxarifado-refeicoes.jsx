@@ -296,7 +296,7 @@ function matrizColaboradorServico(dados, registros) {
       const p = pessoaDoLancamento(dados, r, workerId)
       const servico = p.servico || 'Sem serviço vinculado'
       servicosVistos.add(servico)
-      if (!porPessoa.has(workerId)) porPessoa.set(workerId, { nome: p.nome, porServico: new Map(), total: 0 })
+      if (!porPessoa.has(workerId)) porPessoa.set(workerId, { nome: p.nome, empresa: p.empresa, porServico: new Map(), total: 0 })
       const pessoa = porPessoa.get(workerId)
       pessoa.porServico.set(servico, (pessoa.porServico.get(servico) || 0) + 1)
       pessoa.total += 1
@@ -307,6 +307,7 @@ function matrizColaboradorServico(dados, registros) {
     .sort((a, b) => a.nome.localeCompare(b.nome))
     .map((p) => ({
       nome: p.nome,
+      empresa: p.empresa,
       total: p.total,
       celulas: servicos.map((s) => {
         const qtd = p.porServico.get(s) || 0
@@ -329,7 +330,7 @@ function alocacaoPorColaborador(dados, registros) {
         .map((c, i) => ({ servico: servicos[i], qtd: c.qtd, percentual: c.percentual }))
         .filter((c) => c.qtd > 0)
         .sort((a, b) => b.percentual - a.percentual)
-      return { nome: l.nome, total: l.total, principal: naoZero[0] || null, outros: naoZero.slice(1) }
+      return { nome: l.nome, empresa: l.empresa, total: l.total, principal: naoZero[0] || null, outros: naoZero.slice(1) }
     })
     .sort((a, b) => (b.principal?.percentual || 0) - (a.principal?.percentual || 0))
 }
@@ -352,6 +353,7 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
   const [relatorioInicio, setRelatorioInicio] = useState(() => `${hoje.slice(0, 7)}-01`)
   const [relatorioFim, setRelatorioFim] = useState(hoje)
   const [tiposRelatorio, setTiposRelatorio] = useState(() => new Set(TIPOS_RELATORIO.map((t) => t.valor)))
+  const [empresaAlocacao, setEmpresaAlocacao] = useState('')
   const [editandoPreco, setEditandoPreco] = useState(false)
   const [precoInput, setPrecoInput] = useState('')
   const [salvandoPreco, setSalvandoPreco] = useState(false)
@@ -431,9 +433,17 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
     () => matrizColaboradorServico(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
   )
-  const alocacaoColaboradores = useMemo(
+  const alocacaoTodasEmpresas = useMemo(
     () => alocacaoPorColaborador(dados, registrosDoRelatorio),
     [dados, registrosDoRelatorio],
+  )
+  const alocacaoColaboradores = useMemo(
+    () => (empresaAlocacao ? alocacaoTodasEmpresas.filter((a) => a.empresa === empresaAlocacao) : alocacaoTodasEmpresas),
+    [alocacaoTodasEmpresas, empresaAlocacao],
+  )
+  const empresasNaAlocacao = useMemo(
+    () => [...new Set(alocacaoTodasEmpresas.map((a) => a.empresa))].sort((a, b) => a.localeCompare(b)),
+    [alocacaoTodasEmpresas],
   )
 
   /* Top 8 de cada — o resto já está nas listas completas do
@@ -1228,6 +1238,13 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             )}
             {tiposRelatorio.has('alocacao') && (
               <SecaoRelatorio titulo="Sugestão de alocação — serviço/frente onde cada um mais comeu, pra decidir uma função só">
+                <div className="row-flex" style={{ gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                  <span className="t-caption" style={{ flex: 'none' }}>Empresa:</span>
+                  <select className="sel" value={empresaAlocacao} onChange={(e) => setEmpresaAlocacao(e.target.value)}>
+                    <option value="">Todas</option>
+                    {empresasNaAlocacao.map((e) => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                </div>
                 <TabelaRelatorio
                   colunas={['Nome', 'Refeições', 'Serviço predominante', '%', 'Outros serviços']}
                   linhas={alocacaoColaboradores.map((a) => [
