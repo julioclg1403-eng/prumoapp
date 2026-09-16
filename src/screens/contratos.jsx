@@ -57,7 +57,21 @@ function agruparContratosComItens(itens) {
     }
     mapa.get(i.cod_contrato).itens.push(i)
   }
-  for (const c of mapa.values()) c.itens.sort((a, b) => a.item_num - b.item_num)
+  /* company_id nasce do primeiro item só como palpite — se os itens
+     do MESMO contrato discordarem entre si (aconteceu de um item novo
+     entrar sem o vínculo que os outros já tinham), isso escondia o
+     problema: a tela mostrava "vinculado" só porque o primeiro item
+     tinha empresa, enquanto os outros (ex.: o item de SPDA) ficavam
+     invisíveis pra quem busca por item de contrato filtrando por
+     empresa. Marca como divergente e limpa o company_id do grupo pra
+     o fluxo de "vincular empresa" reaparecer — vincular de novo atinge
+     TODOS os itens do contrato e resolve a divergência de uma vez. */
+  for (const c of mapa.values()) {
+    c.itens.sort((a, b) => a.item_num - b.item_num)
+    const idsUnicos = new Set(c.itens.map((i) => i.company_id || null))
+    c.empresaDivergente = idsUnicos.size > 1
+    if (c.empresaDivergente) c.company_id = null
+  }
   return [...mapa.values()].sort((a, b) => Number(b.cod_contrato) - Number(a.cod_contrato))
 }
 
@@ -316,6 +330,11 @@ function AbaDados({ itens, dados, podeEditar }) {
                         <Chip tom={TOM_STATUS[c.status_contrato] || ''}>{c.status_contrato || '—'}</Chip>
                         {c.destino && <Chip tom="info">{ROTULO_DESTINO[c.destino]}</Chip>}
                         {c.company_id && <Chip tom="success">{dados.nomeDe(dados.empresas, c.company_id)}</Chip>}
+                        {c.empresaDivergente && (
+                          <span title="Nem todo item deste contrato tem a mesma empresa vinculada — alguns podem ficar invisíveis na busca de item de contrato. Vincule de novo pra corrigir todos de uma vez.">
+                            <Chip tom="danger">Empresa incompleta</Chip>
+                          </span>
+                        )}
                       </div>
                       <div className="t-caption" style={{ marginTop: 2 }}>{c.fornecedor || 'Fornecedor não informado'}</div>
                       <div className="t-caption" style={{ color: 'var(--text-2)' }}>{c.objeto_contrato}</div>
