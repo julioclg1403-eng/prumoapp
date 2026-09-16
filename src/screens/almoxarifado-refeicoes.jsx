@@ -1148,32 +1148,48 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             {tiposRelatorio.has('colaborador') && (
               <SecaoRelatorio titulo={`Por colaborador (${resumoPeriodo.totalVinculado} vinculado(s))`}>
                 <TabelaRelatorio
-                  colunas={['Nome', 'Refeições', '%']}
-                  linhas={resumoPeriodo.porColaborador.map((c) => [c.nome, c.total, `${c.percentual}%`])}
+                  colunas={precoRefeicao > 0 ? ['Nome', 'Refeições', '%', 'Valor'] : ['Nome', 'Refeições', '%']}
+                  linhas={resumoPeriodo.porColaborador.map((c) => (
+                    precoRefeicao > 0
+                      ? [c.nome, c.total, `${c.percentual}%`, formatarDinheiro(c.total * precoRefeicao)]
+                      : [c.nome, c.total, `${c.percentual}%`]
+                  ))}
                 />
               </SecaoRelatorio>
             )}
             {tiposRelatorio.has('empresa') && (
               <SecaoRelatorio titulo="Por empresa">
                 <TabelaRelatorio
-                  colunas={['Empresa', 'Refeições', '%']}
-                  linhas={resumoPeriodo.porEmpresa.map((e) => [e.nome, e.total, `${e.percentual}%`])}
+                  colunas={precoRefeicao > 0 ? ['Empresa', 'Refeições', '%', 'Valor'] : ['Empresa', 'Refeições', '%']}
+                  linhas={resumoPeriodo.porEmpresa.map((e) => (
+                    precoRefeicao > 0
+                      ? [e.nome, e.total, `${e.percentual}%`, formatarDinheiro(e.total * precoRefeicao)]
+                      : [e.nome, e.total, `${e.percentual}%`]
+                  ))}
                 />
               </SecaoRelatorio>
             )}
             {tiposRelatorio.has('servico') && (
               <SecaoRelatorio titulo="Por serviço / frente">
                 <TabelaRelatorio
-                  colunas={['Serviço / Frente', 'Refeições', '%']}
-                  linhas={servicosDoPeriodo.map((s) => [s.servico, s.total, `${s.percentual}%`])}
+                  colunas={precoRefeicao > 0 ? ['Serviço / Frente', 'Refeições', '%', 'Valor'] : ['Serviço / Frente', 'Refeições', '%']}
+                  linhas={servicosDoPeriodo.map((s) => (
+                    precoRefeicao > 0
+                      ? [s.servico, s.total, `${s.percentual}%`, formatarDinheiro(s.total * precoRefeicao)]
+                      : [s.servico, s.total, `${s.percentual}%`]
+                  ))}
                 />
               </SecaoRelatorio>
             )}
             {tiposRelatorio.has('funcao') && (
               <SecaoRelatorio titulo="Por função">
                 <TabelaRelatorio
-                  colunas={['Função', 'Refeições', '%']}
-                  linhas={funcoesDoPeriodo.map((f) => [f.funcao, f.total, `${f.percentual}%`])}
+                  colunas={precoRefeicao > 0 ? ['Função', 'Refeições', '%', 'Valor'] : ['Função', 'Refeições', '%']}
+                  linhas={funcoesDoPeriodo.map((f) => (
+                    precoRefeicao > 0
+                      ? [f.funcao, f.total, `${f.percentual}%`, formatarDinheiro(f.total * precoRefeicao)]
+                      : [f.funcao, f.total, `${f.percentual}%`]
+                  ))}
                 />
               </SecaoRelatorio>
             )}
