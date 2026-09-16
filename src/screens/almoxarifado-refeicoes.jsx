@@ -684,6 +684,15 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
           </div>
         </div>
 
+        {tiposRelatorio.has('alocacao') && (
+          <Campo label="Empresa (filtro da Sugestão de alocação)">
+            <select className="sel" value={empresaAlocacao} onChange={(e) => setEmpresaAlocacao(e.target.value)}>
+              <option value="">Todas</option>
+              {empresasNaAlocacao.map((e) => <option key={e} value={e}>{e}</option>)}
+            </select>
+          </Campo>
+        )}
+
         <button
           className="btn btn-primary btn-block"
           onClick={() => window.print()}
@@ -1238,13 +1247,9 @@ export default function AlmoxarifadoRefeicoes({ perfil }) {
             )}
             {tiposRelatorio.has('alocacao') && (
               <SecaoRelatorio titulo="Sugestão de alocação — serviço/frente onde cada um mais comeu, pra decidir uma função só">
-                <div className="row-flex" style={{ gap: 6, alignItems: 'center', marginBottom: 8 }}>
-                  <span className="t-caption" style={{ flex: 'none' }}>Empresa:</span>
-                  <select className="sel" value={empresaAlocacao} onChange={(e) => setEmpresaAlocacao(e.target.value)}>
-                    <option value="">Todas</option>
-                    {empresasNaAlocacao.map((e) => <option key={e} value={e}>{e}</option>)}
-                  </select>
-                </div>
+                {empresaAlocacao && (
+                  <div style={{ fontSize: 12, color: '#71717A', marginBottom: 6 }}>Empresa: {empresaAlocacao}</div>
+                )}
                 <TabelaRelatorio
                   colunas={['Nome', 'Refeições', 'Serviço predominante', '%', 'Outros serviços']}
                   linhas={alocacaoColaboradores.map((a) => [
