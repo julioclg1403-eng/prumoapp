@@ -276,8 +276,17 @@ html, body, #root {
 
 @media print {
   @page { margin: 14mm; }
-  body * { visibility: hidden; }
-  .relatorio, .relatorio * { visibility: visible; }
+  /* visibility:hidden por si só não tira a altura do que fica
+     escondido (menu, dashboard, cards da tela inteira) — o documento
+     continua "alto" como se tudo aquilo ainda estivesse visível, e
+     isso empurrava o relatório (position:absolute, mas a paginação
+     do Chrome ainda conta essa altura fantasma) pra depois de uma
+     primeira página em branco. Zera a altura de tudo que não é o
+     relatório pra ele nascer mesmo na página 1, sem lacuna. */
+  body * { visibility: hidden; height: 0 !important; min-height: 0 !important; max-height: 0 !important; overflow: hidden !important; }
+  .relatorio, .relatorio * {
+    visibility: visible; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important;
+  }
   .relatorio {
     display: block; position: absolute; top: 0; left: 0; width: 100%;
     color: #18181B; font-family: var(--font);
