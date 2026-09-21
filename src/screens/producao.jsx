@@ -29,7 +29,7 @@ import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import {
-  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
+  Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 import { RankingBarras, GraficoColunas, CurvaProducao, CurvaMultipla } from '../components/charts'
@@ -2881,7 +2881,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
   /* Em qual medição o evento cai: por padrão a data em que foi
      executado, mas dá pra "deixar de fora" e empurrar pra próxima
      (data_medicao) sem mexer na data real de execução. */
-  const eventosDoPeriodo = useMemo(
+  const eventosDoPeriodoTodos = useMemo(
     () => filtrarPorPeriodo(
       eventosComContrato, periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
@@ -2889,6 +2889,13 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     ),
     [eventosComContrato, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
   )
+  /* Já medido = entrou num fechamento (fechamento_id). Serve pra
+     avisar que o período tem itens medidos e pra "fechar" só o que
+     ainda falta, sem contar duas vezes. */
+  const eventosMedidos = useMemo(() => eventosDoPeriodoTodos.filter((e) => e.fechamento_id), [eventosDoPeriodoTodos])
+  const eventosPendentes = useMemo(() => eventosDoPeriodoTodos.filter((e) => !e.fechamento_id), [eventosDoPeriodoTodos])
+  const [soPendentes, setSoPendentes] = useState(false)
+  const eventosDoPeriodo = soPendentes ? eventosPendentes : eventosDoPeriodoTodos
 
   /* Data que cai na medição seguinte ao período que está na tela —
      null em "Tudo" (não existe "próxima" quando não há recorte). */
@@ -2902,13 +2909,13 @@ function AbaMedicao({ servico, dados, podeEditar }) {
   /* Eventos que foram executados neste período mas ficaram de fora
      desta medição — mostrados à parte pra dar pra desfazer. */
   const eventosDeixadosDeFora = useMemo(() => {
-    const dentro = new Set(eventosDoPeriodo.map((e) => e.id))
+    const dentro = new Set(eventosDoPeriodoTodos.map((e) => e.id))
     return filtrarPorPeriodo(
-      eventosComContrato.filter((e) => e.data_medicao && !dentro.has(e.id)), periodoModo,
+      eventosComContrato.filter((e) => e.data_medicao && !e.fechamento_id && !dentro.has(e.id)), periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
       (e) => e.data_execucao,
     )
-  }, [eventosComContrato, eventosDoPeriodo, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
+  }, [eventosComContrato, eventosDoPeriodoTodos, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
   const [ajustandoMedicao, setAjustandoMedicao] = useState(false)
   const [itemExpandido, setItemExpandido] = useState(null)
 
@@ -2950,6 +2957,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       atual.quantidade += Number(ev.quantidade) || 0
       atual.elementos.push({
         eventoId: ev.id,
+        fechamentoId: ev.fechamento_id || null,
         adiado: Boolean(ev.data_medicao),
         elemento: marcador?.elemento || '—',
         data: ev.data_execucao,
@@ -2993,7 +3001,11 @@ function AbaMedicao({ servico, dados, podeEditar }) {
           .map((c) => ({ ...c, colaborador: dados.colaboradorPorId(c.workerId), elementos: [...c.elementos].sort() }))
           .filter((c) => c.colaborador)
           .sort((a, b) => b.quantidade - a.quantidade)
-        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais, colaboradores }
+        const todosElementos = locais.flatMap((l) => l.elementos)
+        return {
+          item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais, colaboradores,
+          qtdEventos: todosElementos.length, qtdMedidos: todosElementos.filter((el) => el.fechamentoId).length,
+        }
       })
       .filter(Boolean)
       .sort((a, b) => b.valorPeriodo - a.valorPeriodo)
@@ -3066,15 +3078,44 @@ function AbaMedicao({ servico, dados, podeEditar }) {
 
   const rotuloPeriodoAtual = rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })
 
-  /* Fechamentos SÓ deste serviço, mais recente primeiro — é um
-     carimbo/histórico (decisão do Julio), não trava nada: dá pra
-     fechar de novo o mesmo período, ou excluir um fechamento feito
-     por engano. */
+  /* Fechamentos SÓ deste serviço, mais recente primeiro. Fechar carimba
+     os eventos medidos (fechamento_id): dá pra editar depois (decisão
+     do Julio), mas a tela avisa o que já foi medido e só fecha o que
+     ainda falta. Excluir o fechamento devolve os eventos pra "a medir". */
   const fechamentosDoServico = useMemo(
     () => (dados.medicaoFechamentos || []).filter((f) => f.service_id === servico.id)
       .sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1)),
     [dados.medicaoFechamentos, servico.id],
   )
+
+  const itemContratoPorId = useMemo(() => new Map((dados.contratos || []).map((i) => [i.id, i])), [dados.contratos])
+  const somarPorItem = (eventos) => {
+    const mapa = new Map()
+    for (const ev of eventos) mapa.set(ev.contract_item_id, (mapa.get(ev.contract_item_id) || 0) + (Number(ev.quantidade) || 0))
+    return [...mapa.entries()]
+      .map(([id, quantidade]) => {
+        const item = itemContratoPorId.get(id)
+        return item ? { item, quantidade, valor: quantidade * Number(item.preco_item || 0) } : null
+      })
+      .filter(Boolean)
+  }
+  const linhasPendentes = useMemo(() => somarPorItem(eventosPendentes), [eventosPendentes, itemContratoPorId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const valorAMedir = linhasPendentes.reduce((s, l) => s + l.valor, 0)
+  const valorJaMedido = useMemo(
+    () => somarPorItem(eventosMedidos).reduce((s, l) => s + l.valor, 0),
+    [eventosMedidos, itemContratoPorId], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  /* Fechamentos que já contêm eventos deste período — pra dizer
+     "medido em ..." no aviso. */
+  const fechamentosNoPeriodo = useMemo(() => {
+    const ids = new Set(eventosMedidos.map((e) => e.fechamento_id))
+    return fechamentosDoServico.filter((f) => ids.has(f.id))
+  }, [eventosMedidos, fechamentosDoServico])
+  /* O desconto (refeição/EPI) do período só entra uma vez: se já existe
+     fechamento deste mesmo período, o desconto já foi aplicado nele. */
+  const descontoJaAplicado = fechamentosDoServico.some((f) => f.rotulo_periodo === rotuloPeriodoAtual)
+  const descontoDesteFechamento = descontoJaAplicado ? 0 : totalDesconto
+  const liquidoDesteFechamento = valorAMedir - descontoDesteFechamento
 
   const confirmarFechamento = async () => {
     setSalvandoFechamento(true)
@@ -3082,10 +3123,11 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       service_id: servico.id, periodo_modo: periodoModo,
       periodo: { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
       rotulo_periodo: rotuloPeriodoAtual,
-      valor_medido: totalValorPeriodo, valor_desconto: totalDesconto, valor_liquido: valorLiquidoPeriodo,
-      snapshot: porItem.map(({ item, quantidadePeriodo, valorPeriodo }) => ({
+      valor_medido: valorAMedir, valor_desconto: descontoDesteFechamento, valor_liquido: liquidoDesteFechamento,
+      evento_ids: eventosPendentes.map((e) => e.id),
+      snapshot: linhasPendentes.map(({ item, quantidade, valor }) => ({
         descricao: item.descricao_item, cod_contrato: item.cod_contrato,
-        quantidade: quantidadePeriodo, unidade: item.unidade, valor: valorPeriodo,
+        quantidade, unidade: item.unidade, valor,
       })),
     })
     setSalvandoFechamento(false)
@@ -3117,12 +3159,36 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         )}
       </div>
 
+      {eventosMedidos.length > 0 && (
+        <div className="card-flat stack-1" style={{ borderLeft: '3px solid var(--info)', padding: 10 }}>
+          <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
+            <Icon name="alerta" size={15} style={{ color: 'var(--info)' }} />
+            <span className="t-strong" style={{ fontSize: 13 }}>
+              {eventosPendentes.length === 0
+                ? 'Tudo deste período já foi medido'
+                : 'Este período já tem itens medidos — atenção pra não medir duas vezes'}
+            </span>
+          </div>
+          <div className="t-caption">
+            {plural(eventosMedidos.length, 'evento já medido', 'eventos já medidos')} ({formatarDinheiro(valorJaMedido)})
+            {' '}em {fechamentosNoPeriodo.map((f) => `«${f.rotulo_periodo}» (${formatarData(f.criado_em.slice(0, 10))})`).join(', ')}.
+            {eventosPendentes.length > 0
+              ? ` Faltam ${plural(eventosPendentes.length, 'evento', 'eventos')} a medir (${formatarDinheiro(valorAMedir)}).`
+              : ' Nada mais a medir aqui — o que for lançado depois aparece como "a medir".'}
+          </div>
+          <div>
+            <ChipToggle ativo={soPendentes} onClick={() => setSoPendentes((v) => !v)}>Mostrar só o que falta medir</ChipToggle>
+          </div>
+        </div>
+      )}
+
       {porItem.length > 0 && (
         <div className="row-flex" style={{ gap: 8, flexWrap: 'wrap' }}>
           <BotaoRelatorio rotulo="Boletim de medição" />
           {podeEditar && (
-            <button className="btn btn-secondary btn-sm" onClick={() => setFechando(true)}>
-              <Icon name="check" size={14} /> Fechar medição deste período
+            <button className="btn btn-secondary btn-sm" onClick={() => setFechando(true)} disabled={eventosPendentes.length === 0}>
+              <Icon name="check" size={14} />
+              {eventosPendentes.length === 0 ? 'Período já medido' : eventosMedidos.length > 0 ? 'Fechar o que falta medir' : 'Fechar medição deste período'}
             </button>
           )}
         </div>
@@ -3162,14 +3228,21 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         </div>
       ) : (
         <div className="stack-1">
-          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => {
+          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais, qtdEventos, qtdMedidos }) => {
             const expandido = itemExpandido === item.id
             return (
-              <div key={item.id} className="card-flat" style={{ padding: 10 }}>
+              <div key={item.id} className="card-flat" style={{ padding: 10, borderLeft: qtdMedidos > 0 ? '3px solid var(--info)' : undefined }}>
                 <div className="row-between" style={{ alignItems: 'flex-start' }}>
                   <div style={{ maxWidth: '65%' }}>
                     <div className="t-strong" style={{ fontSize: 14 }}>{item.descricao_item}</div>
                     <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
+                    {qtdMedidos > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <Chip tom={qtdMedidos === qtdEventos ? 'success' : 'info'}>
+                          {qtdMedidos === qtdEventos ? 'Já medido' : `Parcialmente medido (${qtdMedidos}/${qtdEventos})`}
+                        </Chip>
+                      </div>
+                    )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="t-strong" style={{ fontSize: 14 }}>{formatarDinheiro(valorPeriodo)}</div>
@@ -3179,13 +3252,13 @@ function AbaMedicao({ servico, dados, podeEditar }) {
                 <div className="t-caption" style={{ marginTop: 6, color: saldo < 0 ? 'var(--danger)' : 'var(--text-2)' }}>
                   Saldo do contrato: {saldo.toLocaleString('pt-BR')} {item.unidade}{saldo < 0 ? ' (estourado)' : ''}
                 </div>
-                {podeEditar && dataProximaMedicao && (
+                {((podeEditar && dataProximaMedicao) || qtdMedidos > 0) && (
                   <button
                     className="btn btn-ghost btn-sm" style={{ marginTop: 6, paddingLeft: 0 }}
                     onClick={() => setItemExpandido(expandido ? null : item.id)}
                   >
                     <Icon name="avancar" size={12} style={{ transform: `rotate(${expandido ? 90 : 0}deg)`, transition: 'transform .15s' }} />
-                    {expandido ? 'Fechar elementos' : 'Ver elementos / deixar de fora da medição'}
+                    {expandido ? 'Fechar elementos' : (podeEditar && dataProximaMedicao ? 'Ver elementos / deixar de fora da medição' : 'Ver elementos')}
                   </button>
                 )}
                 {expandido && (
@@ -3194,28 +3267,37 @@ function AbaMedicao({ servico, dados, podeEditar }) {
                       <div key={l.nome} className="stack-1" style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
                         <div className="row-between" style={{ alignItems: 'center' }}>
                           <div className="t-strong" style={{ fontSize: 13 }}>{l.nome}</div>
-                          <button
-                            className="btn btn-secondary btn-sm" disabled={ajustandoMedicao}
-                            onClick={() => deixarDeFora(l.elementos.map((el) => el.eventoId))}
-                          >
-                            Deixar os {l.elementos.length} de fora
-                          </button>
-                        </div>
-                        {l.elementos.map((el) => (
-                          <div key={el.eventoId} className="row-between" style={{ alignItems: 'center', gap: 8 }}>
-                            <div style={{ minWidth: 0 }}>
-                              <span className="t-strong" style={{ fontSize: 13 }}>{el.elemento}</span>
-                              <span className="t-caption"> · {formatarData(el.data)} · {el.quantidade.toLocaleString('pt-BR')} {item.unidade}</span>
-                              {el.adiado && <> <Chip tom="info">veio da medição anterior</Chip></>}
-                            </div>
+                          {podeEditar && dataProximaMedicao && l.elementos.filter((el) => !el.fechamentoId).length > 1 && (
                             <button
-                              className="btn btn-ghost btn-sm" style={{ flex: 'none', color: 'var(--danger)' }} disabled={ajustandoMedicao}
-                              onClick={() => deixarDeFora([el.eventoId])}
+                              className="btn btn-secondary btn-sm" disabled={ajustandoMedicao}
+                              onClick={() => deixarDeFora(l.elementos.filter((el) => !el.fechamentoId).map((el) => el.eventoId))}
                             >
-                              Deixar de fora
+                              Deixar os {l.elementos.filter((el) => !el.fechamentoId).length} de fora
                             </button>
-                          </div>
-                        ))}
+                          )}
+                        </div>
+                        {l.elementos.map((el) => {
+                          const fechamento = el.fechamentoId ? fechamentosDoServico.find((f) => f.id === el.fechamentoId) : null
+                          return (
+                            <div key={el.eventoId} className="row-between" style={{ alignItems: 'center', gap: 8 }}>
+                              <div style={{ minWidth: 0 }}>
+                                <span className="t-strong" style={{ fontSize: 13 }}>{el.elemento}</span>
+                                <span className="t-caption"> · {formatarData(el.data)} · {el.quantidade.toLocaleString('pt-BR')} {item.unidade}</span>
+                                {el.adiado && <> <Chip tom="info">veio da medição anterior</Chip></>}
+                              </div>
+                              {el.fechamentoId ? (
+                                <Chip tom="success">Medido{fechamento ? ` em ${formatarData(fechamento.criado_em.slice(0, 10))}` : ''}</Chip>
+                              ) : podeEditar && dataProximaMedicao && (
+                                <button
+                                  className="btn btn-ghost btn-sm" style={{ flex: 'none', color: 'var(--danger)' }} disabled={ajustandoMedicao}
+                                  onClick={() => deixarDeFora([el.eventoId])}
+                                >
+                                  Deixar de fora
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     ))}
                   </div>
@@ -3354,7 +3436,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       <Confirmar
         aberto={fechando}
         titulo="Fechar a medição deste período?"
-        texto={`${rotuloPeriodoAtual} — valor medido ${formatarDinheiro(totalValorPeriodo)}${totalDesconto > 0 ? ` − ${formatarDinheiro(totalDesconto)} de desconto` : ''} = líquido ${formatarDinheiro(valorLiquidoPeriodo)}. Só registra um carimbo no histórico — não trava nem impede editar os eventos depois.`}
+        texto={`${rotuloPeriodoAtual} — ${plural(eventosPendentes.length, 'evento', 'eventos')} a medir: ${formatarDinheiro(valorAMedir)}${descontoDesteFechamento > 0 ? ` − ${formatarDinheiro(descontoDesteFechamento)} de desconto` : ''} = líquido ${formatarDinheiro(liquidoDesteFechamento)}.${eventosMedidos.length > 0 ? ` Os ${eventosMedidos.length} já medidos antes ficam de fora.` : ''} Esses eventos passam a aparecer como "já medidos" e não entram em outro fechamento; excluir o fechamento no histórico devolve eles pra "a medir".`}
         rotuloOk={salvandoFechamento ? 'Salvando…' : 'Fechar medição'}
         onOk={confirmarFechamento}
         onCancelar={() => setFechando(false)}
@@ -3363,7 +3445,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       <Confirmar
         aberto={Boolean(excluindoFechamento)}
         titulo="Excluir este fechamento?"
-        texto={excluindoFechamento ? `«${excluindoFechamento.rotulo_periodo}» sai do histórico. Isso não mexe nos eventos de produção, só no registro do fechamento.` : ''}
+        texto={excluindoFechamento ? `«${excluindoFechamento.rotulo_periodo}» sai do histórico e os eventos que estavam nele voltam a aparecer como "a medir". Não apaga nenhum evento de produção.` : ''}
         perigo
         onOk={async () => { const f = excluindoFechamento; setExcluindoFechamento(null); if (f) await dados.excluirFechamentoMedicao(f.id) }}
         onCancelar={() => setExcluindoFechamento(null)}

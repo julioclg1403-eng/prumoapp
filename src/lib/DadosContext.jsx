@@ -3812,12 +3812,11 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
-  /* Fechar medição: só um carimbo/histórico (decisão explícita do
-     Julio — não trava nada, não impede editar/excluir eventos depois
-     do fechamento). Guarda um snapshot do que foi reportado naquele
-     boletim (itens, valores, desconto, líquido) pra ficar registrado
-     o que foi oficialmente medido daquele período, mesmo que os
-     dados de produção mudem depois. */
+  /* Fechar medição: guarda um snapshot do que foi reportado naquele
+     boletim (itens, valores, desconto, líquido) e carimba os eventos
+     medidos (fechamento_id). Continua dando pra editar/excluir eventos
+     (decisão do Julio), mas a tela sinaliza o que já foi medido e não
+     deixa medir/adiar o mesmo evento duas vezes. */
   const fecharMedicao = useCallback(
     async (payload) => {
       const { organization_id, worksite_id } = escopo()
@@ -3832,7 +3831,22 @@ export function DadosProvider({ perfil, children }) {
         'fechar a medição',
       )
       if (!salvo) return null
-      setTudo((t) => t && ({ ...t, medicaoFechamentos: [salvo, ...t.medicaoFechamentos] }))
+
+      /* Carimba os eventos que entraram neste fechamento — é o que
+         permite a tela avisar "esse período já tem itens medidos" e
+         impedir que o mesmo evento seja medido (ou adiado) de novo. */
+      const eventoIds = payload.evento_ids || []
+      if (eventoIds.length > 0) {
+        const r = await supabase.from('production_marker_events')
+          .update({ fechamento_id: salvo.id }).in('id', eventoIds).select('id')
+        if (r.error) checar(r, 'marcar os eventos como medidos')
+      }
+      const marcados = new Set(eventoIds)
+      setTudo((t) => t && ({
+        ...t,
+        medicaoFechamentos: [salvo, ...t.medicaoFechamentos],
+        eventosProducao: t.eventosProducao.map((e) => (marcados.has(e.id) ? { ...e, fechamento_id: salvo.id } : e)),
+      }))
       return salvo
     },
     [escopo, perfil.id, checar],
@@ -3842,7 +3856,11 @@ export function DadosProvider({ perfil, children }) {
     async (id) => {
       const r = await supabase.from('production_measurement_closures').delete().eq('id', id)
       if (r.error) { checar(r, 'excluir o fechamento da medição'); return }
-      setTudo((t) => t && ({ ...t, medicaoFechamentos: t.medicaoFechamentos.filter((f) => f.id !== id) }))
+      setTudo((t) => t && ({
+        ...t,
+        medicaoFechamentos: t.medicaoFechamentos.filter((f) => f.id !== id),
+        eventosProducao: t.eventosProducao.map((e) => (e.fechamento_id === id ? { ...e, fechamento_id: null } : e)),
+      }))
     },
     [checar],
   )
@@ -3910,7 +3928,7 @@ export function DadosProvider({ perfil, children }) {
     async (eventoIds, dataMedicao) => {
       if (!eventoIds?.length) return true
       const r = await supabase.from('production_marker_events')
-        .update({ data_medicao: dataMedicao || null }).in('id', eventoIds).select('id, data_medicao')
+        .update({ data_medicao: dataMedicao || null }).in('id', eventoIds).is('fechamento_id', null).select('id, data_medicao')
       if (r.error) { checar(r, 'ajustar a medição desses eventos'); return false }
       const porId = new Map((r.data || []).map((e) => [e.id, e.data_medicao]))
       setTudo((t) => t && ({
