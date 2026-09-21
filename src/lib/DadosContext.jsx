@@ -3901,6 +3901,27 @@ export function DadosProvider({ perfil, children }) {
     [escopo, checar, tudo, salvarEquipeDoEvento],
   )
 
+  /* Decide em qual medição o evento entra sem mexer na data em que foi
+     executado (essa continua valendo pro Rendimento, diário etc.):
+     `dataMedicao` = uma data dentro da medição desejada, ou null pra
+     voltar a valer a data de execução. Aceita vários de uma vez
+     ("deixar de fora" todos os elementos de um local). */
+  const definirDataMedicaoEventos = useCallback(
+    async (eventoIds, dataMedicao) => {
+      if (!eventoIds?.length) return true
+      const r = await supabase.from('production_marker_events')
+        .update({ data_medicao: dataMedicao || null }).in('id', eventoIds).select('id, data_medicao')
+      if (r.error) { checar(r, 'ajustar a medição desses eventos'); return false }
+      const porId = new Map((r.data || []).map((e) => [e.id, e.data_medicao]))
+      setTudo((t) => t && ({
+        ...t,
+        eventosProducao: t.eventosProducao.map((e) => (porId.has(e.id) ? { ...e, data_medicao: porId.get(e.id) } : e)),
+      }))
+      return true
+    },
+    [checar],
+  )
+
   /* Corrige o pino já marcado (nome, dimensões) — diferente de um
      "novo evento", que muda o estágio. Liberado pro campo também: quem
      marcou errado em obra é quem melhor sabe corrigir. */
@@ -4110,7 +4131,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador, definirDataMedicaoEventos,
       fecharMedicao, excluirFechamentoMedicao,
       editarGeometriaMarcador,
       definirCorColaborador,
@@ -4154,7 +4175,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador, definirDataMedicaoEventos,
       fecharMedicao, excluirFechamentoMedicao,
       editarGeometriaMarcador,
       definirCorColaborador,

@@ -24,7 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { hojeISO, formatarData, formatarDataCurta, formatarDataHora, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento, custoMedioEpiComFallback } from '../lib/dominio'
+import { hojeISO, formatarData, formatarDataCurta, formatarDataHora, formatarDinheiro, diarioDaData, filtrarPorPeriodo, rotuloPeriodo, plural, equipeDoEvento, custoMedioEpiComFallback, somarDias, somarMeses } from '../lib/dominio'
 import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
@@ -2878,14 +2878,51 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     () => (dados.eventosProducao || []).filter((e) => e.contract_item_id && marcadoresValidos.has(e.marker_id)),
     [dados.eventosProducao, marcadoresValidos],
   )
+  /* Em qual medição o evento cai: por padrão a data em que foi
+     executado, mas dá pra "deixar de fora" e empurrar pra próxima
+     (data_medicao) sem mexer na data real de execução. */
   const eventosDoPeriodo = useMemo(
     () => filtrarPorPeriodo(
       eventosComContrato, periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
-      (e) => e.data_execucao,
+      (e) => e.data_medicao || e.data_execucao,
     ),
     [eventosComContrato, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
   )
+
+  /* Data que cai na medição seguinte ao período que está na tela —
+     null em "Tudo" (não existe "próxima" quando não há recorte). */
+  const dataProximaMedicao = useMemo(() => {
+    if (periodoModo === 'dia') return somarDias(periodoDia, 1)
+    if (periodoModo === 'mes') return `${somarMeses(periodoMes, 1)}-01`
+    if (periodoModo === 'periodo') return somarDias(periodoInicio <= periodoFim ? periodoFim : periodoInicio, 1)
+    return null
+  }, [periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
+
+  /* Eventos que foram executados neste período mas ficaram de fora
+     desta medição — mostrados à parte pra dar pra desfazer. */
+  const eventosDeixadosDeFora = useMemo(() => {
+    const dentro = new Set(eventosDoPeriodo.map((e) => e.id))
+    return filtrarPorPeriodo(
+      eventosComContrato.filter((e) => e.data_medicao && !dentro.has(e.id)), periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (e) => e.data_execucao,
+    )
+  }, [eventosComContrato, eventosDoPeriodo, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
+  const [ajustandoMedicao, setAjustandoMedicao] = useState(false)
+  const [itemExpandido, setItemExpandido] = useState(null)
+
+  const deixarDeFora = async (ids) => {
+    if (!dataProximaMedicao) return
+    setAjustandoMedicao(true)
+    await dados.definirDataMedicaoEventos(ids, dataProximaMedicao)
+    setAjustandoMedicao(false)
+  }
+  const trazerDeVolta = async (ids) => {
+    setAjustandoMedicao(true)
+    await dados.definirDataMedicaoEventos(ids, null)
+    setAjustandoMedicao(false)
+  }
 
   /* Pra rastrear "em quais locais" cada item foi medido — o boletim
      completo precisa disso, não só o total por item de contrato. */
@@ -2912,6 +2949,8 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       const atual = locais.get(chaveLocal) || { nome: planta?.nome || 'Local não identificado', quantidade: 0, elementos: [] }
       atual.quantidade += Number(ev.quantidade) || 0
       atual.elementos.push({
+        eventoId: ev.id,
+        adiado: Boolean(ev.data_medicao),
         elemento: marcador?.elemento || '—',
         data: ev.data_execucao,
         quantidade: Number(ev.quantidade) || 0,
@@ -3123,24 +3162,97 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         </div>
       ) : (
         <div className="stack-1">
-          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo }) => (
-            <div key={item.id} className="card-flat" style={{ padding: 10 }}>
-              <div className="row-between" style={{ alignItems: 'flex-start' }}>
-                <div style={{ maxWidth: '65%' }}>
-                  <div className="t-strong" style={{ fontSize: 14 }}>{item.descricao_item}</div>
-                  <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
+          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => {
+            const expandido = itemExpandido === item.id
+            return (
+              <div key={item.id} className="card-flat" style={{ padding: 10 }}>
+                <div className="row-between" style={{ alignItems: 'flex-start' }}>
+                  <div style={{ maxWidth: '65%' }}>
+                    <div className="t-strong" style={{ fontSize: 14 }}>{item.descricao_item}</div>
+                    <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="t-strong" style={{ fontSize: 14 }}>{formatarDinheiro(valorPeriodo)}</div>
+                    <div className="t-caption">{quantidadePeriodo.toLocaleString('pt-BR')} {item.unidade}</div>
+                  </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="t-strong" style={{ fontSize: 14 }}>{formatarDinheiro(valorPeriodo)}</div>
-                  <div className="t-caption">{quantidadePeriodo.toLocaleString('pt-BR')} {item.unidade}</div>
+                <div className="t-caption" style={{ marginTop: 6, color: saldo < 0 ? 'var(--danger)' : 'var(--text-2)' }}>
+                  Saldo do contrato: {saldo.toLocaleString('pt-BR')} {item.unidade}{saldo < 0 ? ' (estourado)' : ''}
                 </div>
+                {podeEditar && dataProximaMedicao && (
+                  <button
+                    className="btn btn-ghost btn-sm" style={{ marginTop: 6, paddingLeft: 0 }}
+                    onClick={() => setItemExpandido(expandido ? null : item.id)}
+                  >
+                    <Icon name="avancar" size={12} style={{ transform: `rotate(${expandido ? 90 : 0}deg)`, transition: 'transform .15s' }} />
+                    {expandido ? 'Fechar elementos' : 'Ver elementos / deixar de fora da medição'}
+                  </button>
+                )}
+                {expandido && (
+                  <div className="stack-1" style={{ marginTop: 6 }}>
+                    {locais.map((l) => (
+                      <div key={l.nome} className="stack-1" style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+                        <div className="row-between" style={{ alignItems: 'center' }}>
+                          <div className="t-strong" style={{ fontSize: 13 }}>{l.nome}</div>
+                          <button
+                            className="btn btn-secondary btn-sm" disabled={ajustandoMedicao}
+                            onClick={() => deixarDeFora(l.elementos.map((el) => el.eventoId))}
+                          >
+                            Deixar os {l.elementos.length} de fora
+                          </button>
+                        </div>
+                        {l.elementos.map((el) => (
+                          <div key={el.eventoId} className="row-between" style={{ alignItems: 'center', gap: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <span className="t-strong" style={{ fontSize: 13 }}>{el.elemento}</span>
+                              <span className="t-caption"> · {formatarData(el.data)} · {el.quantidade.toLocaleString('pt-BR')} {item.unidade}</span>
+                              {el.adiado && <> <Chip tom="info">veio da medição anterior</Chip></>}
+                            </div>
+                            <button
+                              className="btn btn-ghost btn-sm" style={{ flex: 'none', color: 'var(--danger)' }} disabled={ajustandoMedicao}
+                              onClick={() => deixarDeFora([el.eventoId])}
+                            >
+                              Deixar de fora
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="t-caption" style={{ marginTop: 6, color: saldo < 0 ? 'var(--danger)' : 'var(--text-2)' }}>
-                Saldo do contrato: {saldo.toLocaleString('pt-BR')} {item.unidade}{saldo < 0 ? ' (estourado)' : ''}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
+      )}
+
+      {eventosDeixadosDeFora.length > 0 && (
+        <SecaoRecolhivel titulo="Deixados de fora desta medição" contador={eventosDeixadosDeFora.length}>
+          <div className="stack-1">
+            <div className="t-caption">
+              Não entram no valor acima nem no boletim — passam a contar na medição seguinte.
+            </div>
+            {eventosDeixadosDeFora.map((ev) => {
+              const marcador = marcadorPorId.get(ev.marker_id)
+              const item = (dados.contratos || []).find((i) => i.id === ev.contract_item_id)
+              return (
+                <div key={ev.id} className="card-flat row-between" style={{ alignItems: 'center', padding: 10, gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="t-strong" style={{ fontSize: 13 }}>{marcador?.elemento || '—'}</div>
+                    <div className="t-caption">
+                      {item?.descricao_item || 'Item removido'} · {formatarData(ev.data_execucao)} · {(Number(ev.quantidade) || 0).toLocaleString('pt-BR')} {item?.unidade || ''}
+                    </div>
+                  </div>
+                  {podeEditar && (
+                    <button className="btn btn-secondary btn-sm" style={{ flex: 'none' }} disabled={ajustandoMedicao} onClick={() => trazerDeVolta([ev.id])}>
+                      Voltar pra esta medição
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </SecaoRecolhivel>
       )}
 
       <RelatorioFolha

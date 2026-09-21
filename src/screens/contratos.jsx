@@ -952,10 +952,11 @@ function AbaControleMedicao({ dados, podeEditar }) {
     const empresasComItens = new Set((dados.contratos || []).filter((i) => i.company_id).map((i) => i.company_id))
     const medidoPorEmpresaMes = new Map()
     for (const ev of dados.eventosProducao || []) {
-      if (!ev.contract_item_id || !ev.data_execucao) continue
+      const dataMedicao = ev.data_medicao || ev.data_execucao
+      if (!ev.contract_item_id || !dataMedicao) continue
       const item = itensPorId.get(ev.contract_item_id)
       if (!item?.company_id) continue
-      const chave = `${item.company_id}|${ev.data_execucao.slice(0, 7)}`
+      const chave = `${item.company_id}|${dataMedicao.slice(0, 7)}`
       const valor = (Number(ev.quantidade) || 0) * (Number(item.preco_item) || 0)
       medidoPorEmpresaMes.set(chave, (medidoPorEmpresaMes.get(chave) || 0) + valor)
     }
@@ -1247,7 +1248,7 @@ function SaldoPosMedicao({ contrato, periodo, dados }) {
         .filter((m) => m.contract_item_id === item.id && m.periodo === periodo)
         .reduce((s, m) => s + (Number(m.quantidade) || 0), 0)
       const producao = (dados.eventosProducao || [])
-        .filter((ev) => ev.contract_item_id === item.id && ev.data_execucao && ev.data_execucao.slice(0, 7) === periodo)
+        .filter((ev) => ev.contract_item_id === item.id && (ev.data_medicao || ev.data_execucao || '').slice(0, 7) === periodo)
         .reduce((s, ev) => s + (Number(ev.quantidade) || 0), 0)
       const medidoNoMes = manual + producao
       const saldoAtual = Number(item.qtde_a_medir) || 0
