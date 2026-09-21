@@ -29,7 +29,7 @@ import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import {
-  Icon, Chip, ChipToggle, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 import { RankingBarras, GraficoColunas, CurvaProducao, CurvaMultipla } from '../components/charts'
@@ -2894,8 +2894,9 @@ function AbaMedicao({ servico, dados, podeEditar }) {
      ainda falta, sem contar duas vezes. */
   const eventosMedidos = useMemo(() => eventosDoPeriodoTodos.filter((e) => e.fechamento_id), [eventosDoPeriodoTodos])
   const eventosPendentes = useMemo(() => eventosDoPeriodoTodos.filter((e) => !e.fechamento_id), [eventosDoPeriodoTodos])
-  const [soPendentes, setSoPendentes] = useState(false)
-  const eventosDoPeriodo = soPendentes ? eventosPendentes : eventosDoPeriodoTodos
+  /* A tela principal só mostra o que ainda NÃO foi medido; o que já
+     entrou num fechamento vai pra seção "Itens já medidos". */
+  const eventosDoPeriodo = eventosPendentes
 
   /* Data que cai na medição seguinte ao período que está na tela —
      null em "Tudo" (não existe "próxima" quando não há recorte). */
@@ -3001,11 +3002,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
           .map((c) => ({ ...c, colaborador: dados.colaboradorPorId(c.workerId), elementos: [...c.elementos].sort() }))
           .filter((c) => c.colaborador)
           .sort((a, b) => b.quantidade - a.quantidade)
-        const todosElementos = locais.flatMap((l) => l.elementos)
-        return {
-          item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais, colaboradores,
-          qtdEventos: todosElementos.length, qtdMedidos: todosElementos.filter((el) => el.fechamentoId).length,
-        }
+        return { item, quantidadePeriodo, valorPeriodo: quantidadePeriodo * Number(item.preco_item || 0), saldo, locais, colaboradores }
       })
       .filter(Boolean)
       .sort((a, b) => b.valorPeriodo - a.valorPeriodo)
@@ -3072,8 +3069,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     return { total, entregas }
   }, [saidasEpiNoPeriodo, dados, servico.company_id, custoMedioEpiMap])
 
-  const totalDesconto = valorRefeicoes + epiDaEmpresa.total
-  const valorLiquidoPeriodo = totalValorPeriodo - totalDesconto
+  const descontoBruto = valorRefeicoes + epiDaEmpresa.total
   const nomeEmpresaServico = servico.company_id ? dados.nomeDe(dados.empresas, servico.company_id) : null
 
   const rotuloPeriodoAtual = rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })
@@ -3114,8 +3110,20 @@ function AbaMedicao({ servico, dados, podeEditar }) {
   /* O desconto (refeição/EPI) do período só entra uma vez: se já existe
      fechamento deste mesmo período, o desconto já foi aplicado nele. */
   const descontoJaAplicado = fechamentosDoServico.some((f) => f.rotulo_periodo === rotuloPeriodoAtual)
-  const descontoDesteFechamento = descontoJaAplicado ? 0 : totalDesconto
+  const totalDesconto = descontoJaAplicado || valorAMedir === 0 ? 0 : descontoBruto
+  const descontoDesteFechamento = totalDesconto
   const liquidoDesteFechamento = valorAMedir - descontoDesteFechamento
+  const valorLiquidoPeriodo = liquidoDesteFechamento
+  const valorDeixadosDeFora = useMemo(
+    () => somarPorItem(eventosDeixadosDeFora).reduce((s, l) => s + l.valor, 0),
+    [eventosDeixadosDeFora, itemContratoPorId], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  /* Itens já medidos neste período, agrupados por item de contrato —
+     saem da lista principal e ficam numa seção própria. */
+  const linhasJaMedidas = useMemo(
+    () => somarPorItem(eventosMedidos).sort((a, b) => b.valor - a.valor),
+    [eventosMedidos, itemContratoPorId], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   const confirmarFechamento = async () => {
     setSalvandoFechamento(true)
@@ -3150,48 +3158,57 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       </SecaoRecolhivel>
 
       <div className="row-wrap" style={{ gap: 10 }}>
-        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Valor medido no período" valor={formatarDinheiro(totalValorPeriodo)} /></div>
-        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato medidos" valor={String(porItem.length)} /></div>
+        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="A medir neste período" valor={formatarDinheiro(totalValorPeriodo)} /></div>
+        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato a medir" valor={String(porItem.length)} /></div>
         {nomeEmpresaServico && (
           <div style={{ flex: '1 1 160px' }}>
             <Indicador rotulo={`Líquido (após desconto de ${nomeEmpresaServico})`} valor={formatarDinheiro(valorLiquidoPeriodo)} />
           </div>
         )}
+        {eventosDeixadosDeFora.length > 0 && (
+          <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Deixados de fora" valor={formatarDinheiro(valorDeixadosDeFora)} /></div>
+        )}
+        {eventosMedidos.length > 0 && (
+          <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Já medido (fechado)" valor={formatarDinheiro(valorJaMedido)} /></div>
+        )}
       </div>
-
-      {eventosMedidos.length > 0 && (
-        <div className="card-flat stack-1" style={{ borderLeft: '3px solid var(--info)', padding: 10 }}>
-          <div className="row-flex" style={{ gap: 6, alignItems: 'center' }}>
-            <Icon name="alerta" size={15} style={{ color: 'var(--info)' }} />
-            <span className="t-strong" style={{ fontSize: 13 }}>
-              {eventosPendentes.length === 0
-                ? 'Tudo deste período já foi medido'
-                : 'Este período já tem itens medidos — atenção pra não medir duas vezes'}
-            </span>
-          </div>
-          <div className="t-caption">
-            {plural(eventosMedidos.length, 'evento já medido', 'eventos já medidos')} ({formatarDinheiro(valorJaMedido)})
-            {' '}em {fechamentosNoPeriodo.map((f) => `«${f.rotulo_periodo}» (${formatarData(f.criado_em.slice(0, 10))})`).join(', ')}.
-            {eventosPendentes.length > 0
-              ? ` Faltam ${plural(eventosPendentes.length, 'evento', 'eventos')} a medir (${formatarDinheiro(valorAMedir)}).`
-              : ' Nada mais a medir aqui — o que for lançado depois aparece como "a medir".'}
-          </div>
-          <div>
-            <ChipToggle ativo={soPendentes} onClick={() => setSoPendentes((v) => !v)}>Mostrar só o que falta medir</ChipToggle>
-          </div>
-        </div>
-      )}
 
       {porItem.length > 0 && (
         <div className="row-flex" style={{ gap: 8, flexWrap: 'wrap' }}>
           <BotaoRelatorio rotulo="Boletim de medição" />
           {podeEditar && (
-            <button className="btn btn-secondary btn-sm" onClick={() => setFechando(true)} disabled={eventosPendentes.length === 0}>
-              <Icon name="check" size={14} />
-              {eventosPendentes.length === 0 ? 'Período já medido' : eventosMedidos.length > 0 ? 'Fechar o que falta medir' : 'Fechar medição deste período'}
+            <button className="btn btn-secondary btn-sm" onClick={() => setFechando(true)}>
+              <Icon name="check" size={14} /> Fechar medição deste período
             </button>
           )}
         </div>
+      )}
+
+      {eventosMedidos.length > 0 && (
+        <SecaoRecolhivel
+          titulo="Itens já medidos" contador={linhasJaMedidas.length}
+          resumo={formatarDinheiro(valorJaMedido)}
+        >
+          <div className="stack-1">
+            <div className="t-caption">
+              Já entraram em um fechamento
+              {fechamentosNoPeriodo.length > 0 && ` (${fechamentosNoPeriodo.map((f) => `«${f.rotulo_periodo}», ${formatarData(f.criado_em.slice(0, 10))}`).join(' · ')})`}
+              {' '}— não aparecem mais na lista a medir. Pra medir de novo, exclua o fechamento no histórico.
+            </div>
+            {linhasJaMedidas.map(({ item, quantidade, valor }) => (
+              <div key={item.id} className="card-flat row-between" style={{ alignItems: 'flex-start', padding: 10, borderLeft: '3px solid var(--success)' }}>
+                <div style={{ maxWidth: '65%' }}>
+                  <div className="t-strong" style={{ fontSize: 13 }}>{item.descricao_item}</div>
+                  <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div className="t-strong" style={{ fontSize: 13 }}>{formatarDinheiro(valor)}</div>
+                  <div className="t-caption">{quantidade.toLocaleString('pt-BR')} {item.unidade}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SecaoRecolhivel>
       )}
 
       {fechamentosDoServico.length > 0 && (
@@ -3224,25 +3241,22 @@ function AbaMedicao({ servico, dados, podeEditar }) {
 
       {porItem.length === 0 ? (
         <div className="card-flat">
-          <Vazio titulo="Nada medido nesse período" texto="Eventos com item de contrato vinculado aparecem aqui — ver o detalhe de cada marcação, na aba Plantas." />
+          {eventosMedidos.length > 0 ? (
+            <Vazio titulo="Nada a medir neste período" texto="Tudo o que tinha aqui já foi medido — está em «Itens já medidos». O que for lançado depois aparece nesta lista." />
+          ) : (
+            <Vazio titulo="Nada medido nesse período" texto="Eventos com item de contrato vinculado aparecem aqui — ver o detalhe de cada marcação, na aba Plantas." />
+          )}
         </div>
       ) : (
         <div className="stack-1">
-          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais, qtdEventos, qtdMedidos }) => {
+          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => {
             const expandido = itemExpandido === item.id
             return (
-              <div key={item.id} className="card-flat" style={{ padding: 10, borderLeft: qtdMedidos > 0 ? '3px solid var(--info)' : undefined }}>
+              <div key={item.id} className="card-flat" style={{ padding: 10 }}>
                 <div className="row-between" style={{ alignItems: 'flex-start' }}>
                   <div style={{ maxWidth: '65%' }}>
                     <div className="t-strong" style={{ fontSize: 14 }}>{item.descricao_item}</div>
                     <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
-                    {qtdMedidos > 0 && (
-                      <div style={{ marginTop: 4 }}>
-                        <Chip tom={qtdMedidos === qtdEventos ? 'success' : 'info'}>
-                          {qtdMedidos === qtdEventos ? 'Já medido' : `Parcialmente medido (${qtdMedidos}/${qtdEventos})`}
-                        </Chip>
-                      </div>
-                    )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="t-strong" style={{ fontSize: 14 }}>{formatarDinheiro(valorPeriodo)}</div>
@@ -3252,13 +3266,13 @@ function AbaMedicao({ servico, dados, podeEditar }) {
                 <div className="t-caption" style={{ marginTop: 6, color: saldo < 0 ? 'var(--danger)' : 'var(--text-2)' }}>
                   Saldo do contrato: {saldo.toLocaleString('pt-BR')} {item.unidade}{saldo < 0 ? ' (estourado)' : ''}
                 </div>
-                {((podeEditar && dataProximaMedicao) || qtdMedidos > 0) && (
+                {podeEditar && dataProximaMedicao && (
                   <button
                     className="btn btn-ghost btn-sm" style={{ marginTop: 6, paddingLeft: 0 }}
                     onClick={() => setItemExpandido(expandido ? null : item.id)}
                   >
                     <Icon name="avancar" size={12} style={{ transform: `rotate(${expandido ? 90 : 0}deg)`, transition: 'transform .15s' }} />
-                    {expandido ? 'Fechar elementos' : (podeEditar && dataProximaMedicao ? 'Ver elementos / deixar de fora da medição' : 'Ver elementos')}
+                    {expandido ? 'Fechar elementos' : 'Ver elementos / deixar de fora da medição'}
                   </button>
                 )}
                 {expandido && (
