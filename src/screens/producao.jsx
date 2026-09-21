@@ -2894,9 +2894,9 @@ function AbaMedicao({ servico, dados, podeEditar }) {
      ainda falta, sem contar duas vezes. */
   const eventosMedidos = useMemo(() => eventosDoPeriodoTodos.filter((e) => e.fechamento_id), [eventosDoPeriodoTodos])
   const eventosPendentes = useMemo(() => eventosDoPeriodoTodos.filter((e) => !e.fechamento_id), [eventosDoPeriodoTodos])
-  /* A tela principal só mostra o que ainda NÃO foi medido; o que já
-     entrou num fechamento vai pra seção "Itens já medidos". */
-  const eventosDoPeriodo = eventosPendentes
+  /* A tela principal mostra tudo o que ainda NÃO foi medido (inclusive
+     o que foi deixado de fora, que continua a medir na próxima); o que
+     já entrou num fechamento vai pra seção "Itens já medidos". */
 
   /* Data que cai na medição seguinte ao período que está na tela —
      null em "Tudo" (não existe "próxima" quando não há recorte). */
@@ -2943,11 +2943,13 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     [dados.plantasProducao],
   )
 
-  const porItem = useMemo(() => {
+  const idsDeixadosDeFora = useMemo(() => new Set(eventosDeixadosDeFora.map((e) => e.id)), [eventosDeixadosDeFora])
+
+  const montarPorItem = (eventos) => {
     const noPeriodo = new Map()
     const locaisPorItem = new Map()
     const colaboradoresPorItem = new Map()
-    for (const ev of eventosDoPeriodo) {
+    for (const ev of eventos) {
       noPeriodo.set(ev.contract_item_id, (noPeriodo.get(ev.contract_item_id) || 0) + (Number(ev.quantidade) || 0))
       const marcador = marcadorPorId.get(ev.marker_id)
       const planta = marcador ? plantaPorId.get(marcador.plan_id) : null
@@ -2959,7 +2961,8 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       atual.elementos.push({
         eventoId: ev.id,
         fechamentoId: ev.fechamento_id || null,
-        adiado: Boolean(ev.data_medicao),
+        adiado: Boolean(ev.data_medicao) && !idsDeixadosDeFora.has(ev.id),
+        deFora: idsDeixadosDeFora.has(ev.id),
         elemento: marcador?.elemento || '—',
         data: ev.data_execucao,
         quantidade: Number(ev.quantidade) || 0,
@@ -3006,9 +3009,21 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       })
       .filter(Boolean)
       .sort((a, b) => b.valorPeriodo - a.valorPeriodo)
-  }, [eventosDoPeriodo, eventosComContrato, dados.contratos, marcadorPorId, plantaPorId, dados])
+  }
 
+  /* porItem = o que entra no boletim/fechamento desta medição (sem os
+     deixados de fora); porItemAMedir = tudo que ainda falta medir, com
+     os deixados de fora incluídos, pra nada sumir de vista. */
+  const porItem = useMemo(
+    () => montarPorItem(eventosPendentes),
+    [eventosPendentes, eventosComContrato, dados.contratos, marcadorPorId, plantaPorId, dados, idsDeixadosDeFora], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const porItemAMedir = useMemo(
+    () => montarPorItem([...eventosPendentes, ...eventosDeixadosDeFora]),
+    [eventosPendentes, eventosDeixadosDeFora, eventosComContrato, dados.contratos, marcadorPorId, plantaPorId, dados, idsDeixadosDeFora], // eslint-disable-line react-hooks/exhaustive-deps
+  )
   const totalValorPeriodo = porItem.reduce((s, x) => s + x.valorPeriodo, 0)
+  const totalAMedir = porItemAMedir.reduce((s, x) => s + x.valorPeriodo, 0)
 
   /* Desconto no boletim: refeição e EPI que a empresa do serviço
      consumiu no MESMO período, pra chegar no valor líquido a pagar —
@@ -3158,20 +3173,29 @@ function AbaMedicao({ servico, dados, podeEditar }) {
       </SecaoRecolhivel>
 
       <div className="row-wrap" style={{ gap: 10 }}>
-        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="A medir neste período" valor={formatarDinheiro(totalValorPeriodo)} /></div>
-        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato a medir" valor={String(porItem.length)} /></div>
-        {nomeEmpresaServico && (
-          <div style={{ flex: '1 1 160px' }}>
-            <Indicador rotulo={`Líquido (após desconto de ${nomeEmpresaServico})`} valor={formatarDinheiro(valorLiquidoPeriodo)} />
-          </div>
+        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="A medir neste período" valor={formatarDinheiro(totalAMedir)} /></div>
+        <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Itens de contrato a medir" valor={String(porItemAMedir.length)} /></div>
+        {eventosDeixadosDeFora.length > 0 && (
+          <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Dos quais deixados de fora" valor={formatarDinheiro(valorDeixadosDeFora)} /></div>
         )}
         {eventosDeixadosDeFora.length > 0 && (
-          <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Deixados de fora" valor={formatarDinheiro(valorDeixadosDeFora)} /></div>
+          <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Fecha nesta medição" valor={formatarDinheiro(totalValorPeriodo)} /></div>
+        )}
+        {nomeEmpresaServico && (
+          <div style={{ flex: '1 1 160px' }}>
+            <Indicador rotulo={`Líquido do fechamento (após desconto de ${nomeEmpresaServico})`} valor={formatarDinheiro(valorLiquidoPeriodo)} />
+          </div>
         )}
         {eventosMedidos.length > 0 && (
           <div style={{ flex: '1 1 160px' }}><Indicador rotulo="Já medido (fechado)" valor={formatarDinheiro(valorJaMedido)} /></div>
         )}
       </div>
+
+      {porItem.length === 0 && porItemAMedir.length > 0 && (
+        <div className="t-caption">
+          Só há itens deixados de fora — eles contam em «A medir» e entram na próxima medição; não há nada pra fechar agora.
+        </div>
+      )}
 
       {porItem.length > 0 && (
         <div className="row-flex" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -3239,7 +3263,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         </SecaoRecolhivel>
       )}
 
-      {porItem.length === 0 ? (
+      {porItemAMedir.length === 0 ? (
         <div className="card-flat">
           {eventosMedidos.length > 0 ? (
             <Vazio titulo="Nada a medir neste período" texto="Tudo o que tinha aqui já foi medido — está em «Itens já medidos». O que for lançado depois aparece nesta lista." />
@@ -3249,14 +3273,18 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         </div>
       ) : (
         <div className="stack-1">
-          {porItem.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => {
+          {porItemAMedir.map(({ item, quantidadePeriodo, valorPeriodo, saldo, locais }) => {
             const expandido = itemExpandido === item.id
+            const qtdDeFora = locais.reduce((n, l) => n + l.elementos.filter((el) => el.deFora).length, 0)
             return (
               <div key={item.id} className="card-flat" style={{ padding: 10 }}>
                 <div className="row-between" style={{ alignItems: 'flex-start' }}>
                   <div style={{ maxWidth: '65%' }}>
                     <div className="t-strong" style={{ fontSize: 14 }}>{item.descricao_item}</div>
                     <div className="t-caption">Contrato {item.cod_contrato} — {item.fornecedor || 'sem fornecedor'}</div>
+                    {qtdDeFora > 0 && (
+                      <div style={{ marginTop: 4 }}><Chip tom="info">{plural(qtdDeFora, 'elemento deixado de fora', 'elementos deixados de fora')} — entra na próxima medição</Chip></div>
+                    )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="t-strong" style={{ fontSize: 14 }}>{formatarDinheiro(valorPeriodo)}</div>
@@ -3281,17 +3309,16 @@ function AbaMedicao({ servico, dados, podeEditar }) {
                       <div key={l.nome} className="stack-1" style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
                         <div className="row-between" style={{ alignItems: 'center' }}>
                           <div className="t-strong" style={{ fontSize: 13 }}>{l.nome}</div>
-                          {podeEditar && dataProximaMedicao && l.elementos.filter((el) => !el.fechamentoId).length > 1 && (
+                          {podeEditar && dataProximaMedicao && l.elementos.filter((el) => !el.deFora).length > 1 && (
                             <button
                               className="btn btn-secondary btn-sm" disabled={ajustandoMedicao}
-                              onClick={() => deixarDeFora(l.elementos.filter((el) => !el.fechamentoId).map((el) => el.eventoId))}
+                              onClick={() => deixarDeFora(l.elementos.filter((el) => !el.deFora).map((el) => el.eventoId))}
                             >
-                              Deixar os {l.elementos.filter((el) => !el.fechamentoId).length} de fora
+                              Deixar os {l.elementos.filter((el) => !el.deFora).length} de fora
                             </button>
                           )}
                         </div>
                         {l.elementos.map((el) => {
-                          const fechamento = el.fechamentoId ? fechamentosDoServico.find((f) => f.id === el.fechamentoId) : null
                           return (
                             <div key={el.eventoId} className="row-between" style={{ alignItems: 'center', gap: 8 }}>
                               <div style={{ minWidth: 0 }}>
@@ -3299,8 +3326,15 @@ function AbaMedicao({ servico, dados, podeEditar }) {
                                 <span className="t-caption"> · {formatarData(el.data)} · {el.quantidade.toLocaleString('pt-BR')} {item.unidade}</span>
                                 {el.adiado && <> <Chip tom="info">veio da medição anterior</Chip></>}
                               </div>
-                              {el.fechamentoId ? (
-                                <Chip tom="success">Medido{fechamento ? ` em ${formatarData(fechamento.criado_em.slice(0, 10))}` : ''}</Chip>
+                              {el.deFora ? (
+                                <div className="row-flex" style={{ gap: 6, alignItems: 'center', flex: 'none' }}>
+                                  <Chip tom="info">Deixado de fora</Chip>
+                                  {podeEditar && (
+                                    <button className="btn btn-ghost btn-sm" disabled={ajustandoMedicao} onClick={() => trazerDeVolta([el.eventoId])}>
+                                      Voltar pra esta medição
+                                    </button>
+                                  )}
+                                </div>
                               ) : podeEditar && dataProximaMedicao && (
                                 <button
                                   className="btn btn-ghost btn-sm" style={{ flex: 'none', color: 'var(--danger)' }} disabled={ajustandoMedicao}
@@ -3326,7 +3360,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         <SecaoRecolhivel titulo="Deixados de fora desta medição" contador={eventosDeixadosDeFora.length}>
           <div className="stack-1">
             <div className="t-caption">
-              Não entram no valor acima nem no boletim — passam a contar na medição seguinte.
+              Já estão somados em «A medir», mas ficam fora do boletim e do fechamento desta medição — entram na medição seguinte.
             </div>
             {eventosDeixadosDeFora.map((ev) => {
               const marcador = marcadorPorId.get(ev.marker_id)
