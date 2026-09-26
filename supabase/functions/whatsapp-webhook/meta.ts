@@ -42,14 +42,15 @@ export async function baixarMidia(mediaId: string): Promise<{ bytes: Uint8Array,
 // webhook consegue forjar uma "mensagem do WhatsApp" e gravar
 // pendência/atualizar diário em nome de outra pessoa.
 //
-// Se o segredo ainda não foi configurado (fase de montagem, antes
-// do app da Meta estar pronto), a checagem é pulada -- com aviso
-// bem visível no log -- em vez de derrubar a função inteira.
+// Sem o segredo configurado, a função recusa por padrão (fail
+// closed) -- antes disso pulava a checagem, o que virava bypass
+// total de autenticação se alguém esquecesse de configurar a env
+// var em produção.
 export async function assinaturaValida(corpoCru: string, header: string | null): Promise<boolean> {
   const segredo = Deno.env.get('WHATSAPP_APP_SECRET')
   if (!segredo) {
-    console.warn('[whatsapp] WHATSAPP_APP_SECRET não configurado -- pulei a checagem de assinatura.')
-    return true
+    console.error('[whatsapp] WHATSAPP_APP_SECRET não configurado -- recusando por segurança.')
+    return false
   }
   if (!header?.startsWith('sha256=')) return false
 
@@ -59,5 +60,14 @@ export async function assinaturaValida(corpoCru: string, header: string | null):
   )
   const assinatura = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(corpoCru))
   const hex = [...new Uint8Array(assinatura)].map((b) => b.toString(16).padStart(2, '0')).join('')
-  return `sha256=${hex}` === header
+  return compararConstante(`sha256=${hex}`, header)
+}
+
+// Comparação em tempo constante -- evita que diferenças no tempo de
+// resposta revelem, byte a byte, qual é a assinatura esperada.
+function compararConstante(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
 }

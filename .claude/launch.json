@@ -5,13 +5,42 @@
       "name": "prumo",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     },
     {
       "name": "prumo-build",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview"],
       "port": 4173
+    },
+    {
+      "name": "canteiro",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:\\Users\\55639\\Desktop\\prumoappgenerico", "run", "dev"],
+      "port": 5174
+    },
+    {
+      "name": "albatroz",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:\\Users\\55639\\Desktop\\APP\\SITE SKILLS ENGENHARIA\\albatroz-civil\\node_modules\\vite\\bin\\vite.js", "C:\\Users\\55639\\Desktop\\APP\\SITE SKILLS ENGENHARIA\\albatroz-civil", "--port", "5180", "--strictPort"],
+      "port": 5180
+    },
+    {
+      "name": "estudio",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:\\Users\\55639\\.claude\\skills\\engenheiroprodutor\\editor\\server.js"
+      ],
+      "port": 4820
+    },
+    {
+      "name": "marketing",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:\\Users\\55639\\.claude\\skills\\engenheirodomarketing\\editor\\server.js"
+      ],
+      "port": 4830
     }
   ]
 }

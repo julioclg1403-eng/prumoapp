@@ -9,3 +9,6 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 npm-debug.log*
+
+# Supabase CLI
+supabase/.temp

@@ -17,7 +17,7 @@ import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
 import {
   hojeISO, formatarData, formatarDataLonga, diarioDaData,
-  ROTULO_ATIVIDADE, TOM_ATIVIDADE, situacaoDiario, plural,
+  ROTULO_ATIVIDADE, TOM_ATIVIDADE, situacaoDiario, plural, normalizarParaCasar,
 } from '../lib/dominio'
 import {
   Icon, Chip, Sheet, Confirmar, Campo, Vazio, Selecionavel, ItemLista, Segmentos,
@@ -480,6 +480,7 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos, per
   const dados = useDados()
   const podeExcluirFrente = perfil?.role === 'admin'
   const [equipeDe, setEquipeDe] = useState(null)   // atividade cuja equipe está sendo escolhida
+  const [buscaEquipe, setBuscaEquipe] = useState('')
   const [nova, setNova] = useState(null)
   const [visao, setVisao] = useState('lista')   // 'lista' | 'porLocal'
   /* Toda frente nasce fechada — ver o dia inteiro aberto de uma vez,
@@ -602,7 +603,7 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos, per
         bloqueado={bloqueado}
         presentes={presentes}
         onTrocarStatus={trocarStatus}
-        onEscolherEquipe={setEquipeDe}
+        onEscolherEquipe={(id) => { setBuscaEquipe(''); setEquipeDe(id) }}
         onObservacao={observacaoMudou}
         fotos={fotos}
         dataAtual={diario.data}
@@ -711,11 +712,22 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos, per
         <div className="t-caption" style={{ marginBottom: 12 }}>
           Só aparece quem foi marcado presente na etapa 1.
         </div>
+        <input
+          className="ipt" style={{ marginBottom: 10 }}
+          value={buscaEquipe} onChange={(e) => setBuscaEquipe(e.target.value)}
+          placeholder="Buscar por nome, função ou empresa…"
+        />
         <div className="stack-1">
-          {presentes.map((p) => {
-            const col = dados.colaboradorPorId(p.worker_id)
-            if (!col) return null
-            return (
+          {presentes
+            .map((p) => ({ p, col: dados.colaboradorPorId(p.worker_id) }))
+            .filter(({ col }) => col)
+            .filter(({ col }) => {
+              const termo = normalizarParaCasar(buscaEquipe)
+              if (!termo) return true
+              const empresa = dados.nomeDe(dados.empresas, col.company_id)
+              return [col.nome, col.funcao, empresa].some((v) => normalizarParaCasar(v).includes(termo))
+            })
+            .map(({ col }) => (
               <Selecionavel
                 key={col.id}
                 marcado={(ativAtual?.worker_ids || []).includes(col.id)}
@@ -723,8 +735,7 @@ function EtapaFrentes({ diario, alterar, bloqueado, pedirConfirmacao, fotos, per
                 titulo={col.nome}
                 sub={`${col.funcao || '—'} · ${dados.nomeDe(dados.empresas, col.company_id)}`}
               />
-            )
-          })}
+            ))}
         </div>
       </Sheet>
 
