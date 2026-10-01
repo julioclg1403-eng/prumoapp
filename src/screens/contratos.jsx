@@ -879,7 +879,7 @@ const STATUS_MEDICAO = [
   { valor: 'programada', rotulo: 'Programada', tom: 'danger' },
   { valor: 'aguardando_aditivo', rotulo: 'Aguardando aditivo', tom: 'laranja' },
   { valor: 'medicao_feita', rotulo: 'Medição feita', tom: 'amarelo' },
-  { valor: 'lancamento_nota', rotulo: 'Nota em lançamento', tom: 'success' },
+  { valor: 'lancamento_nota', rotulo: 'Nota em lançamento', tom: 'info' },
   /* Fisicamente pronta (todos os pontos/elementos já foram marcados
      em Produtividade) — último da sequência, pedido do Julio. */
   { valor: 'medicao_pronta', rotulo: 'Medição pronta', tom: 'success' },
