@@ -874,13 +874,11 @@ const DIAS_RECORRENCIA = [1, 10, 20]
 const STATUS_MEDICAO = [
   { valor: 'programada', rotulo: 'Programada', tom: '' },
   { valor: 'aguardando_aditivo', rotulo: 'Aguardando aditivo', tom: 'danger' },
-  /* Fisicamente pronta pra medir (todos os pontos/elementos já foram
-     marcados em Produtividade) mas ainda não virou medição oficial —
-     fica entre "aguardando" e "medição feita", porque já não está
-     travada por aditivo, só falta fechar. */
-  { valor: 'medicao_pronta', rotulo: 'Medição pronta', tom: 'info' },
   { valor: 'medicao_feita', rotulo: 'Medição feita', tom: 'success' },
   { valor: 'lancamento_nota', rotulo: 'Nota em lançamento', tom: 'info' },
+  /* Fisicamente pronta (todos os pontos/elementos já foram marcados
+     em Produtividade) — último da sequência, pedido do Julio. */
+  { valor: 'medicao_pronta', rotulo: 'Medição pronta', tom: 'info' },
 ]
 
 function infoStatus(valor) {
