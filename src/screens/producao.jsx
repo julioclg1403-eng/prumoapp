@@ -2858,6 +2858,22 @@ function AbaMedicao({ servico, dados, podeEditar }) {
   const [fechando, setFechando] = useState(false)
   const [salvandoFechamento, setSalvandoFechamento] = useState(false)
   const [excluindoFechamento, setExcluindoFechamento] = useState(null)
+  const [fechamentoImprimindo, setFechamentoImprimindo] = useState(null)
+
+  /* Baixar o boletim de um fechamento já feito — usa o snapshot
+     congelado na hora do fechamento (não os dados ao vivo, que já
+     podem ter mudado), então imprime igual estava naquele dia,
+     mesmo que o item tenha sido editado ou excluído depois. */
+  useEffect(() => {
+    if (!fechamentoImprimindo) return
+    const id = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(id)
+  }, [fechamentoImprimindo])
+  useEffect(() => {
+    const aoFechar = () => setFechamentoImprimindo(null)
+    window.addEventListener('afterprint', aoFechar)
+    return () => window.removeEventListener('afterprint', aoFechar)
+  }, [])
 
   /* Só conta marcador de uma planta DESTE serviço — "controle apenas
      daquele serviço", pedido do Julio — e só marcador ativo (nem ele
@@ -2878,26 +2894,6 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     () => (dados.eventosProducao || []).filter((e) => e.contract_item_id && marcadoresValidos.has(e.marker_id)),
     [dados.eventosProducao, marcadoresValidos],
   )
-  /* Em qual medição o evento cai: por padrão a data em que foi
-     executado, mas dá pra "deixar de fora" e empurrar pra próxima
-     (data_medicao) sem mexer na data real de execução. */
-  const eventosDoPeriodoTodos = useMemo(
-    () => filtrarPorPeriodo(
-      eventosComContrato, periodoModo,
-      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
-      (e) => e.data_medicao || e.data_execucao,
-    ),
-    [eventosComContrato, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
-  )
-  /* Já medido = entrou num fechamento (fechamento_id). Serve pra
-     avisar que o período tem itens medidos e pra "fechar" só o que
-     ainda falta, sem contar duas vezes. */
-  const eventosMedidos = useMemo(() => eventosDoPeriodoTodos.filter((e) => e.fechamento_id), [eventosDoPeriodoTodos])
-  const eventosPendentes = useMemo(() => eventosDoPeriodoTodos.filter((e) => !e.fechamento_id), [eventosDoPeriodoTodos])
-  /* A tela principal mostra tudo o que ainda NÃO foi medido (inclusive
-     o que foi deixado de fora, que continua a medir na próxima); o que
-     já entrou num fechamento vai pra seção "Itens já medidos". */
-
   /* Data que cai na medição seguinte ao período que está na tela —
      null em "Tudo" (não existe "próxima" quando não há recorte). */
   const dataProximaMedicao = useMemo(() => {
@@ -2907,16 +2903,50 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     return null
   }, [periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
 
-  /* Eventos que foram executados neste período mas ficaram de fora
-     desta medição — mostrados à parte pra dar pra desfazer. */
-  const eventosDeixadosDeFora = useMemo(() => {
-    const dentro = new Set(eventosDoPeriodoTodos.map((e) => e.id))
-    return filtrarPorPeriodo(
-      eventosComContrato.filter((e) => e.data_medicao && !e.fechamento_id && !dentro.has(e.id)), periodoModo,
+  /* Último dia do período na tela — "null" em Tudo. É o corte usado
+     pra "vencer": qualquer coisa ainda não medida com essa data (ou
+     antes) conta como pendente, mesmo que seja de um mês anterior
+     que ninguém fechou nem deixou de fora de propósito. Sem isso, um
+     evento esquecido simplesmente sumia de vista ao virar o mês —
+     pedido do Julio pra nunca perder um item sem querer. */
+  const fimDoPeriodo = useMemo(() => {
+    if (periodoModo === 'dia') return periodoDia
+    if (periodoModo === 'mes') return somarDias(`${somarMeses(periodoMes, 1)}-01`, -1)
+    if (periodoModo === 'periodo') return periodoInicio <= periodoFim ? periodoFim : periodoInicio
+    return null
+  }, [periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
+
+  /* Já medido = entrou num fechamento (fechamento_id), com data
+     (de medição, ou de execução se nunca foi adiado) dentro do
+     período na tela — isso sim fica preso ao período certo, porque
+     já foi resolvido ali. */
+  const eventosMedidos = useMemo(
+    () => filtrarPorPeriodo(
+      eventosComContrato.filter((e) => e.fechamento_id), periodoModo,
       { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
-      (e) => e.data_execucao,
-    )
-  }, [eventosComContrato, eventosDoPeriodoTodos, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim])
+      (e) => e.data_medicao || e.data_execucao,
+    ),
+    [eventosComContrato, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+
+  /* Pendente = ainda não medido E já "venceu" (data <= fim do período
+     na tela) — por isso carrega sozinho pros meses seguintes até
+     alguém medir, sem precisar de nenhum clique. */
+  const eventosPendentes = useMemo(() => {
+    const semFechamento = eventosComContrato.filter((e) => !e.fechamento_id)
+    if (!fimDoPeriodo) return semFechamento // "Tudo" não tem corte
+    return semFechamento.filter((e) => (e.data_medicao || e.data_execucao) <= fimDoPeriodo)
+  }, [eventosComContrato, fimDoPeriodo])
+
+  /* Deixado de fora = adiado de propósito ("Deixar de fora") pra uma
+     data que ainda está no futuro em relação ao período na tela —
+     ainda não chegou a vez dele, por isso fica numa lista à parte em
+     vez de já contar como pendente. Quando o período alcançar essa
+     data, ele passa a aparecer em eventosPendentes sozinho. */
+  const eventosDeixadosDeFora = useMemo(() => {
+    if (!fimDoPeriodo) return []
+    return eventosComContrato.filter((e) => !e.fechamento_id && e.data_medicao && e.data_medicao > fimDoPeriodo)
+  }, [eventosComContrato, fimDoPeriodo])
   const [ajustandoMedicao, setAjustandoMedicao] = useState(false)
   const [itemExpandido, setItemExpandido] = useState(null)
 
@@ -3251,6 +3281,9 @@ function AbaMedicao({ servico, dados, podeEditar }) {
                     <div className="t-strong" style={{ fontSize: 13 }}>{formatarDinheiro(f.valor_liquido)}</div>
                     {f.valor_desconto > 0 && <div className="t-caption">medido {formatarDinheiro(f.valor_medido)} − {formatarDinheiro(f.valor_desconto)}</div>}
                   </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setFechamentoImprimindo(f)} aria-label="Baixar boletim deste fechamento">
+                    <Icon name="relatorio" size={14} />
+                  </button>
                   {podeEditar && (
                     <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setExcluindoFechamento(f)} aria-label="Excluir fechamento">
                       <Icon name="x" size={13} />
@@ -3385,6 +3418,31 @@ function AbaMedicao({ servico, dados, podeEditar }) {
         </SecaoRecolhivel>
       )}
 
+      {fechamentoImprimindo ? (
+        <RelatorioFolha
+          titulo="Boletim de medição"
+          sub={`${servico.nome} · ${fechamentoImprimindo.rotulo_periodo} — fechado em ${formatarData(fechamentoImprimindo.criado_em.slice(0, 10))}`}
+          obra={dados.obra.nome} org={dados.org.nome}
+        >
+          <SecaoRelatorio titulo="Resumo do fechamento">
+            <div style={{ fontSize: 13 }}>
+              Valor medido: <strong>{formatarDinheiro(fechamentoImprimindo.valor_medido)}</strong>
+              {fechamentoImprimindo.valor_desconto > 0 && (
+                <> · Desconto: <strong>{formatarDinheiro(fechamentoImprimindo.valor_desconto)}</strong></>
+              )}
+              {' '}· Valor líquido: <strong>{formatarDinheiro(fechamentoImprimindo.valor_liquido)}</strong>
+            </div>
+          </SecaoRelatorio>
+          <TabelaRelatorio
+            colunas={['Item', 'Contrato', 'Quantidade', 'Valor']}
+            linhas={(fechamentoImprimindo.snapshot || []).map((s) => [
+              s.descricao, String(s.cod_contrato),
+              `${Number(s.quantidade || 0).toLocaleString('pt-BR')} ${s.unidade || ''}`,
+              formatarDinheiro(s.valor),
+            ])}
+          />
+        </RelatorioFolha>
+      ) : (
       <RelatorioFolha
         titulo="Boletim de medição"
         sub={`${servico.nome} · ${rotuloPeriodo(periodoModo, { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim })}`}
@@ -3480,6 +3538,7 @@ function AbaMedicao({ servico, dados, podeEditar }) {
           </div>
         ))}
       </RelatorioFolha>
+      )}
 
       <Confirmar
         aberto={fechando}
