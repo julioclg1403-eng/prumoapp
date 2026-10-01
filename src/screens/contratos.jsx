@@ -871,14 +871,18 @@ function GrupoCruzamento({ titulo, subtitulo, grupos, vazio }) {
 
 const DIAS_RECORRENCIA = [1, 10, 20]
 
+/* Semáforo sequencial pedido pelo Julio: vermelho (início) até verde
+   (pronta) — Programada sempre vermelha, dali pra baixo segue a
+   sequência vermelho→laranja→amarelo→verde; a última etapa também
+   fica verde (não sobra uma 5ª cor pro mesmo "está tudo certo"). */
 const STATUS_MEDICAO = [
-  { valor: 'programada', rotulo: 'Programada', tom: '' },
-  { valor: 'aguardando_aditivo', rotulo: 'Aguardando aditivo', tom: 'danger' },
-  { valor: 'medicao_feita', rotulo: 'Medição feita', tom: 'success' },
-  { valor: 'lancamento_nota', rotulo: 'Nota em lançamento', tom: 'info' },
+  { valor: 'programada', rotulo: 'Programada', tom: 'danger' },
+  { valor: 'aguardando_aditivo', rotulo: 'Aguardando aditivo', tom: 'laranja' },
+  { valor: 'medicao_feita', rotulo: 'Medição feita', tom: 'amarelo' },
+  { valor: 'lancamento_nota', rotulo: 'Nota em lançamento', tom: 'success' },
   /* Fisicamente pronta (todos os pontos/elementos já foram marcados
      em Produtividade) — último da sequência, pedido do Julio. */
-  { valor: 'medicao_pronta', rotulo: 'Medição pronta', tom: 'info' },
+  { valor: 'medicao_pronta', rotulo: 'Medição pronta', tom: 'success' },
 ]
 
 function infoStatus(valor) {
@@ -1217,10 +1221,11 @@ function SheetEstadoMedicao({ aberto, ocorrencia, periodo, dados, contrato, valo
               {STATUS_MEDICAO.map((s) => (
                 <button
                   key={s.valor} disabled={salvando || !podeEditar}
-                  className={`btn btn-block ${ocorrencia.status === s.valor ? 'btn-dark' : 'btn-secondary'}`}
-                  style={{ justifyContent: 'flex-start' }}
+                  className="btn-etapa" data-selecionada={ocorrencia.status === s.valor ? '1' : '0'}
+                  style={{ '--etapa-cor': `var(--${s.tom})`, '--etapa-tint': `var(--${s.tom}-tint)` }}
                   onClick={() => escolher(s.valor)}
                 >
+                  <span className="box"><Icon name="check" size={12} /></span>
                   {s.rotulo}
                 </button>
               ))}

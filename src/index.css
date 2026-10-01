@@ -55,6 +55,12 @@ html, body, #root {
   --success: #2E7D4F;  --success-tint: rgba(46,125,79,0.10);
   --info:    #2C6FA8;  --info-tint:    rgba(44,111,168,0.10);
   --neutral: #52525B;  --neutral-tint: rgba(82,82,91,0.08);
+  /* Exceção pontual à regra acima: pedido explícito do Julio pra um
+     semáforo vermelho→laranja→amarelo→verde só no Estado da medição
+     (Contratos), não vira token geral de alerta — tons escurecidos
+     pra manter contraste de texto em fundo claro. */
+  --laranja: #B9560A; --laranja-tint: rgba(185,86,10,0.10);
+  --amarelo: #96750A; --amarelo-tint: rgba(150,117,10,0.10);
 
   --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 4px 14px rgba(0,0,0,0.05);
   --shadow-card-hover: 0 2px 6px rgba(0,0,0,0.06), 0 10px 24px rgba(0,0,0,0.08);
@@ -149,6 +155,27 @@ html, body, #root {
 .chip.success { background: var(--success-tint); color: var(--success); }
 .chip.danger  { background: var(--danger-tint);  color: var(--danger); }
 .chip.info    { background: var(--info-tint);    color: var(--info); }
+.chip.laranja { background: var(--laranja-tint); color: var(--laranja); }
+.chip.amarelo { background: var(--amarelo-tint); color: var(--amarelo); }
+
+/* ── Estado da medição (Contratos): semáforo vermelho→verde ──
+   Cada etapa sempre mostra sua cor (borda lateral + tinta leve),
+   não só quando selecionada — é o "sequencial" pedido pelo Julio.
+   A selecionada ganha fundo mais forte e ✓ pra ficar óbvio qual é a
+   atual, sem precisar de uma cor nova só pra "selecionado". */
+.btn-etapa {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: var(--tap-h);
+  padding: 0 14px; border: 0; border-left: 4px solid var(--etapa-cor); border-radius: var(--radius-btn);
+  background: var(--etapa-tint); color: var(--etapa-cor); font-family: var(--font); font-size: var(--body);
+  font-weight: 600; cursor: pointer; text-align: left; transition: filter .15s, background .15s;
+}
+.btn-etapa:disabled { cursor: default; }
+.btn-etapa:hover:not(:disabled) { filter: brightness(0.97); }
+.btn-etapa[data-selecionada="1"] { background: var(--etapa-cor); color: #FFFFFF; }
+.btn-etapa .box { width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor;
+  flex: none; display: flex; align-items: center; justify-content: center; }
+.btn-etapa[data-selecionada="1"] .box { background: #FFFFFF; color: var(--etapa-cor); border-color: #FFFFFF; }
+.btn-etapa[data-selecionada="0"] .box svg { visibility: hidden; }
 
 /* ── Campos ── */
 .ipt, .sel { width: 100%; height: var(--tap-h); padding: 0 12px; box-sizing: border-box;
