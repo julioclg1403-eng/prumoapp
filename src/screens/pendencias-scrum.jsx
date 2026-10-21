@@ -422,7 +422,7 @@ export default function PendenciasScrum({ perfil }) {
       </div>
 
       <nav className="sc-tabs" role="tablist">
-        {[['board', 'Quadro'], ['rem', 'Lembretes'], ['list', 'Atividades'], ['guide', 'Como funciona'], ['sheet', 'Planilha']].map(([k, rotulo]) => (
+        {[['board', 'Quadro'], ['rem', 'Lembretes'], ['list', 'Atividades'], ['guide', 'Como funciona']].map(([k, rotulo]) => (
           <button key={k} type="button" role="tab" aria-selected={aba === k} onClick={() => trocarAba(k)}>{rotulo}</button>
         ))}
       </nav>
@@ -462,7 +462,6 @@ export default function PendenciasScrum({ perfil }) {
       {aba === 'rem' && <Lembretes itens={visiveis} abrir={setAbertoId} />}
       {aba === 'list' && <Tabela itens={visiveis} abrir={setAbertoId} />}
       {aba === 'guide' && <ComoFunciona />}
-      {aba === 'sheet' && <Planilha itens={visiveis} abrir={setAbertoId} marcar={marcarItem} podeEditar={podeEditar} res={res} />}
 
       <footer className="sc-foot">
         <span>Gellen &amp; Guimarães · Engenharia Civil</span>
@@ -626,66 +625,6 @@ function Tabela({ itens, abrir }) {
             ))}
           </tbody>
         </table>
-      </div>
-    </section>
-  )
-}
-
-/* ── Planilha (uma linha por atividade, "OK" por etapa) ─────── */
-function Planilha({ itens, abrir, marcar, podeEditar, res }) {
-  const linhas = itens.slice().sort((a, b) => dayNum(a.a.inicio) - dayNum(b.a.inicio))
-  /* clicar na etapa dá OK em todos os itens que faltam; se já está OK, desfaz */
-  const alternarEtapa = async (a, e) => {
-    const completa = e.itens.every((it) => itemFeito(a, it[0]))
-    for (const it of e.itens) {
-      if (completa) { if (a.itens[it[0]]) await marcar(a.id, it[0], null) }
-      else if (!itemFeito(a, it[0])) await marcar(a.id, it[0], 'ok')
-    }
-  }
-  return (
-    <section>
-      <div className="sc-sheetwrap">
-        <table className="sc-sheet">
-          <thead>
-            <tr>
-              <th className="stk">Atividade</th>
-              <th>Início na obra</th>
-              {ETAPAS.map((e) => <th key={e.n}>{e.label}<small>{e.ini}–{e.fim} d</small></th>)}
-              <th>Prazo da etapa</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.length === 0 && <tr><td colSpan={8} className="sc-empty">Nenhuma atividade</td></tr>}
-            {linhas.map(({ a, r }) => (
-              <tr key={a.id}>
-                <td className="stk"><button type="button" className="nome-btn" onClick={() => abrir(a.id)}>{a.nome}</button></td>
-                <td className="num">{fmtData(a.inicio)}</td>
-                {ETAPAS.map((e) => {
-                  const feitos = e.itens.filter((it) => itemFeito(a, it[0])).length
-                  const ok = feitos === e.itens.length
-                  return (
-                    <td key={e.n} className={`cel${ok ? ' ok' : ''}`}>
-                      <button
-                        type="button" disabled={!podeEditar}
-                        title={ok ? 'Etapa concluída (clique para desfazer)' : 'Clique para dar OK em todos os itens da etapa'}
-                        onClick={() => alternarEtapa(a, e)}
-                      >
-                        {ok ? 'OK' : feitos ? `${feitos}/${e.itens.length}` : ''}
-                      </button>
-                    </td>
-                  )
-                })}
-                <td className="num">{r.prazo != null ? fmtData(isoFromNum(r.prazo)) : '—'}</td>
-                <td><Estado r={r} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="sc-legend">
-        <span>Clique na etapa para dar OK. Clique no nome da atividade para marcar item por item.</span>
-        <span>Alcance do sprint: {res.alcance}%</span>
       </div>
     </section>
   )
