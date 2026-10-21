@@ -8,6 +8,7 @@
 
 import { useState, useMemo } from 'react'
 import { useDados } from '../lib/DadosContext'
+import PendenciasScrum from './pendencias-scrum'
 import {
   hojeISO, formatarData, situacaoPendencia, contarPendencias, diffDias,
   pendenciasGerais, pendenciasTaticas, pendenciasReuniao, ORIGEM_REUNIAO,
@@ -223,6 +224,33 @@ export default function Pendencias({ perfil, params = {} }) {
     })
   }
 
+  const opcoesCategoria = [
+    { valor: 'geral', rotulo: 'Dia a dia', contador: geraisTodas.length },
+    { valor: 'reuniao', rotulo: 'Reunião gerencial', contador: reuniaoTodas.length },
+    { valor: 'tatico', rotulo: 'Tático', contador: semanaTatica.total },
+    { valor: 'scrum', rotulo: 'Scrum' },
+  ]
+
+  if (categoria === 'scrum') {
+    return (
+      <>
+        <div className="topbar">
+          <div className="grow">
+            <div style={{ fontSize: 17, fontWeight: 700 }}>Pendências</div>
+            <div className="sub">Scrum · Fluxo de Contratação</div>
+          </div>
+        </div>
+        <div className="page">
+          <PageHeader titulo="Pendências" sub="Scrum · Fluxo de Contratação" />
+          <div className="stack-2">
+            <Segmentos valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('aberta') }} opcoes={opcoesCategoria} />
+            <PendenciasScrum perfil={perfil} />
+          </div>
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <div className="topbar">
@@ -266,11 +294,7 @@ export default function Pendencias({ perfil, params = {} }) {
         <div className="stack-2">
           <Segmentos
             valor={categoria} onChange={(v) => { setCategoria(v); setFiltro('aberta') }}
-            opcoes={[
-              { valor: 'geral', rotulo: 'Dia a dia', contador: geraisTodas.length },
-              { valor: 'reuniao', rotulo: 'Reunião gerencial', contador: reuniaoTodas.length },
-              { valor: 'tatico', rotulo: 'Tático', contador: semanaTatica.total },
-            ]}
+            opcoes={opcoesCategoria}
           />
 
           <div style={{ position: 'relative' }}>
