@@ -2494,6 +2494,47 @@ export function DadosProvider({ perfil, children }) {
   )
 
   // ── Contratos (itens de contrato importados do sistema) ────
+  /* Empresa e Destino são do CONTRATO, mas ficam gravados em cada
+     item. Um item que entra depois (reimportação com item novo, ou
+     aditivo que cria linha) nasce sem nenhum dos dois — e aí some de
+     tudo que filtra por empresa (busca de item em Produtividade,
+     cruzamentos de Contratos), mesmo o contrato aparentando vinculado
+     (o resumo olha só o primeiro item). Aqui cada contrato empurra
+     o vínculo que a maioria dos itens já tem pros itens que ficaram
+     sem — nunca troca um valor já preenchido, só completa vazio. */
+  const sincronizarVinculosContratos = useCallback(async () => {
+    const { worksite_id } = escopo()
+    const r = await buscarPaginado(() => supabase.from('contract_items')
+      .select('id, cod_contrato, company_id, destino').eq('worksite_id', worksite_id).order('id'))
+    if (r.error) return 0
+    const grupos = new Map()
+    const maisComum = (mapa) => [...mapa.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null
+    for (const i of r.data) {
+      if (!grupos.has(i.cod_contrato)) grupos.set(i.cod_contrato, { empresas: new Map(), destinos: new Map(), semEmpresa: 0, semDestino: 0 })
+      const g = grupos.get(i.cod_contrato)
+      if (i.company_id) g.empresas.set(i.company_id, (g.empresas.get(i.company_id) || 0) + 1)
+      else g.semEmpresa += 1
+      if (i.destino) g.destinos.set(i.destino, (g.destinos.get(i.destino) || 0) + 1)
+      else g.semDestino += 1
+    }
+    let corrigidos = 0
+    for (const [cod, g] of grupos) {
+      const empresa = maisComum(g.empresas)
+      if (empresa && g.semEmpresa > 0) {
+        const u = await supabase.from('contract_items').update({ company_id: empresa })
+          .eq('worksite_id', worksite_id).eq('cod_contrato', cod).is('company_id', null).select('id')
+        if (!u.error) corrigidos += (u.data || []).length
+      }
+      const destino = maisComum(g.destinos)
+      if (destino && g.semDestino > 0) {
+        const u = await supabase.from('contract_items').update({ destino })
+          .eq('worksite_id', worksite_id).eq('cod_contrato', cod).is('destino', null).select('id')
+        if (!u.error) corrigidos += (u.data || []).length
+      }
+    }
+    return corrigidos
+  }, [escopo])
+
   /* Mesmo padrão do Suprimentos: reimportar a mesma planilha (ou uma
      mais nova, com as medições atualizadas) atualiza a linha que já
      existe em vez de duplicar — a chave é (worksite, CHAVECONTRATO),
@@ -2537,11 +2578,38 @@ export function DadosProvider({ perfil, children }) {
         })
       }
 
+      /* Item novo nasce sem empresa/destino — completa já aqui, antes
+         do recarregamento, pra aparecer em todos os módulos. */
+      await sincronizarVinculosContratos()
+
       await recarregar()
       return { importados: total }
     },
-    [escopo, perfil.id, checar, recarregar],
+    [escopo, perfil.id, checar, recarregar, sincronizarVinculosContratos],
   )
+
+  /* Cura sozinha o que já está quebrado (importações anteriores a
+     essa correção) — roda uma vez por conjunto de contratos
+     divergentes, só pra quem pode editar. */
+  const curaVinculosRef = useRef('')
+  useEffect(() => {
+    if (!tudo || perfil.role === 'campo') return
+    const porContrato = new Map()
+    for (const i of tudo.contratos) {
+      if (i.worksite_id !== obraId) continue
+      const g = porContrato.get(i.cod_contrato) || { emp: false, semEmp: false, dest: false, semDest: false }
+      if (i.company_id) g.emp = true; else g.semEmp = true
+      if (i.destino) g.dest = true; else g.semDest = true
+      porContrato.set(i.cod_contrato, g)
+    }
+    const precisa = [...porContrato.entries()]
+      .filter(([, g]) => (g.emp && g.semEmp) || (g.dest && g.semDest))
+      .map(([cod]) => cod).sort().join(',')
+    const marca = `${obraId}:${precisa}`
+    if (!precisa || curaVinculosRef.current === marca) return
+    curaVinculosRef.current = marca
+    sincronizarVinculosContratos().then((n) => { if (n > 0) recarregar() })
+  }, [tudo, obraId, perfil.role, sincronizarVinculosContratos, recarregar])
 
   /* Marca o Destino (Obra/Projetos/Outros) de um contrato inteiro —
      sempre por cod_contrato, porque destino é do CONTRATO, não do
