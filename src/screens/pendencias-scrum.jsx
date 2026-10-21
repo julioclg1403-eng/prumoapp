@@ -631,76 +631,61 @@ function Tabela({ itens, abrir }) {
   )
 }
 
-/* ── Planilha (grade de controle: atividade × item) ─────────── */
+/* ── Planilha (uma linha por atividade, "OK" por etapa) ─────── */
 function Planilha({ itens, abrir, marcar, podeEditar, res }) {
   const linhas = itens.slice().sort((a, b) => dayNum(a.a.inicio) - dayNum(b.a.inicio))
-  const proximo = (v) => (!v ? 'ok' : v === 'ok' ? 'na' : null)
-  const totalPorItem = (chave) => linhas.filter((x) => itemFeito(x.a, chave)).length
+  /* clicar na etapa dá OK em todos os itens que faltam; se já está OK, desfaz */
+  const alternarEtapa = async (a, e) => {
+    const completa = e.itens.every((it) => itemFeito(a, it[0]))
+    for (const it of e.itens) {
+      if (completa) { if (a.itens[it[0]]) await marcar(a.id, it[0], null) }
+      else if (!itemFeito(a, it[0])) await marcar(a.id, it[0], 'ok')
+    }
+  }
   return (
     <section>
       <div className="sc-sheetwrap">
         <table className="sc-sheet">
           <thead>
             <tr>
-              <th className="stk" rowSpan={2}>Atividade</th>
-              <th rowSpan={2}>Início na obra</th>
-              {ETAPAS.map((e) => <th key={e.n} colSpan={e.itens.length}>{e.label} · {e.ini}–{e.fim} d</th>)}
-              <th rowSpan={2}>Etapa prevista</th><th rowSpan={2}>Etapa atual</th><th rowSpan={2}>Prazo da etapa</th>
-              <th rowSpan={2}>Previsto</th><th rowSpan={2}>Realizado</th><th rowSpan={2}>Status</th><th rowSpan={2}>Responsável</th>
-            </tr>
-            <tr className="g2">
-              {ETAPAS.flatMap((e) => e.itens.map((it) => (
-                <th key={it[0]} className="it" title={`${it[1]}. ${it[2]}`}><span>{it[1]}. {it[2]}</span></th>
-              )))}
+              <th className="stk">Atividade</th>
+              <th>Início na obra</th>
+              {ETAPAS.map((e) => <th key={e.n}>{e.label}<small>{e.ini}–{e.fim} d</small></th>)}
+              <th>Prazo da etapa</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {linhas.length === 0 && <tr><td colSpan={30} className="sc-empty">Nenhuma atividade</td></tr>}
+            {linhas.length === 0 && <tr><td colSpan={8} className="sc-empty">Nenhuma atividade</td></tr>}
             {linhas.map(({ a, r }) => (
               <tr key={a.id}>
                 <td className="stk"><button type="button" className="nome-btn" onClick={() => abrir(a.id)}>{a.nome}</button></td>
                 <td className="num">{fmtData(a.inicio)}</td>
-                {ETAPAS.flatMap((e) => e.itens.map((it) => {
-                  const v = a.itens[it[0]]
+                {ETAPAS.map((e) => {
+                  const feitos = e.itens.filter((it) => itemFeito(a, it[0])).length
+                  const ok = feitos === e.itens.length
                   return (
-                    <td key={it[0]} className={`cel et${e.n} ${v || ''}`}>
+                    <td key={e.n} className={`cel${ok ? ' ok' : ''}`}>
                       <button
                         type="button" disabled={!podeEditar}
-                        title={`${it[1]}. ${it[2]}${v === 'ok' ? ' · feito' : v === 'na' ? ' · não se aplica' : ''}`}
-                        onClick={() => marcar(a.id, it[0], proximo(v))}
+                        title={ok ? 'Etapa concluída (clique para desfazer)' : 'Clique para dar OK em todos os itens da etapa'}
+                        onClick={() => alternarEtapa(a, e)}
                       >
-                        {v === 'ok' ? '✓' : v === 'na' ? 'N/A' : ''}
+                        {ok ? 'OK' : feitos ? `${feitos}/${e.itens.length}` : ''}
                       </button>
                     </td>
                   )
-                }))}
-                <td className="num">{etapaTxt(r.prevista)}</td>
-                <td className="num">{r.status === 'done' ? 'Concluída' : etapaTxt(r.atual)}</td>
+                })}
                 <td className="num">{r.prazo != null ? fmtData(isoFromNum(r.prazo)) : '—'}</td>
-                <td className="num">{r.previsto}</td>
-                <td className="num">{r.realizado}</td>
                 <td><Estado r={r} /></td>
-                <td>{a.resp || ''}</td>
               </tr>
             ))}
           </tbody>
-          {linhas.length > 0 && (
-            <tfoot>
-              <tr>
-                <td className="stk">Itens feitos</td>
-                <td />
-                {CHAVES_ITENS.map((k) => <td key={k}>{totalPorItem(k)}</td>)}
-                <td colSpan={3} />
-                <td>{res.previsto}</td><td>{res.realizado}</td>
-                <td colSpan={2}>Alcance {res.alcance}%</td>
-              </tr>
-            </tfoot>
-          )}
         </table>
       </div>
       <div className="sc-legend">
-        <span>Clique numa célula: vazio → ✓ feito → N/A → vazio.</span>
-        <span>Passe o mouse no título da coluna para ver o item.</span>
+        <span>Clique na etapa para dar OK. Clique no nome da atividade para marcar item por item.</span>
+        <span>Alcance do sprint: {res.alcance}%</span>
       </div>
     </section>
   )

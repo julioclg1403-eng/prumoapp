@@ -132,25 +132,19 @@
   .sc-tabs, .sc-toolbar, .sc-statusdate button { display:none; }
 }
 
-/* Aba Planilha: grade de controle (uma linha por atividade, uma coluna por item) */
-.sc-sheet { border-collapse:separate; border-spacing:0; font-size:12.5px; min-width:100%; }
-.sc-sheet th, .sc-sheet td { border-right:1px solid var(--sc-line-2); border-bottom:1px solid var(--sc-line-2); padding:6px 8px; background:var(--sc-surface); }
-.sc-sheet thead th { background:var(--sc-ink); color:#fff; font-weight:700; text-align:center; border-color:rgba(255,255,255,.18); position:sticky; top:0; z-index:2; }
-.sc-sheet thead tr.g2 th { background:#2B3856; font-weight:600; }
-.sc-sheet .stk { position:sticky; left:0; z-index:3; text-align:left; min-width:170px; max-width:210px; box-shadow:1px 0 0 var(--sc-line); }
+/* Aba Planilha: uma linha por atividade, OK por etapa */
+.sc-sheet { border-collapse:separate; border-spacing:0; font-size:14px; width:100%; }
+.sc-sheet th, .sc-sheet td { border-bottom:1px solid var(--sc-line-2); padding:10px 12px; background:var(--sc-surface); text-align:left; }
+.sc-sheet thead th { background:var(--sc-ink); color:#fff; font-weight:700; text-align:center; position:sticky; top:0; z-index:2; white-space:nowrap; }
+.sc-sheet thead th small { display:block; font-weight:500; opacity:.75; font-size:11px; }
+.sc-sheet .stk { position:sticky; left:0; z-index:3; min-width:170px; text-align:left; box-shadow:1px 0 0 var(--sc-line); }
 .sc-sheet thead .stk { z-index:4; background:var(--sc-ink); }
-.sc-sheet th.it { height:150px; padding:6px 2px; vertical-align:bottom; font-weight:600; width:34px; min-width:34px; }
-.sc-sheet th.it span { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; display:inline-block; }
-.sc-sheet .et1 { background:#EEF2FA; } .sc-sheet .et2 { background:#F2F8EE; } .sc-sheet .et3 { background:#FBF6E8; } .sc-sheet .et4 { background:#F6EEF8; }
-.sc-sheet td.cel { text-align:center; padding:0; width:34px; min-width:34px; }
-.sc-sheet td.cel button { width:100%; height:32px; border:0; background:transparent; cursor:pointer; font-weight:700; font-size:14px; color:var(--sc-muted); }
+.sc-sheet td.cel { text-align:center; padding:0; min-width:90px; }
+.sc-sheet td.cel button { width:100%; height:42px; border:0; background:transparent; cursor:pointer; font-weight:700; font-size:14px; color:var(--sc-muted); }
 .sc-sheet td.cel button:disabled { cursor:default; }
 .sc-sheet td.cel.ok { background:var(--sc-green-bg); } .sc-sheet td.cel.ok button { color:var(--sc-green); }
-.sc-sheet td.cel.na { background:var(--sc-gray-bg); } .sc-sheet td.cel.na button { color:var(--sc-gray); font-size:10px; }
-.sc-sheet td.num { text-align:center; font-variant-numeric:tabular-nums; }
+.sc-sheet td.num { text-align:center; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .sc-sheet tbody tr:hover td:not(.cel) { background:var(--sc-bg); }
-.sc-sheet tfoot td { background:var(--sc-bg); font-weight:700; text-align:center; position:sticky; bottom:0; }
-.sc-sheet tfoot td.stk { text-align:left; background:var(--sc-bg); }
 .sc-sheet .nome-btn { border:0; background:none; padding:0; cursor:pointer; font-weight:700; color:var(--sc-ink); text-align:left; }
 .sc-sheet .nome-btn:hover { text-decoration:underline; }
 .sc-sheetwrap { overflow:auto; max-height:70vh; border:1px solid var(--sc-line); border-radius:var(--sc-radius); background:var(--sc-surface); }
