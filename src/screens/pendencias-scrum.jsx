@@ -422,7 +422,7 @@ export default function PendenciasScrum({ perfil }) {
       </div>
 
       <nav className="sc-tabs" role="tablist">
-        {[['board', 'Quadro'], ['rem', 'Lembretes'], ['list', 'Atividades'], ['guide', 'Como funciona']].map(([k, rotulo]) => (
+        {[['board', 'Quadro'], ['rem', 'Lembretes'], ['list', 'Atividades'], ['guide', 'Como funciona'], ['sheet', 'Planilha']].map(([k, rotulo]) => (
           <button key={k} type="button" role="tab" aria-selected={aba === k} onClick={() => trocarAba(k)}>{rotulo}</button>
         ))}
       </nav>
@@ -462,6 +462,7 @@ export default function PendenciasScrum({ perfil }) {
       {aba === 'rem' && <Lembretes itens={visiveis} abrir={setAbertoId} />}
       {aba === 'list' && <Tabela itens={visiveis} abrir={setAbertoId} />}
       {aba === 'guide' && <ComoFunciona />}
+      {aba === 'sheet' && <Planilha itens={visiveis} abrir={setAbertoId} marcar={marcarItem} podeEditar={podeEditar} res={res} />}
 
       <footer className="sc-foot">
         <span>Gellen &amp; Guimarães · Engenharia Civil</span>
@@ -625,6 +626,81 @@ function Tabela({ itens, abrir }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  )
+}
+
+/* ── Planilha (grade de controle: atividade × item) ─────────── */
+function Planilha({ itens, abrir, marcar, podeEditar, res }) {
+  const linhas = itens.slice().sort((a, b) => dayNum(a.a.inicio) - dayNum(b.a.inicio))
+  const proximo = (v) => (!v ? 'ok' : v === 'ok' ? 'na' : null)
+  const totalPorItem = (chave) => linhas.filter((x) => itemFeito(x.a, chave)).length
+  return (
+    <section>
+      <div className="sc-sheetwrap">
+        <table className="sc-sheet">
+          <thead>
+            <tr>
+              <th className="stk" rowSpan={2}>Atividade</th>
+              <th rowSpan={2}>Início na obra</th>
+              {ETAPAS.map((e) => <th key={e.n} colSpan={e.itens.length}>{e.label} · {e.ini}–{e.fim} d</th>)}
+              <th rowSpan={2}>Etapa prevista</th><th rowSpan={2}>Etapa atual</th><th rowSpan={2}>Prazo da etapa</th>
+              <th rowSpan={2}>Previsto</th><th rowSpan={2}>Realizado</th><th rowSpan={2}>Status</th><th rowSpan={2}>Responsável</th>
+            </tr>
+            <tr className="g2">
+              {ETAPAS.flatMap((e) => e.itens.map((it) => (
+                <th key={it[0]} className="it" title={`${it[1]}. ${it[2]}`}><span>{it[1]}. {it[2]}</span></th>
+              )))}
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.length === 0 && <tr><td colSpan={30} className="sc-empty">Nenhuma atividade</td></tr>}
+            {linhas.map(({ a, r }) => (
+              <tr key={a.id}>
+                <td className="stk"><button type="button" className="nome-btn" onClick={() => abrir(a.id)}>{a.nome}</button></td>
+                <td className="num">{fmtData(a.inicio)}</td>
+                {ETAPAS.flatMap((e) => e.itens.map((it) => {
+                  const v = a.itens[it[0]]
+                  return (
+                    <td key={it[0]} className={`cel et${e.n} ${v || ''}`}>
+                      <button
+                        type="button" disabled={!podeEditar}
+                        title={`${it[1]}. ${it[2]}${v === 'ok' ? ' · feito' : v === 'na' ? ' · não se aplica' : ''}`}
+                        onClick={() => marcar(a.id, it[0], proximo(v))}
+                      >
+                        {v === 'ok' ? '✓' : v === 'na' ? 'N/A' : ''}
+                      </button>
+                    </td>
+                  )
+                }))}
+                <td className="num">{etapaTxt(r.prevista)}</td>
+                <td className="num">{r.status === 'done' ? 'Concluída' : etapaTxt(r.atual)}</td>
+                <td className="num">{r.prazo != null ? fmtData(isoFromNum(r.prazo)) : '—'}</td>
+                <td className="num">{r.previsto}</td>
+                <td className="num">{r.realizado}</td>
+                <td><Estado r={r} /></td>
+                <td>{a.resp || ''}</td>
+              </tr>
+            ))}
+          </tbody>
+          {linhas.length > 0 && (
+            <tfoot>
+              <tr>
+                <td className="stk">Itens feitos</td>
+                <td />
+                {CHAVES_ITENS.map((k) => <td key={k}>{totalPorItem(k)}</td>)}
+                <td colSpan={3} />
+                <td>{res.previsto}</td><td>{res.realizado}</td>
+                <td colSpan={2}>Alcance {res.alcance}%</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <div className="sc-legend">
+        <span>Clique numa célula: vazio → ✓ feito → N/A → vazio.</span>
+        <span>Passe o mouse no título da coluna para ver o item.</span>
       </div>
     </section>
   )
