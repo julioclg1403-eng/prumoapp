@@ -29,7 +29,7 @@ import { calcularQuantidade, formulaComValores } from '../lib/formulaProducao'
 import { linkTemporarioPlanta } from '../lib/plantasProducao'
 import { supabase } from '../lib/supabase'
 import {
-  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel,
+  Icon, Chip, PageHeader, Segmentos, Sheet, Campo, Confirmar, Vazio, Indicador, FiltroPeriodo, SecaoRecolhivel, Selecionavel,
   BotaoRelatorio, RelatorioFolha, SecaoRelatorio, TabelaRelatorio,
 } from '../components'
 import { RankingBarras, GraficoColunas, CurvaProducao, CurvaMultipla } from '../components/charts'
@@ -1046,6 +1046,7 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
   const [editando, setEditando] = useState(false)
   const [plantaAberta, setPlantaAberta] = useState(null)
   const [abrirPendencia, setAbrirPendencia] = useState(null)
+  const [vinculoEmLoteAberto, setVinculoEmLoteAberto] = useState(false)
   const [plantaRenomeando, setPlantaRenomeando] = useState(null)
   const [nomePlanta, setNomePlanta] = useState('')
   const [localIdPlanta, setLocalIdPlanta] = useState('')
@@ -1190,6 +1191,14 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
                   semContratoCount > 0 ? `${semContratoCount} sem item de contrato vinculado` : null,
                 ].filter(Boolean).join(' · ')}
               </div>
+              {podeEditar && semContratoCount > 0 && (
+                <button
+                  className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start', marginTop: 6 }}
+                  onClick={() => setVinculoEmLoteAberto(true)}
+                >
+                  Vincular vários ao contrato de uma vez
+                </button>
+              )}
               <div className="stack-1" style={{ marginTop: 6 }}>
                 {pendenciasMarcadores.map((item) => (
                   <button
@@ -1214,6 +1223,14 @@ function DetalheServico({ servico, dados, perfil, podeEditar, voltar }) {
               </div>
             </div>
           )}
+
+          <Sheet aberto={vinculoEmLoteAberto} titulo="Vincular ao contrato" onFechar={() => setVinculoEmLoteAberto(false)}>
+            <VincularContratoEmLote
+              dados={dados} servico={servico}
+              itens={pendenciasMarcadores.filter((p) => p.semContrato)}
+              onConcluido={() => setVinculoEmLoteAberto(false)}
+            />
+          </Sheet>
 
           {plantas.length === 0 ? (
             <div className="card-flat">
@@ -2113,6 +2130,83 @@ function BuscarColaborador({ dados, diarioDoDia, servico, valores, onMudar, onFi
   )
 }
 
+/* Vincula vários eventos sem contrato ao MESMO item de uma vez — o
+   campo de contrato é opcional na hora de marcar, então é comum
+   sobrar um monte de marcação solta que na verdade é tudo o mesmo
+   item. Vem tudo marcado (o caso comum); desmarca o que for diferente. */
+function VincularContratoEmLote({ dados, servico, itens, onConcluido }) {
+  const [itemId, setItemId] = useState('')
+  const [busca, setBusca] = useState('')
+  const [desmarcados, setDesmarcados] = useState(() => new Set())
+  const [salvando, setSalvando] = useState(false)
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    if (!termo) return itens
+    return itens.filter((i) => `${i.marcador?.elemento || ''} ${i.planta?.nome || ''}`.toLowerCase().includes(termo))
+  }, [itens, busca])
+  const marcados = filtrados.filter((i) => !desmarcados.has(i.evento.id))
+  const todosMarcados = filtrados.length > 0 && marcados.length === filtrados.length
+
+  const alternar = (id) => setDesmarcados((atual) => {
+    const novo = new Set(atual)
+    if (novo.has(id)) novo.delete(id); else novo.add(id)
+    return novo
+  })
+  const alternarTodos = () => setDesmarcados((atual) => {
+    const novo = new Set(atual)
+    for (const i of filtrados) { if (todosMarcados) novo.add(i.evento.id); else novo.delete(i.evento.id) }
+    return novo
+  })
+
+  const vincular = async () => {
+    if (!itemId || marcados.length === 0) return
+    setSalvando(true)
+    const n = await dados.vincularEventosAoContrato(marcados.map((i) => i.evento.id), itemId)
+    setSalvando(false)
+    if (n) { setItemId(''); onConcluido?.() }
+  }
+
+  return (
+    <div className="stack-2">
+      <div className="t-caption">
+        Marcações feitas sem escolher o item de contrato — enquanto estiverem assim, não entram na medição.
+        Escolha o item, desmarque as que forem de outro, e vincule todas de uma vez.
+      </div>
+
+      <Campo label="Item de contrato">
+        <BuscarItemContrato dados={dados} servico={servico} valor={itemId} onEscolher={setItemId} />
+      </Campo>
+
+      <input className="ipt" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Filtrar por elemento ou local…" />
+
+      <div className="row-between" style={{ alignItems: 'center' }}>
+        <button className="btn btn-secondary btn-sm" onClick={alternarTodos}>
+          {todosMarcados ? 'Desmarcar todos' : `Marcar todos (${filtrados.length})`}
+        </button>
+        <span className="t-caption">{marcados.length} marcado(s)</span>
+      </div>
+
+      <div className="stack-1" style={{ maxHeight: 340, overflowY: 'auto' }}>
+        {filtrados.map((i) => (
+          <Selecionavel
+            key={i.evento.id}
+            marcado={!desmarcados.has(i.evento.id)}
+            onToggle={() => alternar(i.evento.id)}
+            titulo={i.marcador?.elemento || '—'}
+            sub={`${i.planta?.nome || 'Local não identificado'} · ${formatarData(i.evento.data_execucao)} · ${(Number(i.evento.quantidade) || 0).toLocaleString('pt-BR')}`}
+          />
+        ))}
+        {filtrados.length === 0 && <div className="t-caption">Nenhuma marcação com esse filtro.</div>}
+      </div>
+
+      <button className="btn btn-primary" onClick={vincular} disabled={salvando || !itemId || marcados.length === 0}>
+        {salvando ? 'Vinculando…' : `Vincular ${marcados.length} ao item escolhido`}
+      </button>
+    </div>
+  )
+}
+
 function BuscarItemContrato({ dados, servico, valor, onEscolher }) {
   const [busca, setBusca] = useState('')
   const selecionado = valor ? (dados.contratos || []).find((i) => i.id === valor) : null
@@ -2973,6 +3067,27 @@ function AbaMedicao({ servico, dados, podeEditar }) {
     [dados.plantasProducao],
   )
 
+  /* Eventos deste serviço que ficaram SEM item de contrato (o campo é
+     opcional na hora de marcar) — não entram na medição enquanto
+     estiverem assim. No período na tela; dá pra vincular vários de
+     uma vez ao mesmo item, já que muitas vezes é tudo o mesmo. */
+  const eventosSemContrato = useMemo(
+    () => filtrarPorPeriodo(
+      (dados.eventosProducao || []).filter((e) => !e.contract_item_id && marcadoresValidos.has(e.marker_id)),
+      periodoModo,
+      { dia: periodoDia, mes: periodoMes, inicio: periodoInicio, fim: periodoFim },
+      (e) => e.data_execucao,
+    ).sort((a, b) => (a.data_execucao < b.data_execucao ? 1 : -1)),
+    [dados.eventosProducao, marcadoresValidos, periodoModo, periodoDia, periodoMes, periodoInicio, periodoFim],
+  )
+  const itensSemContrato = useMemo(
+    () => eventosSemContrato.map((evento) => {
+      const marcador = marcadorPorId.get(evento.marker_id)
+      return { evento, marcador, planta: marcador ? plantaPorId.get(marcador.plan_id) : null }
+    }),
+    [eventosSemContrato, marcadorPorId, plantaPorId],
+  )
+
   const idsDeixadosDeFora = useMemo(() => new Set(eventosDeixadosDeFora.map((e) => e.id)), [eventosDeixadosDeFora])
 
   const montarPorItem = (eventos) => {
@@ -3293,6 +3408,12 @@ function AbaMedicao({ servico, dados, podeEditar }) {
               </div>
             ))}
           </div>
+        </SecaoRecolhivel>
+      )}
+
+      {podeEditar && itensSemContrato.length > 0 && (
+        <SecaoRecolhivel titulo="Sem item de contrato" contador={itensSemContrato.length} resumo="não entram na medição">
+          <VincularContratoEmLote dados={dados} servico={servico} itens={itensSemContrato} />
         </SecaoRecolhivel>
       )}
 

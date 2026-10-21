@@ -4008,6 +4008,30 @@ export function DadosProvider({ perfil, children }) {
     [checar],
   )
 
+  /* Vincula vários eventos de uma vez ao MESMO item de contrato — pra
+     quando um monte de marcação ficou sem contrato (o campo é
+     opcional na hora de marcar) e na verdade é tudo o mesmo item.
+     Só atualiza o vínculo; quantidade e data de cada evento ficam. */
+  const vincularEventosAoContrato = useCallback(
+    async (eventoIds, contractItemId) => {
+      if (!eventoIds?.length || !contractItemId) return false
+      const atualizados = new Set()
+      for (let i = 0; i < eventoIds.length; i += 50) {
+        const lote = eventoIds.slice(i, i + 50)
+        const r = await supabase.from('production_marker_events')
+          .update({ contract_item_id: contractItemId }).in('id', lote).select('id')
+        if (r.error) { checar(r, 'vincular os eventos ao contrato'); return false }
+        for (const x of r.data || []) atualizados.add(x.id)
+      }
+      setTudo((t) => t && ({
+        ...t,
+        eventosProducao: t.eventosProducao.map((e) => (atualizados.has(e.id) ? { ...e, contract_item_id: contractItemId } : e)),
+      }))
+      return atualizados.size
+    },
+    [checar],
+  )
+
   /* Corrige o pino já marcado (nome, dimensões) — diferente de um
      "novo evento", que muda o estágio. Liberado pro campo também: quem
      marcou errado em obra é quem melhor sabe corrigir. */
@@ -4217,7 +4241,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador, definirDataMedicaoEventos,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador, definirDataMedicaoEventos, vincularEventosAoContrato,
       fecharMedicao, excluirFechamentoMedicao,
       editarGeometriaMarcador,
       definirCorColaborador,
@@ -4261,7 +4285,7 @@ export function DadosProvider({ perfil, children }) {
       salvarRegraNotificacao,
       salvarTipoServico, arquivarTipoServico, salvarSinapiTipo,
       salvarServico, arquivarServico, excluirServico,
-      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador, definirDataMedicaoEventos,
+      enviarPlanta, arquivarPlanta, renomearPlanta, salvarMarcador, registrarEventoMarcador, excluirMarcador, editarMarcador, editarEventoMarcador, definirDataMedicaoEventos, vincularEventosAoContrato,
       fecharMedicao, excluirFechamentoMedicao,
       editarGeometriaMarcador,
       definirCorColaborador,
