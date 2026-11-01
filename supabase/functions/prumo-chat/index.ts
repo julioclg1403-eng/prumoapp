@@ -98,6 +98,76 @@ Depois de usar uma ferramenta, sempre responda em texto pro usuário confirmando
 feito ou encontrado — nunca termine só com a chamada da ferramenta, sem explicar o resultado.`
 }
 
+// ── Provedor OpenAI ─────────────────────────────────────────────────
+// O app fala o formato da Anthropic (blocos text/tool_use/tool_result, stop_reason).
+// Aqui traduzimos pra API de chat da OpenAI e de volta, sem mexer no app.
+// Sem busca na web nessa rota (a busca era uma ferramenta própria da Anthropic).
+const MODELO_OPENAI = Deno.env.get('OPENAI_CHAT_MODEL') || 'gpt-4.1'
+
+function paraMensagensOpenAI(system: string, messages: any[]) {
+  const out: any[] = [{ role: 'system', content: system }]
+  for (const m of messages || []) {
+    if (typeof m.content === 'string') { out.push({ role: m.role, content: m.content }); continue }
+    const blocos = Array.isArray(m.content) ? m.content : []
+    if (m.role === 'assistant') {
+      const texto = blocos.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+      const chamadas = blocos.filter((b: any) => b.type === 'tool_use').map((b: any) => ({
+        id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.input || {}) },
+      }))
+      const msg: any = { role: 'assistant', content: texto || null }
+      if (chamadas.length) msg.tool_calls = chamadas
+      if (msg.content !== null || chamadas.length) out.push(msg)
+    } else {
+      for (const b of blocos) {
+        if (b.type === 'tool_result') {
+          out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: typeof b.content === 'string' ? b.content : JSON.stringify(b.content) })
+        } else if (b.type === 'text') {
+          out.push({ role: 'user', content: b.text })
+        }
+      }
+    }
+  }
+  return out
+}
+
+async function responderComOpenAI(messages: any[], tools: any[], contexto: any, CORS: Record<string, string>) {
+  const system = `${montarSystemPrompt(contexto)}\n\nAtenção: a busca na web não está disponível agora. Se o usuário pedir um dado externo (SINAPI, norma, preço de mercado), diga que não consegue buscar na internet nesta versão e ofereça usar só os dados do Prumo.`
+  const ferramentas = (Array.isArray(tools) ? tools : [])
+    .filter((t: any) => t && t.name && !String(t.type || '').startsWith('web_search'))
+    .map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema || { type: 'object', properties: {} } } }))
+
+  const body: Record<string, unknown> = {
+    model: MODELO_OPENAI,
+    max_completion_tokens: 4096,
+    messages: paraMensagensOpenAI(system, messages),
+  }
+  if (ferramentas.length) body.tools = ferramentas
+
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${Deno.env.get('OPENAI_API_KEY')}` },
+    body: JSON.stringify(body),
+  })
+  const data = await r.json()
+  if (!r.ok) {
+    console.error('OpenAI API error:', r.status, JSON.stringify(data))
+    return new Response(JSON.stringify({ error: data?.error?.message || 'Erro ao falar com a IA' }), {
+      status: 500, headers: { ...CORS, 'content-type': 'application/json' },
+    })
+  }
+  const msg = data.choices?.[0]?.message || {}
+  const content: any[] = []
+  if (msg.content) content.push({ type: 'text', text: msg.content })
+  for (const c of msg.tool_calls || []) {
+    let input = {}
+    try { input = JSON.parse(c.function?.arguments || '{}') } catch { input = {} }
+    content.push({ type: 'tool_use', id: c.id, name: c.function?.name, input })
+  }
+  return new Response(JSON.stringify({ content, stop_reason: (msg.tool_calls || []).length ? 'tool_use' : 'end_turn' }), {
+    headers: { ...CORS, 'content-type': 'application/json' },
+  })
+}
+
 Deno.serve(async (req) => {
   const CORS = corsHeaders(req.headers.get('Origin'))
   if (req.method === 'OPTIONS') {
@@ -121,6 +191,12 @@ Deno.serve(async (req) => {
 
   try {
     const { messages, tools, contexto } = await req.json()
+
+    // Por padrão a IA é a da OpenAI (crédito já pago). Pra voltar pro Claude pela API,
+    // defina o segredo IA_PROVEDOR = anthropic (e uma ANTHROPIC_API_KEY válida).
+    if (Deno.env.get('IA_PROVEDOR') !== 'anthropic') {
+      return await responderComOpenAI(messages, tools, contexto, CORS)
+    }
 
     const ferramentas = Array.isArray(tools) ? [...tools] : []
     ferramentas.push({ type: 'web_search_20250305', name: 'web_search', max_uses: 5 })
