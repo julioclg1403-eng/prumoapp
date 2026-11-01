@@ -80,8 +80,6 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Contratos importados do sistema, com cruzamento de itens entre eles' },
     { chave: 'producao', rotulo: 'Produtividade', icone: 'obra',
       desc: 'Marcação de execução na planta, medição por contrato e rendimento' },
-    { chave: 'gerencial', rotulo: 'Gerencial Yacht', icone: 'obra',
-      desc: 'Painel gerencial da obra: fluxo, orçamento, cronograma e medição da Caixa' },
     { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
       desc: 'Ocorrências e advertências da obra' },
     { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
@@ -93,6 +91,10 @@ export default function AppGestao({ perfil, onSair }) {
        já foi assim também; agora segue a mesma lista de módulos
        restringíveis que todo o resto (banco, RLS `tem_modulo`,
        concorda). */
+    ...(perfil.role === 'admin'
+      ? [{ chave: 'gerencial', rotulo: 'Gerencial Yacht', icone: 'obra',
+          desc: 'Painel da obra: fluxo, orçamento, cronograma e medição da Caixa (só administrador, com senha)' }]
+      : []),
     ...(perfil.role === 'admin'
       ? [{ chave: 'usuarios', rotulo: 'Usuários', icone: 'usuarios', desc: 'Quem tem acesso e com qual perfil' }]
       : []),
@@ -130,7 +132,7 @@ export default function AppGestao({ perfil, onSair }) {
      módulos restringíveis, vira "sim" só pra quem é admin. Projetos
      não está mais aqui: segue a mesma regra dos outros módulos
      (bloco de baixo). */
-  const ADMIN_ONLY = ['usuarios']
+  const ADMIN_ONLY = ['usuarios', 'gerencial']
   const semRestricao = perfil.role === 'admin' || !perfil.modulos_permitidos
   const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || (
     ADMIN_ONLY.includes(chaveDoModulo)

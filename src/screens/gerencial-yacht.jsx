@@ -4,13 +4,15 @@
    original: o HTML inteiro roda numa moldura (iframe), sem mudar
    uma linha dele.
 
-   O painel leva os dados reais da obra, então não existe em claro
-   na pasta pública. Ele vem criptografado (public/gerencial-yacht/
-   obra-yacht.enc); a chave só sai do banco pelo RPC
-   gerencial_yacht_chave(), pra quem é da gestão e tem o módulo.
-   Aqui a gente baixa o arquivo, descriptografa no navegador e
-   escreve na moldura /gerencial-yacht/shell.html (mesma origem, a
-   única página do Prumo com política que aceita scripts inline).
+   Acesso: SÓ o administrador, e ainda com uma senha própria da aba
+   (definida por ele na primeira vez). O painel leva dados reais da
+   obra, então não existe em claro na pasta pública: vem criptografado
+   (public/gerencial-yacht/obra-yacht.enc) e a chave só sai do banco
+   pelo RPC gerencial_yacht_chave(senha), que confere admin + senha
+   (bcrypt no banco; 5 erros seguidos bloqueiam por 15 minutos).
+   Aqui a gente descriptografa no navegador e escreve na moldura
+   /gerencial-yacht/shell.html (mesma origem; a única página do Prumo
+   com política que aceita scripts inline).
 
    Quem manda no que o painel guarda (planejamento, simulação da
    Caixa, arquivos importados) é ele mesmo, no localStorage deste
@@ -19,102 +21,178 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useDesktop } from '../components'
+import { Campo, useDesktop } from '../components'
 
-let htmlEmCache = null // evita baixar e descriptografar de novo ao trocar de aba
+let htmlEmCache = null // depois de destravado, trocar de aba não pede a senha de novo (recarregar o app pede)
 
 const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
 
-async function obterHtml() {
-  if (htmlEmCache) return htmlEmCache
-
-  const { data, error } = await supabase.rpc('gerencial_yacht_chave', { p_nome: 'obra-yacht' })
-  if (error) {
-    const semAcesso = error.code === '42501' || /sem acesso|módulo/i.test(error.message || '')
-    throw new Error(semAcesso ? 'ACESSO' : 'CHAVE')
-  }
-  const linha = Array.isArray(data) ? data[0] : data
-  if (!linha || !linha.chave) throw new Error('SEM_CHAVE')
-
+async function descriptografar(linha) {
   const resposta = await fetch('/gerencial-yacht/obra-yacht.enc', { cache: 'no-cache' })
   if (!resposta.ok) throw new Error('ARQUIVO')
   const cifrado = await resposta.arrayBuffer()
-
   const chave = await crypto.subtle.importKey('raw', bytes(linha.chave), 'AES-GCM', false, ['decrypt'])
   let comprimido
   try {
     comprimido = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes(linha.iv) }, chave, cifrado)
   } catch {
-    throw new Error('DESCRIPTOGRAFAR') // chave do banco não bate com o arquivo publicado
+    throw new Error('DESCRIPTOGRAFAR') // a chave do banco não bate com o arquivo publicado
   }
-  const html = await new Response(new Blob([comprimido]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
-  htmlEmCache = html
-  return html
+  return new Response(new Blob([comprimido]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
 }
 
-const MENSAGENS = {
-  ACESSO: 'Você não tem acesso ao Gerencial Yacht. Peça ao administrador para liberar em Usuários.',
-  CHAVE: 'Não consegui obter a chave do painel agora. Tente de novo em instantes.',
-  SEM_CHAVE: 'O painel ainda não foi liberado no banco (falta a chave). Avise o administrador.',
+const ERROS = {
   ARQUIVO: 'Não consegui baixar o painel. Verifique a conexão e tente de novo.',
-  DESCRIPTOGRAFAR: 'O painel publicado e a chave do banco não combinam (atualização incompleta). Avise o administrador.',
+  DESCRIPTOGRAFAR: 'O painel publicado e a chave do banco não combinam (atualização incompleta). Tente de novo em alguns minutos.',
 }
 
 export default function GerencialYacht() {
   const desktop = useDesktop()
   const iframeRef = useRef(null)
-  const [moldura, setMoldura] = useState(false) // a página vazia do iframe já carregou
-  const [estado, setEstado] = useState('carregando') // carregando | pronto | erro
-  const [erro, setErro] = useState('')
+  // verificando | sem_acesso | criar | senha | bloqueado | painel | erro
+  const [etapa, setEtapa] = useState(htmlEmCache ? 'painel' : 'verificando')
+  const [senha, setSenha] = useState('')
+  const [confirmar, setConfirmar] = useState('')
+  const [aviso, setAviso] = useState('')
+  const [ocupado, setOcupado] = useState(false)
 
   useEffect(() => {
-    if (!moldura) return undefined
+    if (htmlEmCache) return undefined
     let vivo = true
     ;(async () => {
-      try {
-        const html = await obterHtml()
-        if (!vivo) return
-        const doc = iframeRef.current?.contentDocument
-        if (!doc) return
-        doc.open()
-        doc.write(html)
-        doc.close()
-        setEstado('pronto')
-      } catch (e) {
-        if (!vivo) return
-        setErro(MENSAGENS[e.message] || 'Não consegui abrir o painel.')
-        setEstado('erro')
-      }
+      const { data, error } = await supabase.rpc('gerencial_yacht_status')
+      if (!vivo) return
+      if (error) { setAviso('Não consegui verificar o acesso agora. Tente de novo em instantes.'); setEtapa('erro'); return }
+      if (!data?.admin) setEtapa('sem_acesso')
+      else if (!data.senha_definida) setEtapa('criar')
+      else if (data.bloqueado) setEtapa('bloqueado')
+      else setEtapa('senha')
     })()
     return () => { vivo = false }
-  }, [moldura])
+  }, [])
+
+  const abrir = async (senhaDigitada) => {
+    const { data, error } = await supabase.rpc('gerencial_yacht_chave', { p_senha: senhaDigitada })
+    if (error) { setAviso('Você não tem acesso ao Gerencial Yacht.'); setEtapa('sem_acesso'); return }
+    if (!data?.ok) {
+      if (data?.motivo === 'bloqueado') { setEtapa('bloqueado'); return }
+      if (data?.motivo === 'sem_chave') { setAviso('O painel ainda não foi publicado no banco (falta a chave). Avise quem administra o sistema.'); setEtapa('erro'); return }
+      if (data?.motivo === 'senha') {
+        setAviso(data.restantes > 0 ? `Senha incorreta. Restam ${data.restantes} tentativa(s).` : 'Senha incorreta. Acesso bloqueado por 15 minutos.')
+        if (data.restantes === 0) setEtapa('bloqueado')
+        return
+      }
+      setAviso('Não consegui abrir o painel.'); setEtapa('erro'); return
+    }
+    try {
+      htmlEmCache = await descriptografar(data)
+      setSenha(''); setConfirmar(''); setAviso('')
+      setEtapa('painel')
+    } catch (e) {
+      setAviso(ERROS[e.message] || 'Não consegui abrir o painel.')
+      setEtapa('erro')
+    }
+  }
+
+  const enviarSenha = async (ev) => {
+    ev.preventDefault()
+    if (ocupado) return
+    setAviso('')
+    if (etapa === 'criar') {
+      if (senha.length < 8) { setAviso('Use pelo menos 8 caracteres.'); return }
+      if (senha !== confirmar) { setAviso('As duas senhas não são iguais.'); return }
+    }
+    setOcupado(true)
+    try {
+      if (etapa === 'criar') {
+        const { data, error } = await supabase.rpc('gerencial_yacht_definir_senha', { p_nova: senha })
+        if (error || !data?.ok) { setAviso('Não consegui salvar a senha. Tente de novo.'); return }
+      }
+      await abrir(senha)
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  // escreve o painel na moldura assim que ela carregar
+  const aoCarregarMoldura = () => {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc || !htmlEmCache) return
+    doc.open()
+    doc.write(htmlEmCache)
+    doc.close()
+  }
+
+  const altura = desktop ? '100vh' : 'calc(100dvh - 72px)'
+
+  if (etapa === 'painel') {
+    return (
+      <div style={{ height: altura, background: '#f4f4f3' }}>
+        <iframe
+          ref={iframeRef} title="Gerencial Yacht" src="/gerencial-yacht/shell.html"
+          onLoad={aoCarregarMoldura} style={{ border: 0, width: '100%', height: '100%', display: 'block' }}
+        />
+      </div>
+    )
+  }
 
   return (
-    <div style={{ position: 'relative', height: desktop ? '100vh' : 'calc(100dvh - 72px)', background: '#f4f4f3' }}>
-      <iframe
-        ref={iframeRef}
-        title="Gerencial Yacht"
-        src="/gerencial-yacht/shell.html"
-        onLoad={() => setMoldura(true)}
-        style={{ border: 0, width: '100%', height: '100%', display: estado === 'erro' ? 'none' : 'block' }}
-      />
-      {estado !== 'pronto' && (
-        <div
-          style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 24, textAlign: 'center', background: 'var(--bg, #f4f4f3)', pointerEvents: estado === 'erro' ? 'auto' : 'none',
-          }}
-        >
-          {estado === 'erro' ? (
-            <div className="stack-2" style={{ maxWidth: 420 }}>
-              <div className="t-strong">Gerencial Yacht</div>
-              <div className="t-caption">{erro}</div>
-            </div>
-          ) : (
-            <div className="t-caption">Abrindo o painel da obra…</div>
-          )}
+    <div className="page" style={{ display: 'flex', justifyContent: 'center', paddingTop: desktop ? 80 : 32 }}>
+      <div className="stack-2" style={{ width: '100%', maxWidth: 380 }}>
+        <div>
+          <div className="t-title" style={{ fontSize: 20 }}>Gerencial Yacht</div>
+          <div className="t-caption">Painel da obra: fluxo, orçamento, cronograma e medição da Caixa.</div>
         </div>
-      )}
+
+        {etapa === 'verificando' && <div className="t-caption">Verificando acesso…</div>}
+
+        {etapa === 'sem_acesso' && (
+          <div className="card-flat">
+            <div className="t-strong">Acesso restrito</div>
+            <div className="t-caption" style={{ marginTop: 4 }}>{aviso || 'Esta área é só do administrador.'}</div>
+          </div>
+        )}
+
+        {etapa === 'bloqueado' && (
+          <div className="card-flat">
+            <div className="t-strong">Acesso bloqueado por alguns minutos</div>
+            <div className="t-caption" style={{ marginTop: 4 }}>Foram muitas tentativas com senha errada. Tente de novo em 15 minutos.</div>
+          </div>
+        )}
+
+        {etapa === 'erro' && (
+          <div className="card-flat">
+            <div className="t-strong">Não foi possível abrir</div>
+            <div className="t-caption" style={{ marginTop: 4 }}>{aviso}</div>
+            <button className="btn btn-secondary" style={{ marginTop: 12 }} onClick={() => window.location.reload()}>Tentar de novo</button>
+          </div>
+        )}
+
+        {(etapa === 'criar' || etapa === 'senha') && (
+          <form className="card-flat stack-2" onSubmit={enviarSenha}>
+            <div className="t-strong">{etapa === 'criar' ? 'Crie a senha do Gerencial Yacht' : 'Digite a senha'}</div>
+            {etapa === 'criar' && (
+              <div className="t-caption">Só você, como administrador, entra aqui. Esta senha é diferente da senha do Prumo. Use pelo menos 8 caracteres e guarde bem.</div>
+            )}
+            <Campo label={etapa === 'criar' ? 'Nova senha' : 'Senha'}>
+              <input
+                className="ipt" type="password" value={senha} autoFocus
+                autoComplete={etapa === 'criar' ? 'new-password' : 'current-password'}
+                onChange={(e) => setSenha(e.target.value)}
+              />
+            </Campo>
+            {etapa === 'criar' && (
+              <Campo label="Repita a senha">
+                <input className="ipt" type="password" value={confirmar} autoComplete="new-password" onChange={(e) => setConfirmar(e.target.value)} />
+              </Campo>
+            )}
+            {aviso && <div className="t-caption" style={{ color: 'var(--danger)' }}>{aviso}</div>}
+            <button className="btn btn-primary" type="submit" disabled={ocupado || !senha}>
+              {ocupado ? 'Abrindo…' : etapa === 'criar' ? 'Criar senha e abrir' : 'Abrir painel'}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }

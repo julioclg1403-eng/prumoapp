@@ -351,7 +351,6 @@ export const MODULOS_RESTRINGIVEIS = [
   { chave: 'suprimentos', rotulo: 'Suprimentos' },
   { chave: 'contratos', rotulo: 'Contratos' },
   { chave: 'cadastros', rotulo: 'Cadastros' },
-  { chave: 'gerencial', rotulo: 'Gerencial Yacht' },
 ]
 
 /* Mesma regra em todo lugar que decide se um módulo aparece: admin
