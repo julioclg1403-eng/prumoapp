@@ -15,6 +15,8 @@ import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useDados } from '../lib/DadosContext'
 import { FERRAMENTAS, executarFerramenta } from '../lib/agenteFerramentas'
+import { transcrever } from '../lib/audio'
+import { falar, ouvirUmaFala, interromperFala, interromperEscuta } from '../lib/anaVoz'
 import { Icon, TextareaComAudio } from './index'
 
 const MAX_RODADAS_DE_FERRAMENTA = 4
@@ -35,6 +37,8 @@ export default function ChatBot({ navegar, perfil }) {
   const [texto, setTexto] = useState('')
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
+  const [voz, setVoz] = useState('off') // off | ouvindo | pensando | falando
+  const vozAtivaRef = useRef(false)
   const historicoRef = useRef([]) // formato Anthropic completo, com blocos de tool_use/tool_result
   const fimRef = useRef(null)
 
@@ -48,7 +52,7 @@ export default function ChatBot({ navegar, perfil }) {
       body: {
         messages: historico,
         tools: FERRAMENTAS,
-        contexto: { agora_iso: agora.toISOString(), fuso: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        contexto: { agora_iso: agora.toISOString(), fuso: Intl.DateTimeFormat().resolvedOptions().timeZone, modo_voz: vozAtivaRef.current },
       },
     })
     if (error) throw error
@@ -56,14 +60,15 @@ export default function ChatBot({ navegar, perfil }) {
     return data
   }
 
-  const enviar = async () => {
-    const conteudo = texto.trim()
-    if (!conteudo || carregando) return
+  /* Manda uma mensagem pra Ana e devolve o texto da resposta (ou '' se falhou). */
+  const enviarTexto = async (conteudo) => {
+    if (!conteudo) return ''
     historicoRef.current = [...historicoRef.current, { role: 'user', content: conteudo }]
     setMensagens((m) => [...m, { role: 'user', content: conteudo }])
     setTexto('')
     setErro('')
     setCarregando(true)
+    let respostaFinal = ''
     try {
       let rodadas = 0
       for (;;) {
@@ -72,6 +77,7 @@ export default function ChatBot({ navegar, perfil }) {
 
         if (rodadas >= MAX_RODADAS_DE_FERRAMENTA || (resposta.stop_reason !== 'tool_use' && resposta.stop_reason !== 'pause_turn')) {
           const textoFinal = textoDosBlocos(resposta.content)
+          respostaFinal = textoFinal
           setMensagens((m) => [...m, { role: 'assistant', content: textoFinal || 'Não consegui responder agora — tenta de novo.' }])
           break
         }
@@ -93,7 +99,51 @@ export default function ChatBot({ navegar, perfil }) {
     } finally {
       setCarregando(false)
     }
+    return respostaFinal
   }
+
+  const enviar = async () => {
+    const conteudo = texto.trim()
+    if (!conteudo || carregando) return
+    await enviarTexto(conteudo)
+  }
+
+  /* Conversa por voz, estilo Jarvis: ouve → pensa → fala → ouve de novo,
+     até a pessoa parar ou ficar em silêncio. */
+  const pararVoz = () => {
+    vozAtivaRef.current = false
+    interromperEscuta()
+    interromperFala()
+    setVoz('off')
+  }
+
+  const iniciarVoz = async () => {
+    if (vozAtivaRef.current) { pararVoz(); return }
+    vozAtivaRef.current = true
+    setErro('')
+    setMinimizado(false)
+    while (vozAtivaRef.current) {
+      setVoz('ouvindo')
+      const fala = await ouvirUmaFala()
+      if (!vozAtivaRef.current) break
+      if (fala.erro) { setErro('Não consegui acessar o microfone. Verifique a permissão do navegador.'); break }
+      if (fala.vazio) break // ninguém falou: encerra sozinha
+      setVoz('pensando')
+      const transcrito = await transcrever(fala.blob)
+      if (!vozAtivaRef.current) break
+      if (transcrito == null) { setErro('Não consegui entender o áudio. Tenta de novo.'); break }
+      if (!transcrito.trim()) continue
+      const resposta = await enviarTexto(transcrito.trim())
+      if (!vozAtivaRef.current) break
+      if (resposta) {
+        setVoz('falando')
+        await falar(resposta)
+      }
+    }
+    pararVoz()
+  }
+
+  useEffect(() => () => { vozAtivaRef.current = false; interromperEscuta(); interromperFala() }, [])
 
   const aoTeclar = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -119,7 +169,7 @@ export default function ChatBot({ navegar, perfil }) {
       {!aberto && (
         <button
           onClick={() => setAberto(true)}
-          aria-label="Abrir assistente do Prumo"
+          aria-label="Abrir a Ana, assistente do Prumo"
           style={{
             ...POSICAO_FLUTUANTE,
             width: 52,
@@ -142,7 +192,7 @@ export default function ChatBot({ navegar, perfil }) {
       {aberto && minimizado && (
         <button
           onClick={() => setMinimizado(false)}
-          aria-label="Reabrir assistente do Prumo"
+          aria-label="Reabrir a Ana"
           style={{
             ...POSICAO_FLUTUANTE,
             display: 'flex',
@@ -159,7 +209,7 @@ export default function ChatBot({ navegar, perfil }) {
           }}
         >
           <Icon name="comentario" size={18} />
-          <span>Assistente Prumo</span>
+          <span>{voz === 'off' ? 'Ana' : voz === 'ouvindo' ? 'Ana · ouvindo…' : voz === 'pensando' ? 'Ana · pensando…' : 'Ana · falando…'}</span>
           {carregando && (
             <span
               aria-hidden="true"
@@ -178,7 +228,7 @@ export default function ChatBot({ navegar, perfil }) {
       {aberto && !minimizado && (
         <div
           role="dialog"
-          aria-label="Assistente Prumo"
+          aria-label="Ana, assistente do Prumo"
           style={{
             ...POSICAO_FLUTUANTE,
             width: 'min(94vw, 380px)',
@@ -195,8 +245,17 @@ export default function ChatBot({ navegar, perfil }) {
             className="row-between"
             style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}
           >
-            <div className="t-title" style={{ fontSize: 15 }}>Assistente Prumo</div>
+            <div className="t-title" style={{ fontSize: 15 }}>Ana <span className="t-caption" style={{ fontWeight: 400 }}>· assistente do Prumo</span></div>
             <div className="row-flex" style={{ gap: 4 }}>
+              <button
+                className={`btn btn-sm ${voz === 'off' ? 'btn-ghost' : 'btn-danger'}`}
+                onClick={iniciarVoz}
+                aria-label={voz === 'off' ? 'Conversar por voz com a Ana' : 'Encerrar conversa por voz'}
+                title={voz === 'off' ? 'Conversar por voz' : 'Encerrar conversa por voz'}
+              >
+                <Icon name={voz === 'off' ? 'microfone' : 'parar'} size={16} />
+                {voz === 'off' ? ' Voz' : ' Parar'}
+              </button>
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => setMinimizado(true)}
@@ -214,8 +273,9 @@ export default function ChatBot({ navegar, perfil }) {
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px' }}>
             {mensagens.length === 0 && (
               <div className="t-caption" style={{ textAlign: 'center', marginTop: 24 }}>
-                Pergunte qualquer coisa sobre a obra, peça pra abrir uma tela ou consultar rendimento
-                de colaboradores — diário, pendências, efetivo, planejamento e outros módulos do Prumo.
+                Oi, eu sou a Ana. Pergunte qualquer coisa sobre a obra, peça pra abrir uma tela ou consultar
+                rendimento — diário, pendências, efetivo, planejamento e outros módulos do Prumo.
+                Toque em <b>Voz</b> pra conversar falando.
               </div>
             )}
             {mensagens.map((m, i) => (
@@ -240,7 +300,7 @@ export default function ChatBot({ navegar, perfil }) {
             ))}
             {carregando && (
               <div style={{ alignSelf: 'flex-start', color: 'var(--text-3)', fontSize: 13 }}>
-                Digitando… <span className="t-caption">(pode minimizar e continuar usando o app)</span>
+                Ana está pensando… <span className="t-caption">(pode minimizar e continuar usando o app)</span>
               </div>
             )}
             {erro && <div className="t-caption" style={{ color: 'var(--danger)' }}>{erro}</div>}
@@ -254,7 +314,7 @@ export default function ChatBot({ navegar, perfil }) {
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
                 onKeyDown={aoTeclar}
-                placeholder="Escreva ou grave sua pergunta…"
+                placeholder="Escreva ou grave sua pergunta pra Ana…"
                 disabled={carregando}
                 style={{ minHeight: 44, height: 44, paddingTop: 10 }}
               />
