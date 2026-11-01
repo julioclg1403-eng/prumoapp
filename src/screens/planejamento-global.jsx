@@ -359,7 +359,7 @@ function VincularEtapa({ item, onFechar, dados, etapaVinculada, nomesServicoPorE
 
 /* ── Importação da planilha mestre ────────────────────────── */
 
-function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
+export function ImportarCronogramaGlobal({ aberto, onFechar, dados, arquivoInicial, ignorarCodigos }) {
   const [lendo, setLendo] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [nomeArquivo, setNomeArquivo] = useState('')
@@ -372,10 +372,14 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
 
   const codigosExistentes = new Set(dados.cronogramaGlobal.map((i) => i.codigo_externo))
 
-  const onArquivo = async (e) => {
+  const onArquivo = (e) => {
     const arquivo = e.target.files?.[0]
     if (!arquivo) return
     e.target.value = ''
+    processar(arquivo)
+  }
+
+  const processar = async (arquivo) => {
     setNomeArquivo(arquivo.name)
     setLendo(true)
     setResultado(null)
@@ -383,7 +387,9 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
     try {
       const { lerCronogramaGlobal } = await import('../lib/planilhaCronogramaGlobal')
       const lido = await lerCronogramaGlobal(arquivo)
-      const itens = lido.itens.map((i) => ({ ...i, acao: codigosExistentes.has(i.codigo_externo) ? 'atualiza' : 'novo' }))
+      const itens = lido.itens
+        .filter((i) => !ignorarCodigos?.has(String(i.codigo_externo)))
+        .map((i) => ({ ...i, acao: codigosExistentes.has(i.codigo_externo) ? 'atualiza' : 'novo' }))
       setResultado({ ...lido, itens })
     } catch (err) {
       setResultado({ itens: [], erroGeral: `Não consegui ler este arquivo. ${err.message}` })
@@ -391,6 +397,11 @@ function ImportarCronogramaGlobal({ aberto, onFechar, dados }) {
       setLendo(false)
     }
   }
+
+  useEffect(() => {
+    if (aberto && arquivoInicial) processar(arquivoInicial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, arquivoInicial])
 
   const novos = (resultado?.itens || []).filter((i) => i.acao === 'novo').length
   const atualizados = (resultado?.itens || []).filter((i) => i.acao === 'atualiza').length

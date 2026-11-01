@@ -5,8 +5,9 @@
    esconder rolagem dentro do cartão.
    ============================================================ */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDados } from '../lib/DadosContext'
+import { supabase } from '../lib/supabase'
 import {
   hojeISO, somarDias, formatarData, formatarDinheiro, nomeDiaSemana,
   diarioDaData, totalPresentes,
@@ -19,6 +20,7 @@ import {
   FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 import { GraficoColunas, GraficoDonut, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
+import LinhaDeBalanco from '../components/LinhaDeBalanco'
 
 const ROTULO_DESTINO = {
   almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração', equipamentos: 'Equipamentos',
@@ -30,6 +32,18 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
   const desktop = useDesktop()
   const hoje = hojeISO()
   const de = somarDias(hoje, -6)
+
+  /* Linha de balanço: o cronograma tratado que o Gerencial Yacht grava quando é atualizado
+     (só cronograma, sem valores). Sem a tabela ou sem dado, o Início simplesmente não mostra. */
+  const [balanco, setBalanco] = useState(null)
+  useEffect(() => {
+    let vivo = true
+    supabase.from('gerencial_cronograma').select('tarefas, locais, gerado_em, origem, atualizado_em')
+      .eq('worksite_id', dados.obra.id).maybeSingle()
+      .then(({ data }) => { if (vivo) setBalanco(data || null) })
+      .catch(() => {})
+    return () => { vivo = false }
+  }, [dados.obra.id])
 
   const diarioHoje = diarioDaData(dados.diarios, hoje, dados.obra.id)
 
@@ -258,6 +272,16 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
                 avancoMensal != null && (
                   <div className="t-display" style={{ fontSize: 36, marginTop: 6 }}>{avancoMensal.toFixed(1)}%</div>
                 )
+              )}
+
+              {balanco?.tarefas?.length > 0 && (
+                <div className="stack-2" style={{ marginTop: 12 }}>
+                  <LinhaDeBalanco tarefas={balanco.tarefas} locais={balanco.locais} hoje={hoje} />
+                  <div className="t-caption">
+                    Cronograma do Gerencial · planilha gerada em {balanco.gerado_em ? formatarData(balanco.gerado_em) : '—'} · atualizado em{' '}
+                    {formatarData(String(balanco.atualizado_em).slice(0, 10))}. Atualiza sozinho quando o Gerencial é atualizado.
+                  </div>
+                </div>
               )}
             </div>
           )}

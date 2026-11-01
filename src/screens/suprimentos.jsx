@@ -1320,7 +1320,7 @@ function VincularPedido({ entrada, onFechar, dados, candidatas }) {
 
 /* ── Importação da planilha ────────────────────────────────── */
 
-function ImportarSuprimentos({ aberto, onFechar, dados }) {
+export function ImportarSuprimentos({ aberto, onFechar, dados, arquivoInicial }) {
   const [lendo, setLendo] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [nomeArquivo, setNomeArquivo] = useState('')
@@ -1336,10 +1336,14 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
     [dados.suprimentos],
   )
 
-  const onArquivo = async (e) => {
+  const onArquivo = (e) => {
     const arquivo = e.target.files?.[0]
     if (!arquivo) return
     e.target.value = ''
+    processar(arquivo)
+  }
+
+  const processar = async (arquivo) => {
     setNomeArquivo(arquivo.name)
     setLendo(true)
     setResultado(null)
@@ -1357,6 +1361,11 @@ function ImportarSuprimentos({ aberto, onFechar, dados }) {
       setLendo(false)
     }
   }
+
+  useEffect(() => {
+    if (aberto && arquivoInicial) processar(arquivoInicial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, arquivoInicial])
 
   const novos = (resultado?.itens || []).filter((i) => i.acao === 'novo').length
   const atualizados = (resultado?.itens || []).filter((i) => i.acao === 'atualiza').length
