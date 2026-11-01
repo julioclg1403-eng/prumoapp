@@ -11,10 +11,10 @@ Tudo o que já foi feito lá está documentado em [`LEIA-ME_PASSAGEM_DE_CONTEXTO
 - O que o painel guarda (planejamento, simulação da Caixa, arquivos importados) fica no `localStorage` deste navegador (`yacht_plano_v1`), como no arquivo original. "Baixar HTML atualizado" continua funcionando.
 
 ## Atualizar o Gerencial atualiza o resto do Prumo
-Ao anexar um arquivo **dentro do painel** (aba Atualizar / Exportar) ou pelo botão **📎 Anexar ao Prumo**, o Prumo identifica o arquivo (, usando as próprias funções de leitura do painel; o painel não é alterado):
+Ao anexar um arquivo **dentro do painel** (aba Atualizar / Exportar) ou pelo botão **📎 Anexar ao Prumo**, o Prumo identifica o arquivo (`src/lib/gerencialPonte.js`, usando as próprias funções de leitura do painel; o painel não é alterado):
 | Arquivo | O que o Prumo faz |
 |---|---|
-| **Cronograma** (Prevision) | grava sozinho o cronograma tratado (sem as 11 linhas que o painel descarta como duplicadas) em  → a **Linha de balanço do Início** atualiza. Oferece "Atualizar datas no Planejamento" (tela de importação do Global, com prévia; casa por ID, só atualiza datas, não mexe no Mensal nem nos percentuais). |
+| **Cronograma** (Prevision) | grava sozinho o cronograma tratado (sem as 11 linhas que o painel descarta como duplicadas) na tabela `gerencial_cronograma` → a **Linha de balanço do Início** atualiza. Oferece "Atualizar datas no Planejamento" (tela de importação do Global, com prévia; casa por ID, só atualiza datas, não mexe no Mensal nem nos percentuais). |
 | **Planilha de compras** (pedidos UAU) | oferece "Atualizar Suprimentos" (mesma tela de importação do módulo, com prévia de novos, atualizados e removidos) |
 | **CONTRATOS-UAU** | oferece "Atualizar Contratos" (idem). O painel não lê esse arquivo; anexe pelo 📎. |
 | **Relatório de Contratos (.xls do painel)** | só o painel lê; o Prumo avisa que o módulo Contratos precisa da CONTRATOS-UAU |
