@@ -49,6 +49,8 @@ const ERROS = {
 export default function GerencialYacht() {
   const desktop = useDesktop()
   const iframeRef = useRef(null)
+  const caixaRef = useRef(null)
+  const [cheia, setCheia] = useState(false) // painel ocupando a tela inteira (esconde o menu do Prumo)
   // verificando | sem_acesso | criar | senha | bloqueado | painel | erro
   const [etapa, setEtapa] = useState(htmlEmCache ? 'painel' : 'verificando')
   const [senha, setSenha] = useState('')
@@ -114,6 +116,28 @@ export default function GerencialYacht() {
     }
   }
 
+  /* Tela cheia: o painel cobre o app inteiro e, onde o navegador deixa, também a barra do
+     navegador (API de tela cheia). Esc sai. A mesma caixa muda de estilo, sem recriar a moldura,
+     pra o painel não recarregar e perder o que está na tela. */
+  const alternarTelaCheia = async () => {
+    if (!cheia) {
+      setCheia(true)
+      try { await caixaRef.current?.requestFullscreen?.() } catch { /* sem API: fica só a cobertura do app */ }
+    } else {
+      setCheia(false)
+      if (document.fullscreenElement) { try { await document.exitFullscreen() } catch { /* já saiu */ } }
+    }
+  }
+
+  useEffect(() => {
+    const aoMudar = () => { if (!document.fullscreenElement) setCheia(false) } // Esc do navegador
+    document.addEventListener('fullscreenchange', aoMudar)
+    return () => {
+      document.removeEventListener('fullscreenchange', aoMudar)
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    }
+  }, [])
+
   // escreve o painel na moldura assim que ela carregar
   const aoCarregarMoldura = () => {
     const doc = iframeRef.current?.contentDocument
@@ -127,7 +151,23 @@ export default function GerencialYacht() {
 
   if (etapa === 'painel') {
     return (
-      <div style={{ height: altura, background: '#f4f4f3' }}>
+      <div
+        ref={caixaRef}
+        style={cheia
+          ? { position: 'fixed', inset: 0, zIndex: 2000, height: '100dvh', background: '#f4f4f3' }
+          : { position: 'relative', height: altura, background: '#f4f4f3' }}
+      >
+        <button
+          type="button" onClick={alternarTelaCheia}
+          title={cheia ? 'Sair da tela cheia (Esc)' : 'Ocupar a tela inteira'}
+          style={{
+            position: 'absolute', top: 10, right: 16, zIndex: 5, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 12px', border: '1px solid #d6d8db', borderRadius: 999, background: '#fff', color: '#18181B',
+            font: '600 12px system-ui, sans-serif', cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,.12)',
+          }}
+        >
+          {cheia ? '✕ Sair da tela cheia' : '⤢ Tela cheia'}
+        </button>
         <iframe
           ref={iframeRef} title="Gerencial Yacht" src="/gerencial-yacht/shell.html"
           onLoad={aoCarregarMoldura} style={{ border: 0, width: '100%', height: '100%', display: 'block' }}
