@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obra YACHT — Fluxo, Orçamento e Cronograma · Gellen &amp; Guimarães</title>
+<style>
+:root{--brand:#D6D8DB;--brand2:#6A6B6C;--bg:#f4f4f3;--surf:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--ink3:#7d7c78;--line:#e3e3e0;--line2:#ececea;
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--crit:#d03b3b;--good:#0ca30c;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.45 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:var(--ink);background:var(--bg)}
+body.noscroll{overflow:hidden}
+header.top{background:var(--surf);border-bottom:1px solid var(--line);padding:10px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+header.top img{height:38px;width:auto}
+.brandt{display:flex;flex-direction:column}
+.brandt b{font-size:15px}
+.brandt span{color:var(--ink2);font-size:12px}
+nav{display:flex;gap:2px;margin-left:12px;flex-wrap:wrap}
+nav button{border:0;background:none;padding:8px 12px;border-radius:6px;font:inherit;font-weight:600;color:var(--ink2);cursor:pointer}
+nav button:hover{background:var(--line2)}
+nav button.on{background:var(--brand2);color:#fff}
+.refbox{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--ink2)}
+.refbox input{font:inherit;padding:5px 6px;border:1px solid var(--line);border-radius:6px;background:#fff}
+#src{display:flex;gap:14px;flex-wrap:wrap;padding:6px 20px;font-size:11.5px;color:var(--ink3);background:var(--bg)}
+#main{padding:4px 20px 30px;max-width:1500px;margin:0 auto}
+.card{background:var(--surf);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+.ch{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between}
+h2{font-size:16px;margin:0}
+h3{font-size:13.5px;margin:18px 0 8px}
+.hint,.sub{color:var(--ink2);font-size:12px}
+.hint{margin:6px 0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:12px 0}
+.tile{background:var(--surf);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.tile .tl{font-size:11.5px;color:var(--ink2)}
+.tile .tv{font-size:19px;font-weight:650;margin:2px 0;font-variant-numeric:tabular-nums}
+.tile .ts{font-size:11.5px;color:var(--ink2)}
+.tile.crit{border-left:4px solid var(--crit)}
+.crit{color:var(--crit)}
+.okv{color:#0a8a0a}
+button.mini{border:1px solid var(--line);background:#fff;border-radius:6px;padding:3px 8px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+button.mini:hover{background:var(--line2)}
+button.ghost{border:1px solid var(--line);background:#fff;border-radius:7px;padding:8px 12px;font:inherit;cursor:pointer}
+table.plan input,table.plan select{font:inherit;font-size:12px;padding:3px 5px;border:1px solid var(--line);border-radius:5px;min-width:0;background:#fffbea}
+table.plan input.wn{width:84px;text-align:right}table.plan input.wu{width:48px}table.plan input.wd{width:380px}
+select.ovr{font-size:11px;padding:2px 4px;min-width:0;max-width:260px}
+.ok{color:var(--good)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:6px 10px;font:inherit;cursor:pointer;color:var(--ink2)}
+.seg button.on{background:var(--brand);color:var(--ink);font-weight:600}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin:6px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.legend i.ln{height:0;border-top:2px solid;border-radius:0;width:16px;vertical-align:3px}
+.legend i.ln.dash{border-top-style:dashed}
+svg .grid{stroke:var(--line2);stroke-width:1}
+svg .grid.yr{stroke:#cfcfcb}
+svg .ax{fill:var(--ink3);font-size:11px}
+svg .refl{stroke:var(--crit);stroke-width:1.2;stroke-dasharray:4 3}
+svg .refx{fill:var(--crit)}
+svg .xh{stroke:var(--ink3);stroke-width:1}
+svg .zebra{fill:#f3f3f1}
+svg .lotl{fill:var(--ink2);font-size:10.5px}
+svg .hitk{cursor:pointer}
+.tw{overflow:auto;border:1px solid var(--line2);border-radius:8px}
+.tw.tall{max-height:360px}
+table.t{border-collapse:collapse;width:100%;font-size:12px;font-variant-numeric:tabular-nums}
+table.t th{background:var(--brand);color:var(--ink);font-weight:600;text-align:left;padding:6px 8px;position:sticky;top:0;z-index:1;white-space:nowrap}
+table.t td{padding:5px 8px;border-top:1px solid var(--line2);vertical-align:top}
+table.t .n{text-align:right;white-space:nowrap}
+table.t .c{text-align:center;white-space:nowrap}
+table.t tfoot td{font-weight:650;background:#efefed;border-top:1px solid var(--line)}
+table.t tr.clk{cursor:pointer}
+table.t tbody tr:hover td{background:#f1f5fb}
+table.t tr.hl td{background:#fff7e8}
+table.t tr.sub2 td{background:#fafaf8;font-size:11.5px;border-top:1px dashed var(--line2)}
+table.svc tr.lvB td{background:#f6f6f4;font-weight:600}
+table.cmp tr.lvB td{background:#ecedef;font-weight:600}
+table.cmp tr.lvS td{background:#f6f6f4}
+#stab td:first-child{min-width:260px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:1100px){.grid2{grid-template-columns:1fr}}
+.grid2 h4{margin:4px 0 6px}
+table.cmp tr.okrow td{background:#e3f5e6!important}table.cmp tr.okrow td:first-child{box-shadow:inset 4px 0 0 #1baf7a}.okbox{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--ink2);margin-right:6px;cursor:pointer;white-space:nowrap}.okbox input{accent-color:#1baf7a;margin:0}
+tr.det>td{background:#fbfaf3;padding:10px 14px}.conta{font-size:12.5px;line-height:1.7}.conta table{margin:6px 0 10px;background:#fff}
+table.svc tr.lvC td:first-child{padding-left:30px}
+table.svc a{color:var(--ink);text-decoration:none}
+table.svc a:hover{text-decoration:underline}
+.tg{border:0;background:none;cursor:pointer;width:18px;color:var(--ink2);font-size:12px}
+.mbar{display:inline-block;width:44px;height:6px;background:var(--line2);border-radius:3px;margin-right:6px;vertical-align:1px;overflow:hidden}
+.mbar i{display:block;height:100%;background:var(--s1);border-radius:3px}
+.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:#fff;border-radius:16px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer;color:var(--ink3)}
+.chip i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;opacity:.35}
+.chip.on{color:var(--ink);border-color:#bdbdb8}
+.chip.on i{opacity:1}
+.ck{display:flex;gap:4px;align-items:center;color:var(--ink2)}
+input[type=search],select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:200px}
+.pill{background:var(--brand);border-radius:14px;padding:3px 4px 3px 10px;font-size:12px}
+.pill button{border:0;background:none;cursor:pointer;font-size:14px}
+.lobwrap{overflow-x:auto}
+.t .past{background:rgba(120,120,120,.08);color:var(--mut,#555)}
+.t thead th.past{line-height:1.15}
+.t tr.tot td{font-weight:600;border-top:1.5px solid var(--line,#ccc)}
+tr.lqr:hover td{background:rgba(37,99,235,.06)}
+.empty{color:var(--ink3);font-style:italic}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:1000px){.grid2{grid-template-columns:1fr}}
+details.tview{margin-top:6px}
+details.tview summary{cursor:pointer;color:var(--ink2);font-size:12px}
+#tip{position:fixed;z-index:50;background:#fff;border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.12);border-radius:8px;padding:8px 10px;font-size:12px;pointer-events:none;max-width:540px}
+#tip .tr{display:flex;gap:10px;justify-content:space-between;align-items:center}
+#tip .tr i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:6px}
+#tip .tr b{margin-left:auto;font-variant-numeric:tabular-nums}
+#tip .sub{margin:2px 0}
+#drawer{position:fixed;inset:0;background:rgba(20,20,20,.35);z-index:20;display:flex;justify-content:flex-end}
+#drawer[hidden]{display:none}
+#calc{position:fixed;inset:0;background:rgba(20,20,20,.35);z-index:25;display:flex;justify-content:flex-end}
+#calc[hidden]{display:none}
+#calc .dw{width:min(1420px,98vw)}
+#cx{font-size:18px;line-height:1;padding:4px 10px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer}
+details.calc{background:var(--surf);border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin:10px 0}
+details.calc summary{cursor:pointer;display:flex;justify-content:space-between;gap:12px;font-size:14px;font-weight:600;padding:4px 0}
+details.calc summary b{font-variant-numeric:tabular-nums}
+.tcalc{cursor:pointer}
+.tcalc:hover{border-color:#a9a9a4;box-shadow:0 1px 6px rgba(0,0,0,.06)}
+.tile .vc{float:right;color:var(--s1);font-size:11px}
+.ar{display:inline-block;width:12px;color:var(--ink2)}
+#tip .tipclk{margin-top:4px;color:var(--s1)}
+table.t tr.hlsel td{background:#e8f1fc!important;font-weight:600}
+button.lnk{border:1px solid var(--line);background:#fff;border-radius:7px;padding:6px 12px;font:inherit;cursor:pointer;color:var(--s1)}
+.dw{background:var(--bg);width:min(1100px,96vw);height:100%;overflow:auto;padding:0 20px 30px}
+.dw>header{position:sticky;top:0;background:var(--bg);display:flex;justify-content:space-between;gap:12px;padding:14px 0 8px;border-bottom:1px solid var(--line);z-index:2}
+.dw h2{margin:2px 0}
+.dact{display:flex;gap:8px;align-items:flex-start}
+.dact button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}
+#fx{font-size:18px;line-height:1;padding:4px 10px}
+.dw section{background:var(--surf);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}
+.dw section h3{margin:4px 0 8px}
+.soon{border-style:dashed!important}
+.how{margin:6px 0 10px;padding-left:18px}
+.how li{margin:3px 0}
+.drop{display:flex;align-items:center;justify-content:center;border:2px dashed #c4c4c0;border-radius:10px;padding:34px;margin:12px 0;cursor:pointer;color:var(--ink2);background:#fff}
+.drop.over{border-color:var(--s1);background:#f1f6fd}
+.drop input{display:none}
+.lg{padding:3px 0}
+.imp-actions{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
+button.pri{background:var(--brand2);color:#fff;border:0;border-radius:7px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+.exgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}@media (max-width:1000px){.exgrid{grid-template-columns:1fr}}
+.exbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff}
+.exbox h3{margin:2px 0 6px;word-break:break-all}
+.exbox button{margin:6px 8px 0 0}
+#main .exbox button:not(.pri),#main .imp-actions button:not(.pri){border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 12px;font:inherit;cursor:pointer}
+button[disabled]{opacity:.55;cursor:default}
+footer{color:var(--ink3);font-size:11.5px;text-align:center;padding:14px}
+</style>
+</head>
+<body>
+<header class="top">
+  <img src="data:image/png;base64,/*LOGO*/" alt="Gellen &amp; Guimarães">
+  <div class="brandt"><b>Obra YACHT by FAMA</b><span>Fluxo · Orçamento · Cronograma — consulta</span></div>
+  <nav>
+    <button data-v="painel">Painel</button><button data-v="comparativo">Orçamento × gasto</button><button data-v="cronograma">Cronograma</button><button data-v="lob">Linha de balanço</button><button data-v="caixa">Medição Caixa</button><button data-v="servicos">Serviços</button>
+    <button data-v="fluxo">Fluxo</button><button data-v="contratos">Programação fluxo</button><button data-v="compras">Compras</button><button data-v="vinculos">Vínculos</button><button data-v="importar">Atualizar / Exportar</button>
+  </nav>
+  <label class="refbox">Data de referência <input type="date" id="ref"></label>
+</header>
+<div id="src"></div>
+<main id="main"></main>
+<div id="drawer" hidden></div>
+<div id="tip" hidden></div>
+<footer>Gellen &amp; Guimarães · aplicativo de consulta — os dados vêm dos arquivos importados e não são alterados aqui</footer>
+<script id="raw-data" type="application/json">/*RAW*/</script>
+<script>/*JSZIP*/</script>
+<script>/*PARSERS*/</script>
+<script>/*MODEL*/</script>
+<script>/*COMPARATIVO*/</script>
+<script>/*CONTRATOS*/</script>
+<script>/*FISICO*/</script>
+<script>/*COMPRAS*/</script>
+<script>/*CAIXA*/</script>
+<script>/*EXPORTER*/</script>
+<script>/*APP*/</script>
+</body>
+</html>

@@ -12,3 +12,7 @@ npm-debug.log*
 
 # Supabase CLI
 supabase/.temp
+
+# Gerencial Yacht: nunca commitar o SQL com a chave do painel
+*.chave.sql
+gerencial-chave*.sql

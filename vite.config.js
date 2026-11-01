@@ -16,6 +16,8 @@ export default defineConfig({
       filename: 'sw.js',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
+        // a moldura do Gerencial Yacht tem política de segurança própria: nunca vai pro cache do app
+        globIgnores: ['gerencial-yacht/**'],
       },
       includeAssets: ['favicon-32.png', 'apple-touch-icon.png'],
       manifest: {

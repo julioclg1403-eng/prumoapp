@@ -26,7 +26,7 @@ precacheAndRoute(self.__WB_MANIFEST)
    intercepta a chamada de uma Edge Function. */
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('/index.html'), {
-    denylist: [/^\/functions\//],
+    denylist: [/^\/functions\//, /^\/gerencial-yacht\//],
   }),
 )
 

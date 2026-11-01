@@ -31,6 +31,7 @@ import Projetos from '../screens/projetos'
 import Suprimentos from '../screens/suprimentos'
 import Contratos from '../screens/contratos'
 import Producao from '../screens/producao'
+import GerencialYacht from '../screens/gerencial-yacht'
 import Usuarios from '../screens/usuarios'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
@@ -79,6 +80,8 @@ export default function AppGestao({ perfil, onSair }) {
       desc: 'Contratos importados do sistema, com cruzamento de itens entre eles' },
     { chave: 'producao', rotulo: 'Produtividade', icone: 'obra',
       desc: 'Marcação de execução na planta, medição por contrato e rendimento' },
+    { chave: 'gerencial', rotulo: 'Gerencial Yacht', icone: 'obra',
+      desc: 'Painel gerencial da obra: fluxo, orçamento, cronograma e medição da Caixa' },
     { chave: 'seguranca', rotulo: 'Segurança', icone: 'alerta',
       desc: 'Ocorrências e advertências da obra' },
     { chave: 'projetos', rotulo: 'Projetos', icone: 'projeto',
@@ -162,6 +165,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'suprimentos': corpo = <Suprimentos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'contratos':  corpo = <Contratos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'producao':   corpo = <Producao voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
+    case 'gerencial':  corpo = <GerencialYacht perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={pilha.length > 1 ? voltar : null} params={rota.params} />; break
