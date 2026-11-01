@@ -39,6 +39,8 @@ export default function ChatBot({ navegar, perfil }) {
   const [erro, setErro] = useState('')
   const [voz, setVoz] = useState('off') // off | ouvindo | pensando | falando
   const vozAtivaRef = useRef(false)
+  const dadosRef = useRef(dados)
+  dadosRef.current = dados
   const historicoRef = useRef([]) // formato Anthropic completo, com blocos de tool_use/tool_result
   const fimRef = useRef(null)
 
@@ -142,6 +144,15 @@ export default function ChatBot({ navegar, perfil }) {
     }
     pararVoz()
   }
+
+  /* Ponte pro app de desktop da Ana: ele roda as ferramentas do Prumo por aqui. */
+  useEffect(() => {
+    window.__anaPrumo = {
+      ferramentas: FERRAMENTAS,
+      executar: (nome, input) => executarFerramenta(nome, input, { dados: dadosRef.current, navegar, perfil }),
+    }
+    return () => { delete window.__anaPrumo }
+  }, [navegar, perfil])
 
   useEffect(() => () => { vozAtivaRef.current = false; interromperEscuta(); interromperFala() }, [])
 

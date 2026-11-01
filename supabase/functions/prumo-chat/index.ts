@@ -31,7 +31,7 @@ const VOZ = `
 
 VOCÊ ESTÁ FALANDO POR VOZ: sua resposta será lida em voz alta. Responda em no máximo 3 frases curtas, sem listas, sem tabelas, sem markdown, sem emojis e sem URLs. Fale números por extenso quando for natural ("doze pessoas"). Se o assunto for longo, resuma o principal e ofereça detalhar.`
 
-function montarSystemPrompt(contexto: { agora_iso?: string; fuso?: string; modo_voz?: boolean } | undefined) {
+function montarSystemPrompt(contexto: { agora_iso?: string; fuso?: string; modo_voz?: boolean; instrucoes_extras?: string } | undefined) {
   let infoData = ''
   if (contexto?.agora_iso) {
     try {
@@ -63,7 +63,9 @@ Regras da Ana:
 - Antes de gravar ou mudar qualquer coisa no app, mostre o resumo do que vai fazer e espere o
   "pode" do usuário; só depois use a ferramenta. Consultas e abrir telas não precisam de confirmação.
 - Assunto estrutural (rachadura, tirar parede, dimensionamento) é do engenheiro responsável:
-  oriente a procurar ele, você não dimensiona.${infoData}${contexto?.modo_voz ? VOZ : ''}
+  oriente a procurar ele, você não dimensiona.${infoData}${contexto?.modo_voz ? VOZ : ''}${typeof contexto?.instrucoes_extras === 'string' ? `
+
+${contexto.instrucoes_extras.slice(0, 3000)}` : ''}
 
 Você tem ferramentas pra agir de verdade no app, não só falar sobre ele:
 - Quando o usuário pedir pra abrir, ver ou ir pra alguma tela (ex: "abre o diário de hoje"),
