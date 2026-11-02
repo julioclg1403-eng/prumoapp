@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Campo, useDesktop } from '../components'
 import { useDados } from '../lib/DadosContext'
+import { lerAba } from '../lib/gerencialLeitura'
 import { cronoEmbutido, tarefasDoPainel, observarArquivos, classificarArquivo } from '../lib/gerencialPonte'
 import { ImportarSuprimentos } from './suprimentos'
 import { ImportarContratos } from './contratos'
@@ -206,7 +207,10 @@ export default function GerencialYacht() {
     setFolha(aviso)
   }
 
-  useEffect(() => () => { if (desligarRef.current) desligarRef.current() }, [])
+  useEffect(() => () => {
+    if (desligarRef.current) desligarRef.current()
+    delete window.__gerencialYacht // sem o painel aberto, a Ana não tem o que ler
+  }, [])
 
   // escreve o painel na moldura assim que ela carregar e liga a ponte
   const aoCarregarMoldura = () => {
@@ -218,6 +222,8 @@ export default function GerencialYacht() {
     doc.close()
     if (desligarRef.current) desligarRef.current()
     desligarRef.current = observarArquivos(doc, (f) => tratarArquivo(win, f))
+    // a Ana (assistente do Prumo) lê o painel por aqui — só leitura, só com o painel aberto e destravado
+    window.__gerencialYacht = { ler: (args) => lerAba(iframeRef.current?.contentDocument || doc, args) }
     semearInicio(win, doc)
   }
 

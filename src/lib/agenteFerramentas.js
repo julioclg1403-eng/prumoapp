@@ -29,7 +29,7 @@ export const FERRAMENTAS = [
           enum: [
             'diarioHoje', 'diarios', 'efetivo', 'pendencias', 'planejamento', 'galeria',
             'lembretes', 'equipamentos', 'suprimentos', 'contratos', 'producao', 'seguranca',
-            'projetos', 'cadastros',
+            'projetos', 'cadastros', 'gerencial',
           ],
           description: '"diarioHoje" abre o diário de hoje da obra atual (mesmo que ainda não exista). Os demais valores abrem o módulo correspondente.',
         },
@@ -139,6 +139,22 @@ export const FERRAMENTAS = [
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'consultar_gerencial',
+    description: 'Lê o painel Gerencial Yacht (só do administrador; o painel precisa estar aberto e destravado com a senha) e devolve o texto de uma aba, com os números exatos que o Julio vê: dinheiro (pago, a pagar, previsto por mês), avanço físico (previsto × realizado) e medição da Caixa. Abas: painel (resumo e tabela mês a mês de pago, a pagar, previsto FLUXO-BASE e orçado × cronograma), fluxo (desembolso por mês e por etapa), programacao_fluxo (próximos 3 meses por serviço: consolidado + o que falta do planejado), orcamento_gasto, servicos, cronograma (avanço físico previsto/realizado e tabela mês a mês), medicao_caixa (medição acumulada, previsto FRE, quando chega a 20%, metas), linha_balanco, compras, vinculos. Use "busca" para filtrar linhas (ex.: "nov/26", "mar/27", "02.01"). São dados financeiros: use só quando o usuário perguntar. Nunca invente número: cite o que está no texto e a aba de onde veio.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        aba: {
+          type: 'string',
+          enum: ['painel', 'fluxo', 'programacao_fluxo', 'orcamento_gasto', 'servicos', 'cronograma', 'medicao_caixa', 'linha_balanco', 'compras', 'vinculos'],
+          description: 'Qual aba do painel ler.',
+        },
+        busca: { type: 'string', description: 'Opcional: só as linhas que contêm este texto (ex.: "nov/26", "mar/27"). A linha de cabeçalho da tabela vem junto.' },
+      },
+      required: ['aba'],
+    },
+  },
+  {
     name: 'consultar_seguranca',
     description: 'Consulta um resumo de Segurança da obra atual: quantos registros de treinamento (NR) estão vencidos ou a vencer, e quantas ocorrências de segurança foram registradas no mês atual.',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -158,7 +174,23 @@ export async function executarFerramenta(nome, input, contexto) {
   if (nome === 'consultar_suprimentos') return consultarSuprimentos(contexto)
   if (nome === 'vincular_suprimentos_automaticamente') return vincularSuprimentos(contexto)
   if (nome === 'consultar_seguranca') return consultarSeguranca(contexto)
+  if (nome === 'consultar_gerencial') return consultarGerencial(contexto, input || {})
   return { erro: 'Ferramenta desconhecida.' }
+}
+
+/* Gerencial Yacht: lê o texto das abas do painel (ver gerencialLeitura.js). Só admin, e só com o
+   painel aberto e destravado — a Ana nunca vê nem digita a senha. */
+async function consultarGerencial({ perfil }, { aba, busca }) {
+  if (perfil && perfil.role !== 'admin') return { erro: 'O Gerencial Yacht é só do administrador.' }
+  // acabou de abrir a tela? o painel leva uns segundos pra carregar
+  for (let i = 0; i < 8 && !window.__gerencialYacht; i++) await new Promise((r) => setTimeout(r, 500))
+  if (!window.__gerencialYacht) {
+    return {
+      erro: 'O painel do Gerencial Yacht não está aberto.',
+      como_resolver: 'Abra a tela com abrir_tela (destino "gerencial") e peça ao Julio para digitar a senha do Gerencial na tela (você não vê nem digita a senha). Quando o painel abrir, chame consultar_gerencial de novo.',
+    }
+  }
+  return window.__gerencialYacht.ler({ aba, busca })
 }
 
 function precisaModulo(perfil, chave) {
