@@ -92,7 +92,12 @@
     const hi = rows.findIndex(r => r.includes('Pagar') && r.includes('Pago') && r.includes('Fornecedor'));
     if (hi < 0) throw new Error('Relatório Pagar & Pago: cabeçalho não encontrado');
     const H = rows[hi], ix = n => H.indexOf(n);
-    const num = s => { s = (s || '').replace(/\./g, '').replace(',', '.'); const v = parseFloat(s); return isNaN(v) ? 0 : v; };
+    // separador decimal do arquivo: o UAU exporta "7,14" (vírgula) ou "7.14" (ponto), conforme a configuração regional de quem exporta.
+    // Decide pelo arquivo inteiro: se algum valor de Pagar/Pago tem vírgula, é vírgula decimal (ponto = milhar); senão o ponto é decimal.
+    const iPg = H.indexOf('Pagar'), iPd = H.indexOf('Pago');
+    const vals = rows.slice(hi + 1).flatMap(r => [r[iPg], r[iPd]]).filter(v => v && /\d/.test(v));
+    const virg = vals.some(v => v.includes(','));
+    const num = s => { s = String(s || '').trim(); if (!s) return 0; s = virg ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, ''); const v = parseFloat(s); return isNaN(v) ? 0 : v; };
     const need = ['Servico', 'Item_SiAp', 'Insumo', 'Fornecedor', 'Processo', 'Parcela', 'DataPg', 'Pagar', 'Pago', 'ItemProc'];
     for (const n of need) if (ix(n) < 0) throw new Error('Relatório Pagar & Pago: coluna ' + n + ' ausente');
     const out = [];

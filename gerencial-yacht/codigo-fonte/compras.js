@@ -116,7 +116,7 @@
   };
   /* planilha já corrigida (uma linha por item) ou remontada acima → registros padronizados */
   const iso = v => { if (v == null || v === '') return null; if (typeof v === 'number') return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10); const s = String(v); const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s) || /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s); return m ? (m[1].length === 4 ? `${m[1]}-${m[2]}-${m[3]}` : `${m[3]}-${m[2]}-${m[1]}`) : null; };
-  const num = v => typeof v === 'number' ? v : (parseFloat(String(v == null ? '' : v).replace(/\./g, '').replace(',', '.')) || 0);
+  const num = v => { if (typeof v === 'number') return v; let t = String(v == null ? '' : v).trim(); if (!t) return 0; if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.'); else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, ''); return parseFloat(t) || 0; }; // vírgula decimal (BR) ou ponto decimal
   YK.norm = function (P) {
     const pick = (o, ...ks) => { for (const k of ks) { const kk = Object.keys(o).find(x => norm(x) === norm(k)); if (kk != null && o[kk] != null && o[kk] !== '') return o[kk]; } return null; };
     const out = [], seen = new Set();
