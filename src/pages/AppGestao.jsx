@@ -32,6 +32,8 @@ import Suprimentos from '../screens/suprimentos'
 import Contratos from '../screens/contratos'
 import Producao from '../screens/producao'
 import GerencialYacht from '../screens/gerencial-yacht'
+import RelatorioSemanal from '../screens/relatorio-semanal'
+import { ehFama } from '../lib/clientes'
 import Usuarios from '../screens/usuarios'
 import ConsultaColaborador from '../screens/consulta-colaborador'
 
@@ -68,6 +70,12 @@ export default function AppGestao({ perfil, onSair }) {
     { chave: 'pendencias', rotulo: 'Pendências', icone: 'pendencias', badge: cont.atrasadas },
     { chave: 'planejamento', rotulo: 'Planejamento', icone: 'planejamento',
       desc: 'A semana da obra, o fechamento e o avanço físico por etapa' },
+    /* Relatório semanal: para os clientes novos. A Fama (Yacht e
+       Sede) continua com o menu que já tinha. */
+    ...(!ehFama(perfil.organization_id)
+      ? [{ chave: 'relatorio', rotulo: 'Relatório', icone: 'relatorio',
+          desc: 'Relatório semanal da obra em PDF, pronto para o cliente' }]
+      : []),
     { chave: 'galeria', rotulo: 'Galeria', icone: 'galeria',
       desc: 'Todas as fotos da obra, por dia' },
     { chave: 'lembretes', rotulo: 'Lembretes', icone: 'lembrete', badge: lembretesAtrasados,
@@ -91,7 +99,9 @@ export default function AppGestao({ perfil, onSair }) {
        já foi assim também; agora segue a mesma lista de módulos
        restringíveis que todo o resto (banco, RLS `tem_modulo`,
        concorda). */
-    ...(perfil.role === 'admin'
+    /* O painel Gerencial Yacht é recurso da Fama: não existe para
+       as outras empresas. */
+    ...(perfil.role === 'admin' && ehFama(perfil.organization_id)
       ? [{ chave: 'gerencial', rotulo: 'Gerencial Yacht', icone: 'obra',
           desc: 'Painel da obra: fluxo, orçamento, cronograma e medição da Caixa (só administrador, com senha)' }]
       : []),
@@ -136,7 +146,7 @@ export default function AppGestao({ perfil, onSair }) {
   const semRestricao = perfil.role === 'admin' || !perfil.modulos_permitidos
   const permitido = ['inicio', 'mais'].includes(chaveDoModulo) || (
     ADMIN_ONLY.includes(chaveDoModulo)
-      ? perfil.role === 'admin'
+      ? perfil.role === 'admin' && (chaveDoModulo !== 'gerencial' || ehFama(perfil.organization_id))
       : semRestricao || perfil.modulos_permitidos.includes(chaveDoModulo)
   )
 
@@ -168,6 +178,7 @@ export default function AppGestao({ perfil, onSair }) {
     case 'contratos':  corpo = <Contratos voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'producao':   corpo = <Producao voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'gerencial':  corpo = <GerencialYacht perfil={perfil} />; break
+    case 'relatorio':  corpo = !ehFama(perfil.organization_id) ? <RelatorioSemanal perfil={perfil} /> : <InicioGestao goto={goto} irParaAba={irParaAba} perfil={perfil} />; break
     case 'cadastros':  corpo = <Cadastros voltar={pilha.length > 1 ? voltar : null} perfil={perfil} params={rota.params} />; break
     case 'usuarios':   corpo = <Usuarios voltar={pilha.length > 1 ? voltar : null} perfil={perfil} />; break
     case 'consultaColaborador': corpo = <ConsultaColaborador voltar={pilha.length > 1 ? voltar : null} params={rota.params} />; break

@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { supabase, supabaseConfigurado } from './lib/supabase'
 import { DadosProvider } from './lib/DadosContext'
 import Login from './pages/Login'
+import CadastroEmpresa from './pages/CadastroEmpresa'
 import AppCampo from './pages/AppCampo'
 import AppGestao from './pages/AppGestao'
 
@@ -40,6 +41,9 @@ export default function App() {
     return () => { vivo = false; sub.subscription.unsubscribe() }
   }, [])
 
+  const [versaoPerfil, setVersaoPerfil] = useState(0)
+  const [erroPerfil, setErroPerfil] = useState(false)
+
   useEffect(() => {
     if (!sessao) return
     let vivo = true
@@ -49,12 +53,13 @@ export default function App() {
         .from('profiles').select('*').eq('id', sessao.user.id).maybeSingle()
       if (!vivo) return
       if (error) console.error('[Prumo] carregar o perfil:', error)
+      setErroPerfil(!!error)
       setPerfil(data || null)
       setCarregando(false)
     })()
 
     return () => { vivo = false }
-  }, [sessao])
+  }, [sessao, versaoPerfil])
 
   const sair = async () => {
     await supabase.auth.signOut()
@@ -67,6 +72,16 @@ export default function App() {
   }
 
   if (!sessao) return <Login />
+
+  /* Conta nova, sem empresa: abre a própria obra. Quem foi
+     convidado por uma empresa já chega com organização definida
+     pelo administrador dela, então não passa por aqui.
+     Sem empresa, o banco nem deixa a pessoa ler o próprio perfil
+     (a regra de acesso é por organização): perfil vazio, sem erro
+     de leitura, é exatamente a conta nova. */
+  if ((!perfil && !erroPerfil) || (perfil && !perfil.organization_id)) {
+    return <CadastroEmpresa perfil={perfil} onCriada={() => setVersaoPerfil((v) => v + 1)} onSair={sair} />
+  }
 
   /* A conta existe, mas nenhum admin liberou o acesso ainda.
      Sem papel e sem organização, as políticas do banco não

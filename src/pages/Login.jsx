@@ -75,7 +75,7 @@ export default function Login() {
     if (!data.session) {
       setAviso(
         'Conta criada. Se chegar um e-mail de confirmação, confirme (olhe também no spam). ' +
-        'Se não chegar, não tem problema: avise o administrador, que ele libera seu acesso do mesmo jeito.',
+        'Se não chegar, fale com o suporte: a conta já existe e o acesso é liberado do mesmo jeito.',
       )
       setModo('entrar')
       return
@@ -182,8 +182,8 @@ export default function Login() {
             {criando ? (
               <>
                 <div className="t-caption" style={{ lineHeight: 1.5, marginBottom: 12 }}>
-                  Criar a conta é o primeiro passo. O acesso à obra quem libera é o administrador —
-                  avise-o depois de se cadastrar.
+                  Depois de criar a conta, você abre a sua empresa e a sua primeira obra em um minuto.
+                  Se foi convidado por uma empresa que já usa o Prumo, o administrador dela libera o seu acesso.
                 </div>
                 <button className="btn btn-secondary btn-block" onClick={() => { setModo('entrar'); setErro(''); setAviso('') }}>
                   Já tenho conta
@@ -192,7 +192,7 @@ export default function Login() {
             ) : (
               <>
                 <div className="t-caption" style={{ lineHeight: 1.5, marginBottom: 12 }}>
-                  Primeira vez? Crie sua conta e peça ao administrador para liberar seu acesso.
+                  Primeira vez? Crie sua conta e abra a sua obra, sem precisar de liberação.
                 </div>
                 <button className="btn btn-secondary btn-block" onClick={() => { setModo('criar'); setErro(''); setAviso('') }}>
                   Criar uma conta
