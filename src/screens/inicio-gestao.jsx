@@ -21,6 +21,7 @@ import {
 } from '../components'
 import { GraficoColunas, GraficoDonut, CurvaSPrevision, ProgressoMensalPrevision } from '../components/charts'
 import LinhaDeBalanco from '../components/LinhaDeBalanco'
+import { ehFama } from '../lib/clientes'
 
 const ROTULO_DESTINO = {
   almoxarifado: 'Almoxarifado', epi: 'EPI', administracao: 'Administração', equipamentos: 'Equipamentos',
@@ -54,6 +55,7 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
     .sort((a, b) => (b.s.dias || 0) - (a.s.dias || 0))
 
   const semana = consolidarEfetivo(dados.diarios, { de, ate: hoje })
+  const diasComDiario = dados.diarios.filter((d) => d.worksite_id === dados.obra.id && d.data >= de && d.data <= hoje).length
   const revisoes = pendentesDeRevisao(dados.colaboradores)
 
   /* O gráfico "Efetivo por dia" mostra duas semanas (14 dias), não só
@@ -221,7 +223,33 @@ export default function InicioGestao({ goto, irParaAba, perfil }) {
       </div>
 
       <div className="page">
-        <PageHeader titulo="Visão da obra" sub={`Últimos 7 dias · até ${formatarData(hoje)}`} />
+        <PageHeader
+          titulo="Visão da obra" sub={`Últimos 7 dias · até ${formatarData(hoje)}`}
+          acao={ehFama(perfil.organization_id) ? null : (
+            /* Atalho do relatório semanal, no canto do cabeçalho. A Fama
+               (Yacht e Sede) continua com o Início que já tinha. */
+            <button
+              className="card-tap" onClick={() => irParaAba('relatorio')}
+              style={{ flex: desktop ? 'none' : '1 1 100%', width: desktop ? 'auto' : '100%', minWidth: desktop ? 250 : 0, marginRight: desktop ? 46 : 0, textAlign: 'left', padding: '10px 14px' }}
+            >
+              <div className="row-flex" style={{ gap: 10, alignItems: 'center' }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 10, flex: 'none',
+                  background: 'var(--primary-tint)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon name="relatorio" size={18} style={{ color: 'var(--primary)' }} />
+                </div>
+                <div className="grow">
+                  <div className="t-strong">Relatório semanal</div>
+                  <div className="t-caption">
+                    {plural(diasComDiario, 'dia com diário', 'dias com diário')} · pronto para PDF
+                  </div>
+                </div>
+                <Icon name="avancar" size={16} style={{ color: 'var(--text-3)' }} />
+              </div>
+            </button>
+          )}
+        />
 
         <div className="stack-3">
           {/* ── Planejamento: mesmo dado oficial do Dashboard da Prevision ── */}
