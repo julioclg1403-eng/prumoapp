@@ -36,6 +36,10 @@
    tempo — não sobrescreve o que já foi importado antes. */
 
 import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
+import {
+  abrirModelo, ehExemplo, texto as modeloTexto, numero as modeloNumero, dataISO as modeloData,
+  normalizar as modeloNormalizar, LIMITE_LINHAS_VAZIAS as MODELO_LIMITE_VAZIAS,
+} from './modeloPrumoLeitura'
 
 const LINHAS_PARA_ACHAR_CABECALHO = 15
 
@@ -72,9 +76,79 @@ function dataISO(texto) {
   return `${a}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`
 }
 
+/* Modelo do Prumo: o período fica na linha 2 ("Período do movimento: [de] até [até]")
+   e cada material tem uma linha com entrada, saída, saldo e preço médio. */
+function lerModeloPrumoMovimento(m) {
+  const { faixa, cel, linhaCabecalho, col } = m
+  let periodoInicio = null
+  let periodoFim = null
+  for (let r = faixa.s.r; r < linhaCabecalho && !periodoFim; r++) {
+    for (let c = faixa.s.c; c <= faixa.e.c; c++) {
+      if (modeloNormalizar(modeloTexto(cel(r, c))).replace(/:$/, '') === 'periodo do movimento') {
+        periodoInicio = modeloData(cel(r, c + 1))
+        periodoFim = modeloData(cel(r, c + 3))
+        break
+      }
+    }
+  }
+  if (!periodoInicio || !periodoFim) {
+    return { itens: [], erroGeral: 'Preencha o período na linha 2 da aba Dados (as duas datas, no formato dd/mm/aaaa).' }
+  }
+  if (periodoFim < periodoInicio) {
+    return { itens: [], erroGeral: 'No período da linha 2, a data final está antes da inicial.' }
+  }
+
+  const c = {
+    codigo: col('codigo'), nome: col('material'), unidade: col('unidade'),
+    entrada: col('entrada no periodo'), saida: col('saida no periodo'),
+    saldo: col('saldo em estoque'), preco: col('preco medio r$', 'preco medio'),
+  }
+  const arredonda = (n) => Math.round(n * 100) / 100
+  const itens = []
+  const avisos = []
+  const codigos = new Set()
+  let vazias = 0
+  for (let r = linhaCabecalho + 1; r <= faixa.e.r; r++) {
+    const codigo = modeloTexto(cel(r, c.codigo))
+    const nome = modeloTexto(cel(r, c.nome))
+    if (ehExemplo(codigo)) continue
+    if (!codigo && !nome) {
+      if (++vazias >= MODELO_LIMITE_VAZIAS) break
+      continue
+    }
+    vazias = 0
+    const saldo = c.saldo >= 0 ? modeloNumero(cel(r, c.saldo)) : null
+    if (!codigo || !nome || saldo == null) {
+      avisos.push(`Linha ${r + 1}: faltou o código, o material ou o saldo em estoque. Ignorei esta linha.`)
+      continue
+    }
+    if (codigos.has(codigo)) { avisos.push(`Linha ${r + 1}: o código ${codigo} já apareceu antes. Ignorei esta repetição.`); continue }
+    codigos.add(codigo)
+    const preco = c.preco >= 0 ? modeloNumero(cel(r, c.preco)) : null
+    itens.push({
+      codigo,
+      nome,
+      unidade: (c.unidade >= 0 && modeloTexto(cel(r, c.unidade))) || '',
+      qtde_entrada: arredonda(c.entrada >= 0 ? (modeloNumero(cel(r, c.entrada)) ?? 0) : 0),
+      qtde_baixa: arredonda(c.saida >= 0 ? (modeloNumero(cel(r, c.saida)) ?? 0) : 0),
+      saldo: arredonda(saldo),
+      valor_total: arredonda(preco != null ? saldo * preco : 0),
+      preco_medio: preco != null ? arredonda(preco) : null,
+      lotes: 1,
+    })
+  }
+  if (!itens.length) {
+    return { itens, erroGeral: avisos[0] || 'Não encontrei nenhum material preenchido. Lembre de apagar só as linhas de exemplo e preencher a partir da linha 4.' }
+  }
+  return { itens, periodoInicio, periodoFim, erroGeral: null, avisos, modelo: 'prumo' }
+}
+
 export async function lerMovimentoEstoque(arquivo) {
   const XLSX = await carregarXLSX()
   const wb = await lerWorkbook(arquivo, { cellDates: true })
+
+  const doModelo = abrirModelo(XLSX, wb, ['codigo', 'material', 'saldo em estoque'], { soAbaDados: true })
+  if (doModelo) return { ...lerModeloPrumoMovimento(doModelo), aba: doModelo.nomeAba }
 
   const nomeAba = wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]

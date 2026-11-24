@@ -20,6 +20,8 @@ import {
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, BotaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 import { RankingBarras, CurvaProducao } from '../components/charts'
+import BotaoBaixarModelo from '../components/BotaoBaixarModelo'
+import { ehFama } from '../lib/clientes'
 
 function baixarCSV(nomeArquivo, cabecalho, linhas) {
   const csv = [cabecalho, ...linhas]
@@ -1823,10 +1825,14 @@ function ImportarMateriais({ aberto, onFechar, dados, materiaisExistentes }) {
         ) : (
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
-              Escolha a planilha de EPI (.xlsx ou .xlsm) — leio a primeira aba e trago o nome, a
-              unidade e o mínimo de cada EPI. Só o cadastro: quantidade e histórico ficam pra
-              lançar pelo app a partir de agora.
+              {ehFama(dados.org?.id)
+                ? 'Escolha a planilha de EPI (.xlsx ou .xlsm) — leio a primeira aba — ou use o modelo do Prumo. '
+                : 'Baixe o modelo, preencha um EPI por linha e importe aqui (.xlsx). '}
+              Trago o nome, a unidade e o mínimo de cada EPI. Só o cadastro: quantidade e histórico
+              ficam pra lançar pelo app.
             </div>
+
+            <BotaoBaixarModelo modelo="epi" />
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
               {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xlsx/.xlsm'}

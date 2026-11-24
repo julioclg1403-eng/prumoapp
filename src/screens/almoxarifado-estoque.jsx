@@ -24,6 +24,8 @@ import {
   RelatorioFolha, SecaoRelatorio, TabelaRelatorio, BotaoRelatorio, FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 import { RankingBarras } from '../components/charts'
+import BotaoBaixarModelo from '../components/BotaoBaixarModelo'
+import { ehFama } from '../lib/clientes'
 
 /* Baixa CSV no mesmo layout de colunas da planilha do almoxarife
    (abas Estoque/Entrada/Saida) — pra continuar abrindo no Excel dele
@@ -1502,10 +1504,14 @@ function ImportarMateriais({ aberto, onFechar, dados, materiaisExistentes }) {
         ) : (
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
-              Escolha a planilha de estoque (.xlsx ou .xlsm) — leio a aba "Estoque" e trago o nome, a
-              unidade e o mínimo de cada material. Só o cadastro: quantidade e histórico ficam pra
-              lançar pelo app a partir de agora.
+              {ehFama(dados.org?.id)
+                ? 'Escolha a planilha de estoque (.xlsx ou .xlsm) — leio a aba "Estoque" — ou use o modelo do Prumo. '
+                : 'Baixe o modelo, preencha um material por linha e importe aqui (.xlsx). '}
+              Trago o nome, a unidade e o mínimo de cada material. Só o cadastro: quantidade e histórico
+              ficam pra lançar pelo app.
             </div>
+
+            <BotaoBaixarModelo modelo="estoque" />
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
               {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xlsx/.xlsm'}
@@ -1659,10 +1665,13 @@ function ImportarMovimentoEstoque({ aberto, onFechar, dados }) {
         ) : (
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
-              O "Relatório de Estoque" que você baixa da UAU (.xls), com entrada, baixa e saldo do
-              período. Cada material entra com o total já somado, mesmo tendo vindo em mais de um
-              lote/compra na planilha. Vira a fonte do saldo — reimporte sempre que quiser atualizar.
+              {ehFama(dados.org?.id)
+                ? 'O "Relatório de Estoque" que você baixa da UAU (.xls), com entrada, baixa e saldo do período, ou o modelo do Prumo. Cada material entra com o total já somado, mesmo tendo vindo em mais de um lote/compra na planilha. '
+                : 'Baixe o modelo, informe o período e o que entrou, saiu e sobrou de cada material, e importe aqui (.xlsx). '}
+              Vira a fonte do saldo — reimporte sempre que quiser atualizar.
             </div>
+
+            <BotaoBaixarModelo modelo="movimento" />
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
               {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xls'}

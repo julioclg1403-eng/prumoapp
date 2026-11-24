@@ -31,6 +31,7 @@ import {
   FiltroPeriodo, SecaoRecolhivel,
 } from '../components'
 import { RankingBarras, GraficoColunas, GraficoDonut } from '../components/charts'
+import { ehFama } from '../lib/clientes'
 
 const TOM_ESTAGIO = { '5 - Confirmado': 'success', '0 - Criada': 'info' }
 const ROTULO_DESTINO = {
@@ -1326,6 +1327,7 @@ export function ImportarSuprimentos({ aberto, onFechar, dados, arquivoInicial })
   const [nomeArquivo, setNomeArquivo] = useState('')
   const [importandoAgora, setImportandoAgora] = useState(false)
   const [feito, setFeito] = useState(null)
+  const [baixandoModelo, setBaixandoModelo] = useState(false)
 
   const fechar = () => {
     setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
@@ -1414,11 +1416,23 @@ export function ImportarSuprimentos({ aberto, onFechar, dados, arquivoInicial })
         ) : (
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
-              A planilha "Relação de Pedidos de Compras" que você baixa do sistema (.xlsx). Pedido que já
-              existe (mesmo número + código do insumo) só atualiza; pedido novo entra do zero. Depois de
+              {ehFama(dados.org?.id)
+                ? 'A planilha "Relação de Pedidos de Compras" que você baixa do sistema (.xlsx), ou o modelo do Prumo. '
+                : 'Baixe o modelo, preencha um material por linha e importe aqui (.xlsx). '}
+              Pedido que já existe (mesmo número + código do material) só atualiza; pedido novo entra do zero. Depois de
               importar, o app tenta vincular sozinho com as entradas do Almoxarifado e do estoque de EPI
               que ainda não têm pedido — confira o resultado na aba Vínculos.
             </div>
+
+            <button
+              className="btn btn-secondary btn-block" type="button" disabled={baixandoModelo}
+              onClick={async () => {
+                setBaixandoModelo(true)
+                try { (await import('../lib/modelosPlanilha')).baixarModelo('suprimentos') } finally { setBaixandoModelo(false) }
+              }}
+            >
+              <Icon name="relatorio" size={18} /> {baixandoModelo ? 'Gerando…' : 'Baixar modelo de planilha (.xlsx)'}
+            </button>
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
               {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xlsx'}

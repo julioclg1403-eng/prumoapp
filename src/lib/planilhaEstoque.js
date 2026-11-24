@@ -17,6 +17,10 @@
    que sobra de demora é só o parse do arquivo em si. */
 
 import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
+import {
+  abrirModelo, ehExemplo, texto as modeloTexto, numero as modeloNumero,
+  LIMITE_LINHAS_VAZIAS as MODELO_LIMITE_VAZIAS,
+} from './modeloPrumoLeitura'
 
 const ALIASES = {
   material: ['material', 'materia', 'nome', 'item', 'descricao', 'descrição'],
@@ -32,9 +36,45 @@ function normalizarTexto(s) {
    dado nesta aba. */
 const LIMITE_LINHAS_VAZIAS = 200
 
+/* Modelo do Prumo: Material | Unidade | Estoque mínimo, na aba "Dados". */
+function lerModeloPrumoEstoque(m) {
+  const { faixa, cel, linhaCabecalho, col } = m
+  const c = { material: col('material'), unidade: col('unidade'), minimo: col('estoque minimo') }
+  const itens = []
+  const avisos = []
+  const nomes = new Set()
+  let vazias = 0
+  for (let r = linhaCabecalho + 1; r <= faixa.e.r; r++) {
+    const nome = modeloTexto(cel(r, c.material))
+    if (ehExemplo(nome)) continue
+    if (!nome) {
+      if (++vazias >= MODELO_LIMITE_VAZIAS) break
+      continue
+    }
+    vazias = 0
+    const chave = nome.toLowerCase()
+    if (nomes.has(chave)) { avisos.push(`Linha ${r + 1}: "${nome}" já apareceu antes. Ignorei esta repetição.`); continue }
+    nomes.add(chave)
+    const minimo = c.minimo >= 0 ? modeloNumero(cel(r, c.minimo)) : null
+    itens.push({
+      linha: r + 1,
+      nome,
+      unidade: (c.unidade >= 0 && modeloTexto(cel(r, c.unidade))) || 'unid',
+      estoque_minimo: minimo && minimo > 0 ? minimo : null,
+    })
+  }
+  if (!itens.length && !avisos.length) {
+    return { itens, erroGeral: 'Não encontrei nenhum material preenchido. Lembre de apagar só as linhas de exemplo e preencher a partir da linha 4.' }
+  }
+  return { itens, erroGeral: null, avisos, modelo: 'prumo' }
+}
+
 export async function lerPlanilhaEstoque(arquivo) {
   const XLSX = await carregarXLSX()
   const wb = await lerWorkbook(arquivo)
+
+  const doModelo = abrirModelo(XLSX, wb, ['material', 'unidade', 'estoque minimo'], { soAbaDados: true })
+  if (doModelo) return { ...lerModeloPrumoEstoque(doModelo), aba: doModelo.nomeAba }
 
   const nomeAba = wb.SheetNames.find((n) => normalizarTexto(n) === 'estoque') || wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]

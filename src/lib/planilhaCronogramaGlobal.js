@@ -9,6 +9,10 @@
    ============================================================ */
 
 import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
+import {
+  abrirModelo, ehExemplo, texto as modeloTexto, dataISO as modeloData,
+  LIMITE_LINHAS_VAZIAS as MODELO_LIMITE_VAZIAS,
+} from './modeloPrumoLeitura'
 
 const ALIASES = {
   codigo: ['id'],
@@ -63,9 +67,66 @@ function celNumero(cell) {
 
 const LIMITE_LINHAS_VAZIAS = 100
 
+/* Modelo do Prumo: uma tarefa por linha. A duração sai das datas
+   (dias corridos, contando o primeiro e o último). */
+function lerModeloPrumoCronograma(m) {
+  const { faixa, cel, linhaCabecalho, col } = m
+  const c = {
+    codigo: col('codigo'), tarefa: col('tarefa'), local: col('local'), critico: col('caminho critico'),
+    inicio: col('data de inicio'), fim: col('data de termino'),
+    inicioReal: col('inicio real'), fimReal: col('termino real'),
+  }
+  const dias = (a, b) => (a && b ? Math.round((new Date(`${b}T00:00:00Z`) - new Date(`${a}T00:00:00Z`)) / 86400000) + 1 : null)
+  const itens = []
+  const avisos = []
+  const codigos = new Set()
+  let semData = 0
+  let vazias = 0
+  for (let r = linhaCabecalho + 1; r <= faixa.e.r; r++) {
+    const descricao = modeloTexto(cel(r, c.tarefa))
+    const primeira = modeloTexto(cel(r, c.codigo))
+    if (ehExemplo(primeira) || ehExemplo(descricao)) continue
+    if (!descricao) {
+      if (++vazias >= MODELO_LIMITE_VAZIAS) break
+      continue
+    }
+    vazias = 0
+    const inicio = modeloData(cel(r, c.inicio))
+    const fim = modeloData(cel(r, c.fim))
+    if (!inicio || !fim) { semData++; continue }
+    if (fim < inicio) { avisos.push(`Linha ${r + 1}: o término é antes do início. Ignorei esta linha.`); continue }
+    const codigo = primeira || `L${r + 1}`
+    if (codigos.has(codigo)) { avisos.push(`Linha ${r + 1}: o código ${codigo} já apareceu. Ignorei esta repetição.`); continue }
+    codigos.add(codigo)
+    const criticoTxt = c.critico >= 0 ? normalizarTexto(modeloTexto(cel(r, c.critico))) : ''
+    const inicioReal = c.inicioReal >= 0 ? modeloData(cel(r, c.inicioReal)) : null
+    const fimReal = c.fimReal >= 0 ? modeloData(cel(r, c.fimReal)) : null
+    itens.push({
+      linha: r + 1,
+      codigo_externo: codigo,
+      descricao,
+      lote: c.local >= 0 ? (modeloTexto(cel(r, c.local)) || null) : null,
+      caminho_critico: ['sim', 's', 'critica', 'critico'].includes(criticoTxt),
+      data_inicio: inicio,
+      data_fim: fim,
+      duracao: dias(inicio, fim),
+      inicio_real: inicioReal,
+      fim_real: fimReal,
+      duracao_real: dias(inicioReal, fimReal),
+    })
+  }
+  if (!itens.length && !semData && !avisos.length) {
+    return { itens, semData, erroGeral: 'Não encontrei nenhuma tarefa preenchida. Lembre de apagar só as linhas de exemplo e preencher a partir da linha 4.' }
+  }
+  return { itens, semData, erroGeral: null, avisos, modelo: 'prumo' }
+}
+
 export async function lerCronogramaGlobal(arquivo) {
   const XLSX = await carregarXLSX()
   const wb = await lerWorkbook(arquivo, { cellDates: true })
+
+  const doModelo = abrirModelo(XLSX, wb, ['tarefa', 'data de inicio', 'data de termino'], { soAbaDados: true })
+  if (doModelo) return { ...lerModeloPrumoCronograma(doModelo), aba: doModelo.nomeAba }
 
   const nomeAba = wb.SheetNames.find((n) => normalizarTexto(n) === 'activities') || wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]

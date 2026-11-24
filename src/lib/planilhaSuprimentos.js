@@ -27,6 +27,10 @@
    ============================================================ */
 
 import { carregarXLSX, lerWorkbook } from './xlsxCodepage'
+import {
+  abrirModelo, ehExemplo, texto as modeloTexto, numero as modeloNumero, inteiro as modeloInteiro,
+  dataISO as modeloData, LIMITE_LINHAS_VAZIAS as MODELO_LIMITE_VAZIAS,
+} from './modeloPrumoLeitura'
 
 const ALIASES = {
   pedido: ['pedido'],
@@ -114,9 +118,78 @@ function diferencaDias(dataInicioISO, dataFimISO) {
   return Math.round((fim - inicio) / 86400000)
 }
 
+/* Modelo do Prumo (planilha limpa): um material por linha dentro de um pedido.
+   As colunas de dias são calculadas aqui, a partir das datas. */
+function lerModeloPrumoSuprimentos(m) {
+  const { faixa, cel, linhaCabecalho, col } = m
+  const c = {
+    pedido: col('pedido'), codigo: col('codigo do material'), material: col('material'),
+    qtde: col('quantidade'), preco: col('preco unitario r$', 'preco unitario'),
+    dataPedido: col('data do pedido'), aprov: col('data de aprovacao'), cotacao: col('data da cotacao'),
+    compra: col('data da compra'), previsao: col('previsao de entrega'), entrega: col('data da entrega'),
+    situacao: col('situacao'),
+  }
+  const itens = []
+  const avisos = []
+  const vistos = new Set()
+  let vazias = 0
+  for (let r = linhaCabecalho + 1; r <= faixa.e.r; r++) {
+    const pedidoTxt = modeloTexto(cel(r, c.pedido))
+    const material = modeloTexto(cel(r, c.material))
+    if (ehExemplo(pedidoTxt)) continue
+    if (!pedidoTxt && !material) {
+      if (++vazias >= MODELO_LIMITE_VAZIAS) break
+      continue
+    }
+    vazias = 0
+    const pedido = modeloInteiro(cel(r, c.pedido))
+    const codigo = modeloTexto(cel(r, c.codigo))
+    if (pedido == null || !codigo || !material) {
+      avisos.push(`Linha ${r + 1}: faltou o número do pedido, o código ou o nome do material. Ignorei esta linha.`)
+      continue
+    }
+    const chave = `${pedido}|${codigo}`
+    if (vistos.has(chave)) {
+      avisos.push(`Linha ${r + 1}: o material ${codigo} já apareceu no pedido ${pedido}. Ignorei esta repetição.`)
+      continue
+    }
+    vistos.add(chave)
+    const aprov = c.aprov >= 0 ? modeloData(cel(r, c.aprov)) : null
+    const compra = c.compra >= 0 ? modeloData(cel(r, c.compra)) : null
+    const entrega = c.entrega >= 0 ? modeloData(cel(r, c.entrega)) : null
+    itens.push({
+      linha: r + 1,
+      pedido,
+      cotacao: null,
+      codigo_insumo: codigo,
+      insumo: material,
+      data_pedido: c.dataPedido >= 0 ? modeloData(cel(r, c.dataPedido)) : null,
+      aprov_pedido: aprov,
+      aprov_simulacao: null,
+      confirm_cotacao: c.cotacao >= 0 ? modeloData(cel(r, c.cotacao)) : null,
+      fechamento_compra: compra,
+      data_entrega: entrega,
+      previsao_entrega: c.previsao >= 0 ? modeloData(cel(r, c.previsao)) : null,
+      excluido: null,
+      quantidade: c.qtde >= 0 ? modeloNumero(cel(r, c.qtde)) : null,
+      preco: c.preco >= 0 ? modeloNumero(cel(r, c.preco)) : null,
+      dias_pedido_compra: diferencaDias(aprov, compra),
+      dias_compra_entrega: diferencaDias(compra, entrega),
+      estagio: c.situacao >= 0 ? (modeloTexto(cel(r, c.situacao)) || null) : null,
+    })
+  }
+  if (!itens.length && !avisos.length) {
+    return { itens, erroGeral: 'Não encontrei nenhum pedido preenchido. Lembre de apagar só as linhas de exemplo e preencher a partir da linha 4.' }
+  }
+  return { itens, erroGeral: null, avisos, modelo: 'prumo' }
+}
+
 export async function lerPlanilhaSuprimentos(arquivo) {
   const XLSX = await carregarXLSX()
   const wb = await lerWorkbook(arquivo, { cellDates: true })
+
+  const doModelo = abrirModelo(XLSX, wb, ['pedido', 'codigo do material', 'material'])
+  if (doModelo) return { ...lerModeloPrumoSuprimentos(doModelo), aba: doModelo.nomeAba }
 
   const nomeAba = wb.SheetNames[0]
   const ws = wb.Sheets[nomeAba]

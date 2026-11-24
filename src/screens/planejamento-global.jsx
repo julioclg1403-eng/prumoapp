@@ -23,6 +23,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { hojeISO, formatarDataCurta, plural, normalizarParaCasar, cronogramaGlobalCorrespondeEtapa, previsionCurvaHoje } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Sheet, Vazio, Indicador } from '../components'
+import { ehFama } from '../lib/clientes'
 
 export default function PlanejamentoGlobal({ perfil }) {
   const dados = useDados()
@@ -365,6 +366,7 @@ export function ImportarCronogramaGlobal({ aberto, onFechar, dados, arquivoInici
   const [nomeArquivo, setNomeArquivo] = useState('')
   const [importandoAgora, setImportandoAgora] = useState(false)
   const [feito, setFeito] = useState(null)
+  const [baixandoModelo, setBaixandoModelo] = useState(false)
 
   const fechar = () => {
     setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
@@ -435,10 +437,22 @@ export function ImportarCronogramaGlobal({ aberto, onFechar, dados, arquivoInici
         ) : (
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
-              A planilha do cronograma mestre (.xlsx), do jeito que o setor de planejamento manda. Tarefa
-              que já existe (mesmo ID) só tem a data prevista atualizada; tarefa nova entra do zero. Nada
+              {ehFama(dados.org?.id)
+                ? 'A planilha do cronograma mestre (.xlsx), do jeito que o setor de planejamento manda, ou o modelo do Prumo. '
+                : 'Baixe o modelo, preencha uma tarefa por linha e importe aqui (.xlsx). '}
+              Tarefa que já existe (mesmo código) só tem a data prevista atualizada; tarefa nova entra do zero. Nada
               disso cria ou muda etapa em Mensal — o link acontece por nome parecido com o que já existe lá.
             </div>
+
+            <button
+              className="btn btn-secondary btn-block" type="button" disabled={baixandoModelo}
+              onClick={async () => {
+                setBaixandoModelo(true)
+                try { (await import('../lib/modelosPlanilha')).baixarModelo('cronograma') } finally { setBaixandoModelo(false) }
+              }}
+            >
+              <Icon name="relatorio" size={18} /> {baixandoModelo ? 'Gerando…' : 'Baixar modelo de planilha (.xlsx)'}
+            </button>
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
               {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xlsx'}
@@ -456,6 +470,12 @@ export function ImportarCronogramaGlobal({ aberto, onFechar, dados, arquivoInici
                   {plural(novos, 'tarefa nova', 'tarefas novas')} · {plural(atualizados, 'atualização', 'atualizações')}
                   {resultado.semData > 0 ? ` · ${plural(resultado.semData, 'linha sem data válida', 'linhas sem data válida')} (não entram)` : ''}.
                 </div>
+                {resultado.avisos?.length > 0 && (
+                  <div className="alert danger" style={{ maxHeight: 120, overflowY: 'auto' }}>
+                    {resultado.avisos.slice(0, 8).map((a) => <div key={a}>{a}</div>)}
+                    {resultado.avisos.length > 8 && <div>…e mais {resultado.avisos.length - 8}.</div>}
+                  </div>
+                )}
 
                 <div style={{ maxHeight: 300, overflowY: 'auto' }} className="stack-1">
                   {resultado.itens.slice(0, 100).map((i) => (
