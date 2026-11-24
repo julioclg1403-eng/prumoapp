@@ -127,6 +127,102 @@ export const MODELOS = {
     ],
   },
 
+  mensal: {
+    titulo: 'Planejamento mensal (cronograma físico)',
+    arquivo: 'Prumo-modelo-planejamento-mensal.xlsx',
+    resumo: 'Uma etapa da obra por linha, com início, fim e o peso dela no avanço da obra.',
+    passos: [
+      'Preencha uma linha para cada etapa do cronograma (Fundação, Alvenaria do 5º pavimento...).',
+      'Informe a data de início e a de fim de cada etapa.',
+      'O peso diz o quanto a etapa vale no avanço da obra: etapa maior, peso maior. Se deixar em branco, vale 1.',
+      'Apague as linhas de exemplo e importe o arquivo em Planejamento > Mensal > Importar cronograma.',
+      'Etapa que já existe (mesma descrição) tem as datas atualizadas e o percentual já medido é mantido.',
+    ],
+    colunas: [
+      { titulo: 'Etapa', obrigatoria: true, ajuda: 'Nome da etapa. Ex.: Alvenaria · 5º pavimento.', largura: 44 },
+      { titulo: 'Início', obrigatoria: true, ajuda: 'Data de início (dd/mm/aaaa).', largura: 15, formato: 'dd/mm/yyyy' },
+      { titulo: 'Fim', obrigatoria: true, ajuda: 'Data de fim (dd/mm/aaaa).', largura: 15, formato: 'dd/mm/yyyy' },
+      { titulo: 'Peso', ajuda: 'Importância da etapa no avanço da obra. Em branco vale 1.', largura: 10, formato: '0.##' },
+    ],
+    exemplos: [
+      [`${MARCA_EXEMPLO} Fundação`, d('2026-03-01'), d('2026-03-30'), 10],
+      [`${MARCA_EXEMPLO} Alvenaria · 5º pavimento`, d('2026-04-01'), d('2026-04-20'), 5],
+    ],
+  },
+
+  semanal: {
+    titulo: 'Planejamento semanal (serviços da semana)',
+    arquivo: 'Prumo-modelo-planejamento-semanal.xlsx',
+    resumo: 'Os serviços que vão acontecer, em qual local, com qual equipe e entre quais datas.',
+    passos: [
+      'Preencha uma linha para cada serviço em cada local. Ex.: Alvenaria de vedação no 3º pavimento.',
+      'O Local precisa ter o mesmo nome do cadastro da obra (Cadastros > Locais). Se não existir, o app oferece cadastrar na hora da importação.',
+      'Em Empresa coloque a equipe responsável. Se o nome for parecido com um cadastrado, o Prumo liga sozinho.',
+      'Informe o início e o fim do serviço. O app planeja o serviço em cada dia da semana que você estiver vendo na tela, dentro desse período.',
+      'Apague as linhas de exemplo e importe o arquivo em Planejamento > Semanal > Importar.',
+    ],
+    colunas: [
+      { titulo: 'Serviço', obrigatoria: true, ajuda: 'O que será feito. Ex.: Alvenaria de vedação.', largura: 36 },
+      { titulo: 'Local', obrigatoria: true, ajuda: 'Onde. Use o mesmo nome do cadastro de locais da obra.', largura: 28 },
+      { titulo: 'Empresa', ajuda: 'Equipe ou empreiteira responsável.', largura: 26 },
+      { titulo: 'Início', obrigatoria: true, ajuda: 'Primeiro dia do serviço (dd/mm/aaaa).', largura: 15, formato: 'dd/mm/yyyy' },
+      { titulo: 'Fim', obrigatoria: true, ajuda: 'Último dia do serviço (dd/mm/aaaa).', largura: 15, formato: 'dd/mm/yyyy' },
+    ],
+    exemplos: [
+      [`${MARCA_EXEMPLO} Alvenaria de vedação`, 'Torre 1 — 3º pavimento', 'Alvenaria Exemplo Ltda', d('2026-11-23'), d('2026-11-27')],
+      [`${MARCA_EXEMPLO} Reboco interno`, 'Torre 1 — 2º pavimento', 'Alvenaria Exemplo Ltda', d('2026-11-24'), d('2026-11-26')],
+    ],
+  },
+
+  tatico: {
+    titulo: 'Planejamento tático (restrições a remover)',
+    arquivo: 'Prumo-modelo-planejamento-tatico.xlsx',
+    resumo: 'Os impedimentos que precisam ser resolvidos para o serviço poder começar, com a ação e o responsável.',
+    passos: [
+      'Preencha uma linha para cada restrição: algo que precisa acontecer antes de um serviço começar.',
+      'Informe o serviço, o local e a data em que o serviço deve começar.',
+      'Em "Ação para remover a restrição" escreva o que precisa ser feito (Ex.: Liberar o projeto de impermeabilização).',
+      'Cada linha vira uma pendência do tático, com prazo na data de início do serviço. Restrição que já existe não duplica.',
+      'Apague as linhas de exemplo e importe o arquivo em Pendências > Tático > Importar.',
+    ],
+    colunas: [
+      { titulo: 'Serviço', obrigatoria: true, ajuda: 'Serviço que está esperando a restrição ser removida.', largura: 34 },
+      { titulo: 'Local', ajuda: 'Bloco, torre ou pavimento.', largura: 22 },
+      { titulo: 'Início do serviço', obrigatoria: true, ajuda: 'Data em que o serviço deve começar. Vira o prazo da pendência.', largura: 17, formato: 'dd/mm/yyyy' },
+      { titulo: 'Ação para remover a restrição', obrigatoria: true, ajuda: 'O que precisa ser feito para liberar o serviço.', largura: 44 },
+      { titulo: 'Responsável', ajuda: 'Quem vai resolver.', largura: 22 },
+      { titulo: 'Motivo', ajuda: 'Por que o serviço está travado.', largura: 34 },
+    ],
+    exemplos: [
+      [`${MARCA_EXEMPLO} Impermeabilização do reservatório`, 'Subsolo', d('2026-12-07'), 'Liberar o detalhe de impermeabilização', 'Projetista', 'Prancha diverge da execução'],
+      [`${MARCA_EXEMPLO} Instalação elétrica`, 'Torre 1', d('2026-12-14'), 'Comprar eletrodutos', 'Suprimentos', null],
+    ],
+  },
+
+  estrutura: {
+    titulo: 'Estrutura de custos (Tipo, Etapa, Sub-etapa e Insumo)',
+    arquivo: 'Prumo-modelo-estrutura-de-custos.xlsx',
+    resumo: 'A árvore de custos da obra, em lista, na ordem: cada item fica dentro do último item do nível acima.',
+    passos: [
+      'Escreva a árvore em ordem: um Tipo, depois as Etapas dele, depois as Sub-etapas de cada Etapa e os Insumos de cada Sub-etapa.',
+      'Cada linha pertence ao último item do nível acima dela. Por isso a ordem das linhas importa.',
+      'Em Nível escolha Tipo, Etapa, Sub-etapa ou Insumo. O código é opcional, mas ajuda a não duplicar quando você importar de novo.',
+      'Apague as linhas de exemplo e importe o arquivo em Cadastros > Estrutura > Importar.',
+      'Reimportar depois não duplica o que já existe: só entra o que for novo.',
+    ],
+    colunas: [
+      { titulo: 'Nível', obrigatoria: true, ajuda: 'Tipo, Etapa, Sub-etapa ou Insumo.', largura: 14, lista: ['Tipo', 'Etapa', 'Sub-etapa', 'Insumo'] },
+      { titulo: 'Código', ajuda: 'Código do item (opcional). Ex.: 01.02.003.', largura: 16 },
+      { titulo: 'Descrição', obrigatoria: true, ajuda: 'Nome do item.', largura: 50 },
+    ],
+    exemplos: [
+      [`${MARCA_EXEMPLO} Tipo`, '01', 'Estrutura'],
+      [`${MARCA_EXEMPLO} Etapa`, '01.01', 'Fundação'],
+      [`${MARCA_EXEMPLO} Sub-etapa`, '01.01.01', 'Estacas'],
+      [`${MARCA_EXEMPLO} Insumo`, '01.01.01.001', 'Concreto usinado fck 30 MPa'],
+    ],
+  },
+
   scrum: {
     titulo: 'Scrum de contratação',
     arquivo: 'Prumo-modelo-scrum-de-contratacao.xlsx',
