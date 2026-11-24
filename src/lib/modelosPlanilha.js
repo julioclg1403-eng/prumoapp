@@ -127,6 +127,28 @@ export const MODELOS = {
     ],
   },
 
+  scrum: {
+    titulo: 'Scrum de contratação',
+    arquivo: 'Prumo-modelo-scrum-de-contratacao.xlsx',
+    resumo: 'A lista de serviços que precisam ser contratados e a data em que cada um começa na obra.',
+    passos: [
+      'Preencha uma linha para cada serviço ou pacote que a obra vai contratar.',
+      'Em "Início", coloque a data em que o serviço começa na obra. O Prumo conta para trás as etapas de contratação (estudo, negociação, pedidos e liberação) a partir dessa data.',
+      'A coluna cinza mostra quantos dias faltam para o serviço começar.',
+      'Apague as linhas de exemplo e importe o arquivo em Pendências > Scrum > Importar planilha.',
+      'Atividade que já existe só tem a data atualizada: o progresso dos itens marcados é mantido.',
+    ],
+    colunas: [
+      { titulo: 'Atividade', obrigatoria: true, ajuda: 'Serviço ou pacote a contratar. Ex.: Estrutura da torre.', largura: 44 },
+      { titulo: 'Início', obrigatoria: true, ajuda: 'Data em que o serviço começa na obra (dd/mm/aaaa).', largura: 16, formato: 'dd/mm/yyyy' },
+      { titulo: 'Dias até o início', calculada: true, largura: 16, formato: '0', formula: (l) => `IF(ISNUMBER(B${l}),B${l}-TODAY(),"")` },
+    ],
+    exemplos: [
+      [`${MARCA_EXEMPLO} Estrutura da torre`, d('2027-03-01')],
+      [`${MARCA_EXEMPLO} Esquadrias de alumínio`, d('2027-06-15')],
+    ],
+  },
+
   estoque: {
     titulo: 'Cadastro de materiais do almoxarifado',
     arquivo: 'Prumo-modelo-materiais-do-almoxarifado.xlsx',

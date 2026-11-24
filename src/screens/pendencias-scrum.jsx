@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useDados } from '../lib/DadosContext'
 import { Confirmar } from '../components'
+import { ehFama } from '../lib/clientes'
 import { carregarXLSX, lerWorkbook } from '../lib/xlsxCodepage'
 import {
   ETAPAS, SEED, LABEL, CHAVES_ITENS, dayNum, isoFromNum, hojeIso, fmtData,
@@ -109,7 +110,7 @@ export default function PendenciasScrum({ perfil }) {
   /* Dados iniciais (aba Planilha1) — só na obra YACHT e só se ainda estiver vazia */
   useEffect(() => {
     if (acts === null || acts.length > 0 || tabelaFaltando || !podeEditar) return
-    if (!/yacht/i.test(obraNome) || seedTentado.current === obraId) return
+    if (!ehFama(perfil.organization_id) || !/yacht/i.test(obraNome) || seedTentado.current === obraId) return
     seedTentado.current = obraId
     ;(async () => {
       const r = await supabase.from('scrum_contratacoes').insert(
@@ -435,6 +436,14 @@ export default function PendenciasScrum({ perfil }) {
             Importar planilha
           </button>
         )}
+        {podeEditar && (
+          <button
+            type="button" className="sc-btn" title="Planilha em branco com as colunas Atividade e Início"
+            onClick={async () => { try { (await import('../lib/modelosPlanilha')).baixarModelo('scrum') } catch { avisar('Não consegui gerar o modelo') } }}
+          >
+            Baixar modelo
+          </button>
+        )}
         <button
           type="button" className="sc-btn" title="Prazos de cada etapa com alarme 2 dias antes"
           onClick={() => { const g = gerarICS(acts, obraNome); baixar(g.nomeArquivo, g.conteudo, 'text/calendar'); avisar(`${g.eventos} prazos exportados para a agenda`) }}
@@ -451,7 +460,7 @@ export default function PendenciasScrum({ perfil }) {
           <div className="sc-menu" onMouseLeave={() => setMenuBackup(false)}>
             <button type="button" className="sc-btn small" onClick={() => { setMenuBackup(false); exportarBackup() }}>Exportar backup (.json)</button>
             {podeEditar && <button type="button" className="sc-btn small" onClick={() => { setMenuBackup(false); arqJson.current?.click() }}>Restaurar backup</button>}
-            {podeEditar && <button type="button" className="sc-btn small danger" onClick={() => { setMenuBackup(false); recarregarSeed() }}>Recarregar dados da planilha</button>}
+            {podeEditar && ehFama(perfil.organization_id) && <button type="button" className="sc-btn small danger" onClick={() => { setMenuBackup(false); recarregarSeed() }}>Recarregar dados da planilha</button>}
           </div>
         )}
         <input ref={arqXls} type="file" accept=".xlsx,.xls,.xlsm,.csv" hidden onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) lerPlanilha(f) }} />

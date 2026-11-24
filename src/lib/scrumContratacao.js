@@ -158,6 +158,7 @@ export function lerLinhas(rows) {
         const r = rows[j] || []
         const n = r[ca]
         if (n == null || String(n).trim() === '') continue
+        if (String(n).trim().toLowerCase().startsWith('(exemplo)')) continue
         const iso = paraIso(r[ci])
         if (iso) out.push([String(n).trim(), iso])
       }
