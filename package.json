@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
+    "exceljs": "^4.4.0",
     "pdfjs-dist": "^6.2.108",
     "qrcode": "^1.5.4",
     "react": "^19.1.0",

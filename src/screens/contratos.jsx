@@ -25,6 +25,7 @@ import { useDados } from '../lib/DadosContext'
 import { hojeISO, formatarData, formatarDataHora, formatarDinheiro, plural } from '../lib/dominio'
 import { Icon, Chip, PageHeader, Segmentos, Sheet, Vazio, Indicador, Campo, Confirmar, SecaoRecolhivel } from '../components'
 import { RankingBarras, GraficoDonut } from '../components/charts'
+import { ehFama } from '../lib/clientes'
 
 const TOM_STATUS = { '1 - Aprovado': 'success', '2 - Em Aditivo': 'info', '0 - Não Aprovado': 'danger' }
 const UNIDADES_PRINCIPAIS = ['M', 'M²', 'M³', 'UN', 'KG', 'H']
@@ -1641,6 +1642,7 @@ export function ImportarContratos({ aberto, onFechar, dados, arquivoInicial }) {
   const [nomeArquivo, setNomeArquivo] = useState('')
   const [importandoAgora, setImportandoAgora] = useState(false)
   const [feito, setFeito] = useState(null)
+  const [baixandoModelo, setBaixandoModelo] = useState(false)
 
   const fechar = () => {
     setResultado(null); setNomeArquivo(''); setFeito(null); onFechar()
@@ -1714,9 +1716,21 @@ export function ImportarContratos({ aberto, onFechar, dados, arquivoInicial }) {
         ) : (
           <>
             <div className="t-caption" style={{ lineHeight: 1.5 }}>
-              A planilha "CONTRATOS-UAU" que você baixa do sistema (.xlsx). Item que já existe (mesma chave de
-              contrato) só atualiza os números — a medição mais nova substitui a anterior; item novo entra do zero.
+              {ehFama(dados.org?.id)
+                ? 'A planilha "CONTRATOS-UAU" que você baixa do sistema (.xlsx), ou o modelo do Prumo. '
+                : 'Baixe o modelo, preencha um item de serviço por linha e importe aqui (.xlsx). '}
+              Item que já existe (mesmo contrato e item) só atualiza os números — a medição mais nova substitui a anterior; item novo entra do zero.
             </div>
+
+            <button
+              className="btn btn-secondary btn-block" type="button" disabled={baixandoModelo}
+              onClick={async () => {
+                setBaixandoModelo(true)
+                try { (await import('../lib/modelosPlanilha')).baixarModelo('contratos') } finally { setBaixandoModelo(false) }
+              }}
+            >
+              <Icon name="relatorio" size={18} /> {baixandoModelo ? 'Gerando…' : 'Baixar modelo de planilha (.xlsx)'}
+            </button>
 
             <label className="btn btn-secondary btn-block" style={{ cursor: 'pointer' }}>
               {lendo ? 'Lendo a planilha…' : nomeArquivo || 'Escolher arquivo .xlsx'}
@@ -1733,6 +1747,12 @@ export function ImportarContratos({ aberto, onFechar, dados, arquivoInicial }) {
                 <div className="alert info">
                   {plural(novos, 'item novo', 'itens novos')} · {plural(atualizados, 'atualização', 'atualizações')}.
                 </div>
+                {resultado.avisos?.length > 0 && (
+                  <div className="alert danger" style={{ maxHeight: 120, overflowY: 'auto' }}>
+                    {resultado.avisos.slice(0, 8).map((a) => <div key={a}>{a}</div>)}
+                    {resultado.avisos.length > 8 && <div>…e mais {resultado.avisos.length - 8}.</div>}
+                  </div>
+                )}
 
                 {mudancas.length > 0 && (
                   <div>

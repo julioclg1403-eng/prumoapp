@@ -17,7 +17,7 @@ export default defineConfig({
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
         // a moldura do Gerencial Yacht tem política de segurança própria: nunca vai pro cache do app
-        globIgnores: ['gerencial-yacht/**'],
+        globIgnores: ['gerencial-yacht/**', 'assets/exceljs*'],
       },
       includeAssets: ['favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
