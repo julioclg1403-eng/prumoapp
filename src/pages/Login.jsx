@@ -13,8 +13,8 @@ import { APP_NOME } from '../lib/config'
 import { supabase, supabaseConfigurado } from '../lib/supabase'
 import { Campo } from '../components'
 
-export default function Login() {
-  const [modo, setModo] = useState('entrar')      // 'entrar' | 'criar'
+export default function Login({ modoInicial = 'entrar', aoVoltar }) {
+  const [modo, setModo] = useState(modoInicial === 'criar' ? 'criar' : 'entrar')      // 'entrar' | 'criar'
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
@@ -128,6 +128,11 @@ export default function Login() {
         }}
       >
         <div style={{ width: '100%', maxWidth: 380 }}>
+          {aoVoltar && (
+            <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--on-graphite-2)', marginBottom: 10 }} onClick={aoVoltar}>
+              ← Conhecer o Prumo
+            </button>
+          )}
           <div style={{ textAlign: 'center', marginBottom: 26 }}>
             <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', color: 'var(--on-graphite)' }}>
               {APP_NOME}<span style={{ color: 'var(--primary)' }}>.</span>

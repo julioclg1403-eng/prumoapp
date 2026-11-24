@@ -13,6 +13,7 @@ import { supabase, supabaseConfigurado } from './lib/supabase'
 import { DadosProvider } from './lib/DadosContext'
 import Login from './pages/Login'
 import CadastroEmpresa from './pages/CadastroEmpresa'
+import Landing from './pages/Landing'
 import AppCampo from './pages/AppCampo'
 import AppGestao from './pages/AppGestao'
 
@@ -41,6 +42,12 @@ export default function App() {
     return () => { vivo = false; sub.subscription.unsubscribe() }
   }, [])
 
+  const [entrada, setEntrada] = useState(() => {
+    try {
+      const instalado = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
+      return instalado || window.location.hash === '#entrar' ? 'entrar' : 'landing'
+    } catch { return 'landing' }
+  })
   const [versaoPerfil, setVersaoPerfil] = useState(0)
   const [erroPerfil, setErroPerfil] = useState(false)
 
@@ -71,7 +78,15 @@ export default function App() {
     return <div className="app"><div className="empty" style={{ paddingTop: 120 }}>Carregando…</div></div>
   }
 
-  if (!sessao) return <Login />
+  /* Quem ainda não entrou vê primeiro a apresentação do Prumo.
+     O aplicativo instalado na tela inicial (e o endereço com #entrar)
+     vai direto para o login: quem já usa não precisa ver a vitrine. */
+  if (!sessao) {
+    if (entrada === 'landing') {
+      return <Landing aoEntrar={() => setEntrada('entrar')} aoCriar={() => setEntrada('criar')} />
+    }
+    return <Login key={entrada} modoInicial={entrada} aoVoltar={() => setEntrada('landing')} />
+  }
 
   /* Conta nova, sem empresa: abre a própria obra. Quem foi
      convidado por uma empresa já chega com organização definida
