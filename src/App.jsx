@@ -16,6 +16,11 @@ import CadastroEmpresa from './pages/CadastroEmpresa'
 import Landing from './pages/Landing'
 import AppCampo from './pages/AppCampo'
 import AppGestao from './pages/AppGestao'
+import { lerLinkDoEndereco, codigoValido, esquecerCodigo } from './lib/linkConvite'
+
+/* Lido uma vez, antes de qualquer tela: quem abriu um link de convite
+   vai direto para a criação da conta. */
+const abriuPorConvite = lerLinkDoEndereco()
 
 export default function App() {
   const [sessao, setSessao] = useState(null)
@@ -43,6 +48,7 @@ export default function App() {
   }, [])
 
   const [entrada, setEntrada] = useState(() => {
+    if (abriuPorConvite) return 'criar'
     try {
       const instalado = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
       return instalado || window.location.hash === '#entrar' ? 'entrar' : 'landing'
@@ -67,6 +73,16 @@ export default function App() {
 
     return () => { vivo = false }
   }, [sessao, versaoPerfil])
+
+  // link colado numa aba que já estava aberta: só muda o "#", então recarrega
+  useEffect(() => {
+    const colou = () => { if (lerLinkDoEndereco()) window.location.reload() }
+    window.addEventListener('hashchange', colou)
+    return () => window.removeEventListener('hashchange', colou)
+  }, [])
+
+  // quem já tem empresa não precisa mais do código guardado neste navegador
+  useEffect(() => { if (perfil?.organization_id) esquecerCodigo() }, [perfil])
 
   const sair = async () => {
     await supabase.auth.signOut()
@@ -94,7 +110,12 @@ export default function App() {
      (a regra de acesso é por organização): perfil vazio, sem erro
      de leitura, é exatamente a conta nova. */
   if ((!perfil && !erroPerfil) || (perfil && !perfil.organization_id)) {
-    return <CadastroEmpresa perfil={perfil} onCriada={() => setVersaoPerfil((v) => v + 1)} onSair={sair} />
+    return (
+      <CadastroEmpresa
+        perfil={perfil} codigoDaConta={codigoValido(sessao.user.user_metadata?.convite)}
+        onCriada={() => setVersaoPerfil((v) => v + 1)} onSair={sair}
+      />
+    )
   }
 
   /* A conta existe, mas nenhum admin liberou o acesso ainda.

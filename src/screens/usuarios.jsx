@@ -1,10 +1,10 @@
 /* ============================================================
    USUÁRIOS — só o admin chega aqui.
 
-   Convite: o admin informa o e-mail e o perfil; a pessoa cria a
-   conta com esse e-mail, confirma e ACEITA. O app não manda e-mail
-   de convite (isso exigiria a chave administrativa, que nunca vai
-   para o navegador). Nenhum admin vê contas de quem não entrou.
+   Convite: o admin cria um link (perfil e obra) e manda pelo próprio
+   WhatsApp. A pessoa cria a conta, confirma o e-mail e PEDE a
+   liberação; o admin libera ou recusa aqui. Cada empresa só vê os
+   pedidos feitos pelos links dela.
 
    Esconder este item do menu também não é segurança. A trava é o
    gatilho `protege_papel` no Postgres: só quem é admin na tabela
@@ -129,7 +129,10 @@ export default function Usuarios({ voltar, perfil }) {
         <PageHeader titulo="Usuários" sub="Quem tem acesso e com qual perfil" />
 
         <div className="stack-3">
-          <Convites organizationId={perfil.organization_id} obras={dados.obras} obraPadrao={perfil.worksite_id} papeis={PAPEIS} />
+          <Convites
+            empresa={dados.org.nome} obras={dados.obras}
+            obraPadrao={perfil.worksite_id} papeis={PAPEIS} aoLiberar={dados.recarregar}
+          />
 
           {/* ── Quem já tem acesso ── */}
           <div>
@@ -293,9 +296,10 @@ export default function Usuarios({ voltar, perfil }) {
           <div className="card-flat">
             <div className="t-micro" style={{ marginBottom: 8 }}>Como dar acesso a alguém</div>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--text-2)' }}>
-              <li>Em <strong>Convidar pessoa</strong>, informe o e-mail, o perfil e a obra, e avise a pessoa.</li>
-              <li>Ela cria a conta no app com <strong>esse mesmo e-mail</strong> e confirma pelo link recebido.</li>
-              <li>Ao entrar, ela toca em <strong>Aceitar e entrar</strong>.</li>
+              <li>Em <strong>Convidar pelo WhatsApp</strong>, escolha o perfil e a obra, crie o convite e envie.</li>
+              <li>A pessoa abre o link, cria a conta, confirma o e-mail e toca em <strong>Pedir liberação</strong>.</li>
+              <li>O pedido aparece aqui no alto. Toque em <strong>Liberar</strong>.</li>
+              <li>O convite não cria Admin: se precisar, mude o perfil depois da liberação.</li>
             </ol>
           </div>
 

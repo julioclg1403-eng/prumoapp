@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { APP_NOME } from '../lib/config'
 import { supabase, supabaseConfigurado } from '../lib/supabase'
 import { Campo } from '../components'
+import { codigoGuardado } from '../lib/linkConvite'
 
 export default function Login({ modoInicial = 'entrar', aoVoltar }) {
   const [modo, setModo] = useState(modoInicial === 'criar' ? 'criar' : 'entrar')      // 'entrar' | 'criar'
@@ -20,6 +21,7 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
   const [erro, setErro] = useState('')
   const [aviso, setAviso] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [convite] = useState(codigoGuardado)
 
   const entrar = async (e) => {
     e.preventDefault()
@@ -49,7 +51,8 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim().toLowerCase(),
       password: senha,
-      options: { data: { nome: nome.trim() } },
+      // o código do convite não dá acesso: só lembra a quem a pessoa vai pedir liberação
+      options: { data: { nome: nome.trim(), ...(convite ? { convite } : {}) } },
     })
     setEnviando(false)
 
@@ -72,9 +75,12 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
        e-mail chegou" deixa a pessoa num beco sem saída — melhor
        dizer desde já qual é a saída alternativa. */
     if (!data.session) {
+      /* Com e-mail já cadastrado, o Supabase responde como se tivesse
+         criado e não manda nada (para não revelar quem tem conta). Por
+         isso a mensagem não pode garantir que a conta é nova. */
       setAviso(
-        'Conta criada. Agora confirme pelo link enviado ao seu e-mail (olhe também no spam) e depois entre. ' +
-        'Se o e-mail não chegar, fale com o suporte.',
+        'Pronto. Se este e-mail ainda não tinha conta, enviamos um link de confirmação (olhe também no spam): ' +
+        'confirme e depois entre. Se você já tinha conta, não chega e-mail: é só entrar ou usar "Esqueci minha senha".',
       )
       setModo('entrar')
       return
@@ -141,6 +147,13 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
             </div>
           </div>
 
+          {convite && (
+            <div className="alert info" style={{ marginBottom: 14, lineHeight: 1.5 }}>
+              Você abriu um convite. {criando ? 'Crie a sua conta' : 'Entre na sua conta'} para pedir a liberação.
+              {criando ? ' Se já tem conta, toque em "Já tenho conta".' : ''}
+            </div>
+          )}
+
           <form className="card stack-2" onSubmit={entrar}>
             {criando && (
               <Campo label="Seu nome">
@@ -186,8 +199,9 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
             {criando ? (
               <>
                 <div className="t-caption" style={{ lineHeight: 1.5, marginBottom: 12 }}>
-                  Depois de criar a conta, você abre a sua empresa e a sua primeira obra em um minuto.
-                  Se a sua empresa já usa o Prumo, use o mesmo e-mail do convite feito pelo administrador.
+                  {convite
+                    ? 'Depois de criar e confirmar a conta, toque em "Pedir liberação".'
+                    : 'Depois de criar a conta, você abre a sua empresa e a sua primeira obra em um minuto. Se a sua empresa já usa o Prumo, peça um convite ao administrador.'}
                 </div>
                 <button className="btn btn-secondary btn-block" onClick={() => { setModo('entrar'); setErro(''); setAviso('') }}>
                   Já tenho conta

@@ -10,10 +10,18 @@ import { supabase } from '../lib/supabase'
 import { APP_NOME } from '../lib/config'
 import { Campo } from '../components'
 import { meusConvites, aceitarConvite } from '../lib/convites'
+import PedidoPorLink from '../components/PedidoPorLink'
+import { codigoGuardado } from '../lib/linkConvite'
 
 const NOME_DO_PERFIL = { campo: 'Campo', gestao: 'Gestão', admin: 'Admin' }
 
-export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
+export default function CadastroEmpresa({ perfil, codigoDaConta, onCriada, onSair }) {
+  const [codigo] = useState(() => codigoGuardado() || codigoDaConta || null)
+  /* Quem veio por convite não deve cair no "abrir a própria obra" sem
+     querer: o formulário fica escondido até a pessoa pedir. */
+  const [veioPorConvite, setVeioPorConvite] = useState(Boolean(codigo))
+  const [quisCriar, setQuisCriar] = useState(false)
+  const mostrarFormulario = !veioPorConvite || quisCriar
   const [empresa, setEmpresa] = useState('')
   const [obra, setObra] = useState('')
   const [exemplo, setExemplo] = useState(true)
@@ -61,7 +69,9 @@ export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
               {APP_NOME}<span style={{ color: 'var(--primary)' }}>.</span>
             </div>
             <div style={{ color: 'var(--on-graphite-2)', fontSize: 14, marginTop: 4 }}>
-              {perfil?.nome ? `Bem-vindo, ${perfil.nome}.` : 'Bem-vindo.'} Vamos abrir a sua obra.
+              {veioPorConvite
+                ? (perfil?.nome ? `Olá, ${perfil.nome}.` : 'Olá.')
+                : <>{perfil?.nome ? `Bem-vindo, ${perfil.nome}.` : 'Bem-vindo.'} Vamos abrir a sua obra.</>}
             </div>
           </div>
 
@@ -78,7 +88,15 @@ export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
           ))}
           {erroConvite && <div className="alert danger" style={{ marginBottom: 14 }}>{erroConvite}</div>}
 
-          <form className="card" onSubmit={criar}>
+          <PedidoPorLink codigo={codigo} aoAchar={() => setVeioPorConvite(true)} aoVerificar={onCriada} />
+
+          {!mostrarFormulario && (
+            <button type="button" className="btn btn-ghost btn-block" style={{ color: 'var(--on-graphite-2)' }} onClick={() => setQuisCriar(true)}>
+              Quero abrir a minha própria obra
+            </button>
+          )}
+
+          {mostrarFormulario && <form className="card" onSubmit={criar}>
             <div className="stack-2">
               <Campo label="Nome da empresa">
                 <input className="ipt" value={empresa} onChange={(e) => setEmpresa(e.target.value)} maxLength={80} placeholder="Ex.: Construtora Silva" autoFocus />
@@ -97,15 +115,19 @@ export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
                 {enviando ? 'Criando…' : 'Criar minha obra'}
               </button>
             </div>
-          </form>
+          </form>}
 
-          <div className="t-caption" style={{ color: 'var(--on-graphite-2)', textAlign: 'center', marginTop: 16, lineHeight: 1.6 }}>
-            A sua empresa já usa o {APP_NOME}? Não crie uma obra nova: peça ao administrador
-            para convidar o e-mail desta conta.
-          </div>
-          <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 8, color: 'var(--on-graphite-2)' }} onClick={procurarConvites}>
-            Procurar convite de novo
-          </button>
+          {!veioPorConvite && (
+            <>
+              <div className="t-caption" style={{ color: 'var(--on-graphite-2)', textAlign: 'center', marginTop: 16, lineHeight: 1.6 }}>
+                A sua empresa já usa o {APP_NOME}? Não crie uma obra nova: peça um link de convite
+                ao administrador e abra-o aqui neste aparelho.
+              </div>
+              <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 8, color: 'var(--on-graphite-2)' }} onClick={procurarConvites}>
+                Procurar convite de novo
+              </button>
+            </>
+          )}
           <button className="btn btn-ghost btn-block" style={{ marginTop: 8, color: 'var(--on-graphite-2)' }} onClick={onSair}>
             Sair
           </button>

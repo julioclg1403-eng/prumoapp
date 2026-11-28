@@ -101,6 +101,8 @@ html, body, #root {
 }
 .btn-sm  { height: var(--tap-h-sm); padding: 0 12px; font-size: var(--caption); border-radius: 8px; }
 .btn-block { width: 100%; }
+/* link com cara de botão (ex.: abrir o WhatsApp) */
+a.btn { box-sizing: border-box; text-decoration: none; }
 .btn-primary   { background: var(--primary); color: var(--primary-on); }
 .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
 .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
