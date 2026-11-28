@@ -12,20 +12,24 @@ import { useEffect, useState } from 'react'
 import { supabase, supabaseConfigurado } from './lib/supabase'
 import { DadosProvider } from './lib/DadosContext'
 import Login from './pages/Login'
-import CadastroEmpresa from './pages/CadastroEmpresa'
-import Landing from './pages/Landing'
+import SemEmpresa from './pages/SemEmpresa'
+import Convite from './pages/Convite'
+import NovaSenha from './pages/NovaSenha'
 import AppCampo from './pages/AppCampo'
 import AppGestao from './pages/AppGestao'
-import { lerLinkDoEndereco, codigoValido, esquecerCodigo } from './lib/linkConvite'
+import { lerLinkDoEndereco, linkGuardado, esquecerLink } from './lib/linkConvite'
 
-/* Lido uma vez, antes de qualquer tela: quem abriu um link de convite
-   vai direto para a criação da conta. */
-const abriuPorConvite = lerLinkDoEndereco()
+/* Lidos uma vez, antes de qualquer tela. O endereço do link de nova
+   senha é apagado pelo Supabase logo depois de lido, por isso a
+   marca é guardada já aqui. */
+lerLinkDoEndereco()
+const veioTrocarSenha = typeof window !== 'undefined' && /[#&]type=recovery(&|$)/.test(window.location.hash)
 
 export default function App() {
   const [sessao, setSessao] = useState(null)
   const [perfil, setPerfil] = useState(null)
   const [carregando, setCarregando] = useState(true)
+  const [trocarSenha, setTrocarSenha] = useState(veioTrocarSenha)
 
   useEffect(() => {
     if (!supabaseConfigurado) { setCarregando(false); return }
@@ -38,8 +42,9 @@ export default function App() {
       if (!data.session) setCarregando(false)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_evento, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((evento, s) => {
       if (!vivo) return
+      if (evento === 'PASSWORD_RECOVERY') setTrocarSenha(true)
       setSessao(s)
       if (!s) { setPerfil(null); setCarregando(false) }
     })
@@ -47,13 +52,9 @@ export default function App() {
     return () => { vivo = false; sub.subscription.unsubscribe() }
   }, [])
 
-  const [entrada, setEntrada] = useState(() => {
-    if (abriuPorConvite) return 'criar'
-    try {
-      const instalado = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
-      return instalado || window.location.hash === '#entrar' ? 'entrar' : 'landing'
-    } catch { return 'landing' }
-  })
+  /* Link de acesso (convite ou troca de senha) aberto e ainda não usado. */
+  const [link, setLink] = useState(linkGuardado)
+  const dispensarLink = () => { esquecerLink(); setLink(null) }
   const [versaoPerfil, setVersaoPerfil] = useState(0)
   const [erroPerfil, setErroPerfil] = useState(false)
 
@@ -81,9 +82,6 @@ export default function App() {
     return () => window.removeEventListener('hashchange', colou)
   }, [])
 
-  // quem já tem empresa não precisa mais do código guardado neste navegador
-  useEffect(() => { if (perfil?.organization_id) esquecerCodigo() }, [perfil])
-
   const sair = async () => {
     await supabase.auth.signOut()
     setPerfil(null)
@@ -94,28 +92,48 @@ export default function App() {
     return <div className="app"><div className="empty" style={{ paddingTop: 120 }}>Carregando…</div></div>
   }
 
-  /* Quem ainda não entrou vê primeiro a apresentação do Prumo.
-     O aplicativo instalado na tela inicial (e o endereço com #entrar)
-     vai direto para o login: quem já usa não precisa ver a vitrine. */
+  /* Sem sessão: quem abriu um convite cria a senha; o resto entra com
+     a própria conta. Não há cadastro aberto (a página de apresentação,
+     pages/Landing.jsx, volta quando houver venda com cadastro). */
   if (!sessao) {
-    if (entrada === 'landing') {
-      return <Landing aoEntrar={() => setEntrada('entrar')} aoCriar={() => setEntrada('criar')} />
-    }
-    return <Login key={entrada} modoInicial={entrada} aoVoltar={() => setEntrada('landing')} />
+    return link ? <Convite tipo={link.tipo} codigo={link.codigo} aoIrParaEntrar={dispensarLink} /> : <Login />
   }
 
-  /* Conta nova, sem empresa: aceita o convite de uma empresa (se
-     houver um para o e-mail dela) ou abre a própria obra.
-     Sem empresa, o banco nem deixa a pessoa ler o próprio perfil
-     (a regra de acesso é por organização): perfil vazio, sem erro
-     de leitura, é exatamente a conta nova. */
-  if ((!perfil && !erroPerfil) || (perfil && !perfil.organization_id)) {
+  if (trocarSenha) {
+    return <NovaSenha email={sessao.user.email} onPronto={() => setTrocarSenha(false)} />
+  }
+
+  /* Abriu um link de acesso já estando conectado: avisa, em vez de
+     entrar no próprio app sem explicar nada. */
+  if (link && linkGuardado()?.codigo === link.codigo) {
     return (
-      <CadastroEmpresa
-        perfil={perfil} codigoDaConta={codigoValido(sessao.user.user_metadata?.convite)}
-        onCriada={() => setVersaoPerfil((v) => v + 1)} onSair={sair}
-      />
+      <div className="app">
+        <div className="page" style={{ paddingTop: 60, maxWidth: 460 }}>
+          <div className="card">
+            <div className="t-title" style={{ marginBottom: 8 }}>Você já está conectado</div>
+            <div className="t-caption" style={{ lineHeight: 1.6, overflowWrap: 'anywhere' }}>
+              Este aparelho está com a conta <strong>{sessao.user.email}</strong>. Para usar
+              {link.tipo === 'senha' ? ' o link de troca de senha' : ' o convite'} que você abriu, saia desta conta.
+              Se o link é de outra pessoa, não use.
+            </div>
+            <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={dispensarLink}>
+              Continuar na minha conta
+            </button>
+            <button className="btn btn-secondary btn-block" style={{ marginTop: 8 }} onClick={sair}>
+              Sair e abrir o link
+            </button>
+          </div>
+        </div>
+      </div>
     )
+  }
+
+  /* Conta sem empresa: só aceita convite (o acesso é só por convite).
+     Sem empresa, o banco nem deixa a pessoa ler o próprio perfil (a
+     regra de acesso é por organização): perfil vazio, sem erro de
+     leitura, é esse caso. */
+  if ((!perfil && !erroPerfil) || (perfil && !perfil.organization_id)) {
+    return <SemEmpresa perfil={perfil} onEntrou={() => setVersaoPerfil((v) => v + 1)} onSair={sair} />
   }
 
   /* A conta existe, mas nenhum admin liberou o acesso ainda.

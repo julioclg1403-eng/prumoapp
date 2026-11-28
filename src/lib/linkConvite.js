@@ -1,78 +1,90 @@
-/* Convite por link com liberação.
+/* Links de acesso: o convite (o administrador define nome, e-mail,
+   perfil e obra; quem recebe só cria a senha) e a troca de senha
+   liberada pelo administrador.
 
-   O link leva só um código. Ele não dá acesso a nada: a pessoa pede
-   para entrar, e quem libera é o administrador da empresa que criou
-   o link. A trava está no banco. */
+   O link é a chave (uso único, com prazo, cancelável). Quem cria a
+   conta ou troca a senha é uma função no servidor, sempre na conta
+   que o banco indica para aquele link. */
 import { supabase } from './supabase'
 
 const CHAVE = 'prumo.convite'
 const FORMATO = /^[0-9a-f]{32}$/
 
-/* O endereço do convite é ".../#convite=CODIGO". O código fica guardado
-   no navegador para sobreviver ao cadastro e à confirmação do e-mail. */
+/* O endereço é ".../#convite=CODIGO" ou ".../#senha=CODIGO". O código
+   sai da barra de endereço e fica guardado até ser usado ou dispensado. */
 export function lerLinkDoEndereco() {
   try {
-    const achado = /^#convite=([0-9a-f]{32})$/.exec(window.location.hash)
+    const achado = /^#(convite|senha)=([0-9a-f]{32})$/.exec(window.location.hash)
     if (!achado) return false
-    window.localStorage.setItem(CHAVE, achado[1])
+    window.localStorage.setItem(CHAVE, `${achado[1]}:${achado[2]}`)
     window.history.replaceState(null, '', window.location.pathname + window.location.search)
     return true
   } catch { return false }
 }
 
-export function codigoGuardado() {
+export function linkGuardado() {
   try {
-    const c = window.localStorage.getItem(CHAVE)
-    return c && FORMATO.test(c) ? c : null
+    const [tipo, codigo] = String(window.localStorage.getItem(CHAVE) || '').split(':')
+    return (tipo === 'convite' || tipo === 'senha') && FORMATO.test(codigo || '') ? { tipo, codigo } : null
   } catch { return null }
 }
 
-export function esquecerCodigo() {
+export function esquecerLink() {
   try { window.localStorage.removeItem(CHAVE) } catch { /* sem armazenamento */ }
 }
 
-/* No celular, o link do e-mail de confirmação pode abrir em outro
-   navegador. Por isso o código também vai junto do cadastro. */
-export const codigoValido = (c) => (typeof c === 'string' && FORMATO.test(c) ? c : null)
+// ── quem recebeu o link ──────────────────────────────────────
+export const verLink = (tipo, codigo) =>
+  supabase.rpc(tipo === 'senha' ? 'ver_troca_senha' : 'ver_convite', { p_codigo: codigo })
+
+export async function usarLink(tipo, codigo, senha) {
+  const { data, error } = await supabase.functions.invoke('acesso-por-link', { body: { tipo, codigo, senha } })
+  if (!error) return { email: data.email }
+  // quando a função recusa, o motivo vem no corpo da resposta, guardado em error.context
+  let corpo = null
+  try { corpo = await error.context.json() } catch { /* sem resposta do servidor */ }
+  return {
+    erro: corpo?.erro || 'Não consegui falar com o servidor. Confira a internet e tente de novo.',
+    situacao: corpo?.situacao,
+  }
+}
+
+/* Sem login. A resposta é a mesma exista ou não a conta. */
+export const pedirTroca = (email) => supabase.rpc('pedir_troca_senha', { p_email: email })
 
 // ── administrador ────────────────────────────────────────────
-export const listarLinksAbertos = () =>
-  supabase.from('links_convite').select('id, codigo, role, worksite_id, expira_em')
-    .is('pedido_por', null).is('decisao', null).order('criado_em', { ascending: false })
-export const criarLink = ({ papel, obraId }) =>
-  supabase.rpc('criar_link_convite', { p_papel: papel, p_obra: obraId || null })
-export const cancelarLink = (id) => supabase.from('links_convite').delete().eq('id', id)
-export const pedidosDeEntrada = () => supabase.rpc('pedidos_de_entrada')
-export const liberarPedido = (id) => supabase.rpc('liberar_pedido', { p_link: id })
-export const recusarPedido = (id) => supabase.rpc('recusar_pedido', { p_link: id })
+export const criarConvite = ({ nome, email, papel, obraId }) =>
+  supabase.rpc('criar_convite', { p_nome: nome, p_email: email, p_papel: papel, p_obra: obraId || null })
 
-// ── quem recebeu o link ──────────────────────────────────────
-export const verLink = (codigo) => supabase.rpc('ver_link_convite', { p_codigo: codigo })
-export const pedirEntrada = (codigo) => supabase.rpc('pedir_entrada', { p_codigo: codigo })
-export const meusPedidos = () => supabase.rpc('meus_pedidos')
+export const enderecoDoConvite = (codigo) => `${window.location.origin}/#convite=${codigo}`
 
-// ── mensagens prontas para o WhatsApp ────────────────────────
-const site = () => window.location.origin
-
-export const enderecoDoConvite = (codigo) => `${site()}/#convite=${codigo}`
-
-/* Sem número: o WhatsApp abre e a própria pessoa escolhe o contato.
+/* Sem número: o WhatsApp abre e o administrador escolhe o contato.
    O app não pede nem guarda telefone de ninguém. */
 export const abrirNoWhatsapp = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`
 
-export const mensagemDoConvite = ({ empresa, codigo, expiraEm }) => [
-  `Convite para entrar no Prumo (${empresa}).`,
+export const quandoVence = (iso) =>
+  new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+export const mensagemDoConvite = ({ nome, empresa, codigo, expiraEm }) => [
+  `Olá, ${nome}! Este é o seu convite para o Prumo (${empresa}).`,
   '',
   `1. Abra: ${enderecoDoConvite(codigo)}`,
-  '2. Crie a sua conta com o seu e-mail.',
-  '3. Confirme pelo e-mail que vai chegar (olhe também no spam).',
-  '4. Toque em "Pedir liberação".',
+  '2. Crie a sua senha. Pronto, você já entra na obra.',
   '',
-  `O link vale para uma pessoa, até ${new Date(expiraEm).toLocaleDateString('pt-BR')}.`,
+  `O link é só seu, não repasse. Vale uma vez, até ${quandoVence(expiraEm)}.`,
 ].join('\n')
 
-export const mensagemDeLiberado = ({ empresa }) =>
-  `Seu acesso ao Prumo (${empresa}) foi liberado. Entre aqui: ${site()}/#entrar`
+export const trocasDeSenha = () => supabase.rpc('trocas_de_senha')
+export const liberarTroca = (usuarioId) => supabase.rpc('liberar_troca_senha', { p_usuario: usuarioId })
+export const cancelarTroca = (id) => supabase.rpc('cancelar_troca_senha', { p_id: id })
 
-export const mensagemDeEspera = ({ empresa }) =>
-  `Pedi para entrar no Prumo (${empresa}). Pode liberar em Usuários?`
+export const mensagemDaTroca = ({ nome, empresa, codigo, expiraEm }) => [
+  `Olá, ${nome || ''}! A troca da sua senha do Prumo (${empresa}) foi liberada.`,
+  '',
+  `1. Abra: ${window.location.origin}/#senha=${codigo}`,
+  '2. Crie a senha nova. Pronto, você já entra.',
+  '',
+  `O link é só seu, não repasse. Vale uma vez, até ${quandoVence(expiraEm)}.`,
+].join('\n')
+
+export const pedidoDeSenhaPorWhatsapp = 'Pedi uma senha nova no Prumo. Pode liberar em Usuários?'

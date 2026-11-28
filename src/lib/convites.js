@@ -3,7 +3,7 @@
 import { supabase } from './supabase'
 
 export const listarConvites = () =>
-  supabase.from('convites').select('id, email, role, worksite_id, expira_em')
+  supabase.from('convites').select('id, nome, email, role, worksite_id, codigo, expira_em')
     .is('aceito_em', null).order('criado_em', { ascending: false })
 
 export const cancelarConvite = (id) => supabase.from('convites').delete().eq('id', id)

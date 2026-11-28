@@ -1,101 +1,56 @@
 /* ============================================================
-   LOGIN e CADASTRO.
-
-   Quem se cadastra aqui nasce sem empresa e sem papel, e assim não
-   enxerga dado de ninguém — não é a tela que esconde, é o banco que
-   não entrega. Depois a pessoa abre a própria empresa ou aceita o
-   convite feito para o e-mail dela.
+   ENTRAR. Não existe cadastro aberto: o acesso é só por convite
+   (a tela do convite é pages/Convite.jsx).
    ============================================================ */
 
 import { useState } from 'react'
 import { APP_NOME } from '../lib/config'
 import { supabase, supabaseConfigurado } from '../lib/supabase'
 import { Campo } from '../components'
-import { codigoGuardado } from '../lib/linkConvite'
+import { pedirTroca, abrirNoWhatsapp, pedidoDeSenhaPorWhatsapp } from '../lib/linkConvite'
 
-export default function Login({ modoInicial = 'entrar', aoVoltar }) {
-  const [modo, setModo] = useState(modoInicial === 'criar' ? 'criar' : 'entrar')      // 'entrar' | 'criar'
-  const [nome, setNome] = useState('')
+export default function Login() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [aviso, setAviso] = useState('')
+  const [pediu, setPediu] = useState(false)
   const [enviando, setEnviando] = useState(false)
-  const [convite] = useState(codigoGuardado)
+
+  // o pedido vai para o administrador da empresa, que libera e manda o link
+  const esqueci = async () => {
+    setErro(''); setAviso(''); setPediu(false)
+    if (!email.trim()) { setErro('Escreva seu e-mail primeiro.'); return }
+    setEnviando(true)
+    const { error } = await pedirTroca(email.trim().toLowerCase())
+    setEnviando(false)
+    if (error) setErro('Não consegui registrar o pedido. Avise o administrador da sua empresa.')
+    else setPediu(true)
+  }
+
+  /* Saída para quem é o único administrador: não há quem libere. */
+  const porEmail = async () => {
+    setErro(''); setAviso(''); setEnviando(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: window.location.origin })
+    setEnviando(false)
+    if (error) setErro('Não consegui enviar o e-mail.')
+    else setAviso('Se existir conta com esse e-mail e o envio estiver disponível, o link chega em instantes.')
+  }
 
   const entrar = async (e) => {
     e.preventDefault()
     setErro(''); setAviso(''); setEnviando(true)
-
-    if (modo === 'entrar') {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(), password: senha,
-      })
-      setEnviando(false)
-      if (error) {
-        setErro(
-          error.message.includes('Invalid login')
-            ? 'E-mail ou senha incorretos.'
-            : `Não consegui entrar. ${error.message}`,
-        )
-      }
-      return
-    }
-
-    if (senha.length < 8) {
-      setEnviando(false)
-      setErro('A senha precisa ter pelo menos 8 caracteres.')
-      return
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
-      password: senha,
-      // o código do convite não dá acesso: só lembra a quem a pessoa vai pedir liberação
-      options: { data: { nome: nome.trim(), ...(convite ? { convite } : {}) } },
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(), password: senha,
     })
     setEnviando(false)
-
     if (error) {
-      /* O Supabase recusa domínios reservados (example.com, test.com).
-         A mensagem crua dele não ajuda quem não é técnico. */
       setErro(
-        error.message.toLowerCase().includes('invalid')
-          ? 'Esse endereço de e-mail não é aceito. Use o e-mail que você realmente usa.'
-          : error.message.toLowerCase().includes('already')
-            ? 'Já existe conta com esse e-mail. Tente entrar, ou peça uma nova senha.'
-            : `Não consegui criar a conta. ${error.message}`,
+        error.message.includes('Invalid login')
+          ? 'E-mail ou senha incorretos.'
+          : `Não consegui entrar. ${error.message}`,
       )
-      return
     }
-
-    /* Sem sessão = o projeto exige confirmação por e-mail. Cuidado
-       com a promessa: o serviço de e-mail padrão do Supabase é
-       limitado e às vezes simplesmente não entrega. Prometer "o
-       e-mail chegou" deixa a pessoa num beco sem saída — melhor
-       dizer desde já qual é a saída alternativa. */
-    if (!data.session) {
-      /* Com e-mail já cadastrado, o Supabase responde como se tivesse
-         criado e não manda nada (para não revelar quem tem conta). Por
-         isso a mensagem não pode garantir que a conta é nova. */
-      setAviso(
-        'Pronto. Se este e-mail ainda não tinha conta, enviamos um link de confirmação (olhe também no spam): ' +
-        'confirme e depois entre. Se você já tinha conta, não chega e-mail: é só entrar ou usar "Esqueci minha senha".',
-      )
-      setModo('entrar')
-      return
-    }
-    /* Entrou direto: o App vai ver que ainda não tem papel e
-       mostrar a tela de "acesso ainda não liberado". */
-  }
-
-  const esqueci = async () => {
-    if (!email.trim()) { setErro('Escreva seu e-mail primeiro.'); return }
-    setErro(''); setEnviando(true)
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase())
-    setEnviando(false)
-    if (error) setErro(`Não consegui enviar. ${error.message}`)
-    else setAviso('Se existir conta com esse e-mail, o link de nova senha chegou nele.')
   }
 
   if (!supabaseConfigurado) {
@@ -122,8 +77,6 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
     )
   }
 
-  const criando = modo === 'criar'
-
   return (
     <div className="app">
       <div
@@ -133,11 +86,6 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
         }}
       >
         <div style={{ width: '100%', maxWidth: 380 }}>
-          {aoVoltar && (
-            <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--on-graphite-2)', marginBottom: 10 }} onClick={aoVoltar}>
-              ← Conhecer o Prumo
-            </button>
-          )}
           <div style={{ textAlign: 'center', marginBottom: 26 }}>
             <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', color: 'var(--on-graphite)' }}>
               {APP_NOME}<span style={{ color: 'var(--primary)' }}>.</span>
@@ -147,23 +95,7 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
             </div>
           </div>
 
-          {convite && (
-            <div className="alert info" style={{ marginBottom: 14, lineHeight: 1.5 }}>
-              Você abriu um convite. {criando ? 'Crie a sua conta' : 'Entre na sua conta'} para pedir a liberação.
-              {criando ? ' Se já tem conta, toque em "Já tenho conta".' : ''}
-            </div>
-          )}
-
           <form className="card stack-2" onSubmit={entrar}>
-            {criando && (
-              <Campo label="Seu nome">
-                <input
-                  className="ipt" value={nome} onChange={(e) => setNome(e.target.value)}
-                  placeholder="Como você é chamado na obra" required
-                />
-              </Campo>
-            )}
-
             <Campo label="E-mail">
               <input
                 className="ipt" type="email" autoComplete="username" inputMode="email"
@@ -172,10 +104,9 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
               />
             </Campo>
 
-            <Campo label="Senha" dica={criando ? 'Mínimo de 8 caracteres.' : undefined}>
+            <Campo label="Senha">
               <input
-                className="ipt" type="password"
-                autoComplete={criando ? 'new-password' : 'current-password'}
+                className="ipt" type="password" autoComplete="current-password"
                 value={senha} onChange={(e) => setSenha(e.target.value)}
                 placeholder="••••••••" required
               />
@@ -183,40 +114,34 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
 
             {erro && <div className="alert danger">{erro}</div>}
             {aviso && <div className="alert success">{aviso}</div>}
+            {pediu && (
+              <div className="stack-2">
+                <div className="alert success" style={{ lineHeight: 1.5 }}>
+                  Pedido registrado. Se este e-mail tem acesso ao Prumo, o administrador da sua empresa vê o
+                  pedido e manda o link para você criar a senha nova.
+                </div>
+                <a className="btn btn-secondary btn-block" href={abrirNoWhatsapp(pedidoDeSenhaPorWhatsapp)} target="_blank" rel="noopener noreferrer">
+                  Avisar no WhatsApp
+                </a>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={porEmail} disabled={enviando}>
+                  Único admin? Tentar por e-mail
+                </button>
+              </div>
+            )}
 
             <button className="btn btn-primary btn-block" type="submit" disabled={enviando}>
-              {enviando ? 'Aguarde…' : criando ? 'Criar conta' : 'Entrar'}
+              {enviando ? 'Aguarde…' : 'Entrar'}
             </button>
 
-            {!criando && (
-              <button className="btn btn-ghost btn-sm" type="button" onClick={esqueci} disabled={enviando}>
-                Esqueci minha senha
-              </button>
-            )}
+            <button className="btn btn-ghost btn-sm" type="button" onClick={esqueci} disabled={enviando}>
+              Esqueci minha senha
+            </button>
           </form>
 
           <div className="card" style={{ marginTop: 14 }}>
-            {criando ? (
-              <>
-                <div className="t-caption" style={{ lineHeight: 1.5, marginBottom: 12 }}>
-                  {convite
-                    ? 'Depois de criar e confirmar a conta, toque em "Pedir liberação".'
-                    : 'Depois de criar a conta, você abre a sua empresa e a sua primeira obra em um minuto. Se a sua empresa já usa o Prumo, peça um convite ao administrador.'}
-                </div>
-                <button className="btn btn-secondary btn-block" onClick={() => { setModo('entrar'); setErro(''); setAviso('') }}>
-                  Já tenho conta
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="t-caption" style={{ lineHeight: 1.5, marginBottom: 12 }}>
-                  Primeira vez? Crie sua conta e abra a sua obra, sem precisar de liberação.
-                </div>
-                <button className="btn btn-secondary btn-block" onClick={() => { setModo('criar'); setErro(''); setAviso('') }}>
-                  Criar uma conta
-                </button>
-              </>
-            )}
+            <div className="t-caption" style={{ lineHeight: 1.5 }}>
+              O acesso é só por convite. Recebeu um? Abra o link que veio na mensagem.
+            </div>
           </div>
         </div>
       </div>

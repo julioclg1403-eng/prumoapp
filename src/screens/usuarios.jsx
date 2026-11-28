@@ -1,10 +1,9 @@
 /* ============================================================
    USUÁRIOS — só o admin chega aqui.
 
-   Convite: o admin cria um link (perfil e obra) e manda pelo próprio
-   WhatsApp. A pessoa cria a conta, confirma o e-mail e PEDE a
-   liberação; o admin libera ou recusa aqui. Cada empresa só vê os
-   pedidos feitos pelos links dela.
+   Convite: o admin informa nome, e-mail, perfil e obra e manda o
+   link pelo próprio WhatsApp. A pessoa só cria a senha e já entra:
+   o convite é a liberação. Não existe cadastro aberto.
 
    Esconder este item do menu também não é segurança. A trava é o
    gatilho `protege_papel` no Postgres: só quem é admin na tabela
@@ -13,23 +12,15 @@
 
 import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
-import { Icon, Chip, PageHeader, Confirmar, Vazio, ChipToggle, Sheet } from '../components'
+import { Icon, Chip, PageHeader, Confirmar, Vazio, ChipToggle } from '../components'
 import { MODULOS_RESTRINGIVEIS } from '../lib/dominio'
 import Convites from '../components/Convites'
-
-/* Sem 0/O, 1/l/I nem outro caractere fácil de confundir ditando por
-   telefone — essa senha vai ser lida em voz alta pro WhatsApp. */
-function gerarSenhaTemporaria() {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
-  let s = ''
-  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)]
-  return s
-}
+import TrocasDeSenha, { useTrocasDeSenha } from '../components/TrocasDeSenha'
 
 const PAPEIS = [
   { valor: 'campo', rotulo: 'Campo', desc: 'Lança diário, presença e pendências. Celular no canteiro.' },
   { valor: 'gestao', rotulo: 'Gestão', desc: 'Indicadores, revisão dos cadastros feitos no campo, acompanhamento.' },
-  { valor: 'admin', rotulo: 'Admin', desc: 'Tudo da gestão, mais convidar pessoas e definir o acesso.' },
+  { valor: 'admin', rotulo: 'Admin', desc: 'Tudo da gestão, mais convidar pessoas, definir o acesso e liberar troca de senha.' },
 ]
 
 const ROTULO_PAPEL = Object.fromEntries(PAPEIS.map((p) => [p.valor, p.rotulo]))
@@ -38,7 +29,7 @@ export default function Usuarios({ voltar, perfil }) {
   const dados = useDados()
   const [confirmar, setConfirmar] = useState(null)
   const [ocupado, setOcupado] = useState(false)
-  const [senhaNova, setSenhaNova] = useState(null) // { nome, senha } — mostrado uma vez só
+  const trocas = useTrocasDeSenha()
 
   const ativos = dados.perfis.filter((u) => u.role && u.organization_id)
   const contatosWhatsapp = dados.contatosWhatsapp || []
@@ -91,19 +82,12 @@ export default function Usuarios({ voltar, perfil }) {
     setOcupado(false)
   }
 
-  const redefinirSenha = (u) => {
+  const liberarSenha = (u) => {
     setConfirmar({
-      titulo: 'Redefinir a senha?',
-      texto: `Gera uma senha temporária nova pra ${u.nome}. A senha antiga dela para de funcionar na hora — passe a nova pra ela assim que der.`,
-      rotuloOk: 'Redefinir',
-      onOk: async () => {
-        setConfirmar(null)
-        setOcupado(true)
-        const senha = gerarSenhaTemporaria()
-        const ok = await dados.redefinirSenhaUsuario(u.id, senha)
-        setOcupado(false)
-        if (ok) setSenhaNova({ nome: u.nome, senha })
-      },
+      titulo: 'Liberar troca de senha?',
+      texto: `Cria um link para ${u.nome} criar uma senha nova. A senha atual continua valendo até a nova ser salva.`,
+      rotuloOk: 'Liberar',
+      onOk: async () => { setConfirmar(null); await trocas.liberar(u.id) },
     })
   }
 
@@ -129,9 +113,11 @@ export default function Usuarios({ voltar, perfil }) {
         <PageHeader titulo="Usuários" sub="Quem tem acesso e com qual perfil" />
 
         <div className="stack-3">
+          <TrocasDeSenha trocas={trocas} empresa={dados.org.nome} />
+
           <Convites
             empresa={dados.org.nome} obras={dados.obras}
-            obraPadrao={perfil.worksite_id} papeis={PAPEIS} aoLiberar={dados.recarregar}
+            obraPadrao={perfil.worksite_id} papeis={PAPEIS} aoEntrarAlguem={dados.recarregar}
           />
 
           {/* ── Quem já tem acesso ── */}
@@ -156,8 +142,8 @@ export default function Usuarios({ voltar, perfil }) {
                       <Chip tom={u.role === 'admin' ? 'info' : ''}>{ROTULO_PAPEL[u.role]}</Chip>
                       {u.id !== perfil.id && (
                         <button
-                          className="btn btn-ghost btn-sm" onClick={() => redefinirSenha(u)} disabled={ocupado}
-                          aria-label={`Redefinir senha de ${u.nome}`} title="Redefinir senha"
+                          className="btn btn-ghost btn-sm" onClick={() => liberarSenha(u)} disabled={ocupado || trocas.ocupado}
+                          aria-label={`Liberar troca de senha de ${u.nome}`} title="Liberar troca de senha"
                         >
                           <Icon name="editar" size={15} /> Senha
                         </button>
@@ -296,10 +282,10 @@ export default function Usuarios({ voltar, perfil }) {
           <div className="card-flat">
             <div className="t-micro" style={{ marginBottom: 8 }}>Como dar acesso a alguém</div>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--text-2)' }}>
-              <li>Em <strong>Convidar pelo WhatsApp</strong>, escolha o perfil e a obra, crie o convite e envie.</li>
-              <li>A pessoa abre o link, cria a conta, confirma o e-mail e toca em <strong>Pedir liberação</strong>.</li>
-              <li>O pedido aparece aqui no alto. Toque em <strong>Liberar</strong>.</li>
-              <li>O convite não cria Admin: se precisar, mude o perfil depois da liberação.</li>
+              <li>Em <strong>Convidar pessoa</strong>, escreva o nome e o e-mail, escolha o perfil e a obra e envie pelo WhatsApp, só para essa pessoa.</li>
+              <li>Ela abre o link, <strong>cria a senha</strong> e já entra na obra.</li>
+              <li>O link vale uma vez, por 48 horas. Mandou errado? Toque em <strong>Cancelar</strong>.</li>
+              <li>O convite não cria Admin: se precisar, mude o perfil depois. Quem esqueceu a senha pede pela tela de entrada; libere aqui (ou use o botão <strong>Senha</strong> no cartão da pessoa) e envie o link.</li>
             </ol>
           </div>
 
@@ -327,38 +313,6 @@ export default function Usuarios({ voltar, perfil }) {
         onCancelar={() => setConfirmar(null)}
       />
 
-      <Sheet
-        aberto={Boolean(senhaNova)}
-        titulo="Senha redefinida"
-        onFechar={() => setSenhaNova(null)}
-        rodape={
-          <button className="btn btn-primary btn-block" onClick={() => setSenhaNova(null)}>Fechar</button>
-        }
-      >
-        {senhaNova && (
-          <div className="stack-2">
-            <div className="t-caption">
-              Passe essa senha pra <strong>{senhaNova.nome}</strong> agora (WhatsApp, por exemplo) —
-              ela só aparece aqui uma vez.
-            </div>
-            <div
-              className="card-flat" style={{ textAlign: 'center', padding: 18 }}
-            >
-              <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '0.05em', fontFamily: 'monospace' }}>
-                {senhaNova.senha}
-              </div>
-            </div>
-            <button
-              className="btn btn-secondary btn-block"
-              onClick={async () => {
-                try { await navigator.clipboard.writeText(senhaNova.senha) } catch { /* clipboard indisponível */ }
-              }}
-            >
-              Copiar senha
-            </button>
-          </div>
-        )}
-      </Sheet>
     </>
   )
 }
