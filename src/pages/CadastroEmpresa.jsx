@@ -5,10 +5,13 @@
    ela cadastrar fica só na empresa dela.
    ============================================================ */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { APP_NOME } from '../lib/config'
 import { Campo } from '../components'
+import { meusConvites, aceitarConvite } from '../lib/convites'
+
+const NOME_DO_PERFIL = { campo: 'Campo', gestao: 'Gestão', admin: 'Admin' }
 
 export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
   const [empresa, setEmpresa] = useState('')
@@ -16,6 +19,24 @@ export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
   const [exemplo, setExemplo] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
+  const [convites, setConvites] = useState([])
+  const [erroConvite, setErroConvite] = useState('')
+
+  const procurarConvites = async () => {
+    const { data, error } = await meusConvites()
+    if (error) { console.error('[Prumo] convites:', error); return }
+    setConvites(data || [])
+  }
+  useEffect(() => { procurarConvites() }, [])
+
+  const aceitar = async (id) => {
+    setErroConvite('')
+    setEnviando(true)
+    const { error } = await aceitarConvite(id)
+    setEnviando(false)
+    if (error) { setErroConvite(error.message); return }
+    onCriada()
+  }
 
   const criar = async (e) => {
     e.preventDefault()
@@ -44,6 +65,19 @@ export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
             </div>
           </div>
 
+          {convites.map((c) => (
+            <div key={c.id} className="card" style={{ marginBottom: 14 }}>
+              <div className="t-strong" style={{ fontSize: 16 }}>{c.empresa} convidou você</div>
+              <div className="t-caption" style={{ margin: '4px 0 12px' }}>
+                Perfil de acesso: {NOME_DO_PERFIL[c.papel] || c.papel}. Aceite só se você conhece essa empresa.
+              </div>
+              <button type="button" className="btn btn-primary btn-block" onClick={() => aceitar(c.id)} disabled={enviando}>
+                Aceitar e entrar
+              </button>
+            </div>
+          ))}
+          {erroConvite && <div className="alert danger" style={{ marginBottom: 14 }}>{erroConvite}</div>}
+
           <form className="card" onSubmit={criar}>
             <div className="stack-2">
               <Campo label="Nome da empresa">
@@ -66,9 +100,12 @@ export default function CadastroEmpresa({ perfil, onCriada, onSair }) {
           </form>
 
           <div className="t-caption" style={{ color: 'var(--on-graphite-2)', textAlign: 'center', marginTop: 16, lineHeight: 1.6 }}>
-            Foi convidado por uma empresa que já usa o {APP_NOME}? Não crie uma obra nova:
-            peça ao administrador dela para liberar o seu acesso.
+            A sua empresa já usa o {APP_NOME}? Não crie uma obra nova: peça ao administrador
+            para convidar o e-mail desta conta.
           </div>
+          <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 8, color: 'var(--on-graphite-2)' }} onClick={procurarConvites}>
+            Procurar convite de novo
+          </button>
           <button className="btn btn-ghost btn-block" style={{ marginTop: 8, color: 'var(--on-graphite-2)' }} onClick={onSair}>
             Sair
           </button>

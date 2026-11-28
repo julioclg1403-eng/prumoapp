@@ -88,9 +88,8 @@ export default function App() {
     return <Login key={entrada} modoInicial={entrada} aoVoltar={() => setEntrada('landing')} />
   }
 
-  /* Conta nova, sem empresa: abre a própria obra. Quem foi
-     convidado por uma empresa já chega com organização definida
-     pelo administrador dela, então não passa por aqui.
+  /* Conta nova, sem empresa: aceita o convite de uma empresa (se
+     houver um para o e-mail dela) ou abre a própria obra.
      Sem empresa, o banco nem deixa a pessoa ler o próprio perfil
      (a regra de acesso é por organização): perfil vazio, sem erro
      de leitura, é exatamente a conta nova. */

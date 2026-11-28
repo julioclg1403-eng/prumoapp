@@ -1,11 +1,10 @@
 /* ============================================================
    LOGIN e CADASTRO.
 
-   Quem se cadastra aqui NÃO ganha acesso: nasce sem papel, e sem
-   papel não enxerga um dado sequer — não é a tela que esconde, é
-   o banco que não entrega. Um admin precisa liberar depois.
-   Esse caminho existe porque convidar por e-mail exigiria a chave
-   administrativa do Supabase, e ela nunca pode ir para o navegador.
+   Quem se cadastra aqui nasce sem empresa e sem papel, e assim não
+   enxerga dado de ninguém — não é a tela que esconde, é o banco que
+   não entrega. Depois a pessoa abre a própria empresa ou aceita o
+   convite feito para o e-mail dela.
    ============================================================ */
 
 import { useState } from 'react'
@@ -74,8 +73,8 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
        dizer desde já qual é a saída alternativa. */
     if (!data.session) {
       setAviso(
-        'Conta criada. Se chegar um e-mail de confirmação, confirme (olhe também no spam). ' +
-        'Se não chegar, fale com o suporte: a conta já existe e o acesso é liberado do mesmo jeito.',
+        'Conta criada. Agora confirme pelo link enviado ao seu e-mail (olhe também no spam) e depois entre. ' +
+        'Se o e-mail não chegar, fale com o suporte.',
       )
       setModo('entrar')
       return
@@ -188,7 +187,7 @@ export default function Login({ modoInicial = 'entrar', aoVoltar }) {
               <>
                 <div className="t-caption" style={{ lineHeight: 1.5, marginBottom: 12 }}>
                   Depois de criar a conta, você abre a sua empresa e a sua primeira obra em um minuto.
-                  Se foi convidado por uma empresa que já usa o Prumo, o administrador dela libera o seu acesso.
+                  Se a sua empresa já usa o Prumo, use o mesmo e-mail do convite feito pelo administrador.
                 </div>
                 <button className="btn btn-secondary btn-block" onClick={() => { setModo('entrar'); setErro(''); setAviso('') }}>
                   Já tenho conta

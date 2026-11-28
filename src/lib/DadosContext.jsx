@@ -4096,16 +4096,9 @@ export function DadosProvider({ perfil, children }) {
   // ── Usuários (só o admin chega aqui) ──────────────────────
   const definirPapel = useCallback(
     async (usuarioId, papel) => {
-      const alvo = tudo?.perfis.find((p) => p.id === usuarioId)
-      const mudanca = { role: papel }
-      /* Quem se cadastrou sozinho ainda não tem organização nem
-         obra. Liberar o acesso é justamente colocá-lo nelas. */
-      if (alvo && !alvo.organization_id) {
-        mudanca.organization_id = perfil.organization_id
-        mudanca.worksite_id = obraId || perfil.worksite_id
-      }
+      /* Só muda o perfil de quem já é da empresa. Entrar na empresa é por convite aceito. */
       const atualizado = checar(
-        await supabase.from('profiles').update(mudanca).eq('id', usuarioId).select('*').single(),
+        await supabase.from('profiles').update({ role: papel }).eq('id', usuarioId).select('*').single(),
         'alterar o perfil de acesso',
       )
       if (!atualizado) return
@@ -4113,7 +4106,7 @@ export function DadosProvider({ perfil, children }) {
         ...t, perfis: t.perfis.map((p) => (p.id === usuarioId ? atualizado : p)),
       }))
     },
-    [tudo, perfil, obraId, checar],
+    [checar],
   )
 
   /* `lista === null` = sem restrição, vê todos os módulos. Um array

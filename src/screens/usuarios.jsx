@@ -1,15 +1,10 @@
 /* ============================================================
    USUÁRIOS — só o admin chega aqui.
 
-   Não existe "convidar por e-mail" nesta versão, e isso é
-   decisão, não falta: mandar convite exige a chave administrativa
-   do Supabase, que NUNCA pode ir para o navegador (BRIEFING,
-   seção 8, item 1). Qualquer pessoa abriria o código da página e
-   teria poder total sobre o banco.
-
-   O caminho é o inverso e é seguro: a pessoa cria a conta sozinha
-   na tela de entrada, cai aqui sem papel nenhum — sem enxergar um
-   dado sequer — e o admin libera.
+   Convite: o admin informa o e-mail e o perfil; a pessoa cria a
+   conta com esse e-mail, confirma e ACEITA. O app não manda e-mail
+   de convite (isso exigiria a chave administrativa, que nunca vai
+   para o navegador). Nenhum admin vê contas de quem não entrou.
 
    Esconder este item do menu também não é segurança. A trava é o
    gatilho `protege_papel` no Postgres: só quem é admin na tabela
@@ -20,6 +15,7 @@ import { useState } from 'react'
 import { useDados } from '../lib/DadosContext'
 import { Icon, Chip, PageHeader, Confirmar, Vazio, ChipToggle, Sheet } from '../components'
 import { MODULOS_RESTRINGIVEIS } from '../lib/dominio'
+import Convites from '../components/Convites'
 
 /* Sem 0/O, 1/l/I nem outro caractere fácil de confundir ditando por
    telefone — essa senha vai ser lida em voz alta pro WhatsApp. */
@@ -33,7 +29,7 @@ function gerarSenhaTemporaria() {
 const PAPEIS = [
   { valor: 'campo', rotulo: 'Campo', desc: 'Lança diário, presença e pendências. Celular no canteiro.' },
   { valor: 'gestao', rotulo: 'Gestão', desc: 'Indicadores, revisão dos cadastros feitos no campo, acompanhamento.' },
-  { valor: 'admin', rotulo: 'Admin', desc: 'Tudo da gestão, mais liberar o acesso de quem se cadastrou.' },
+  { valor: 'admin', rotulo: 'Admin', desc: 'Tudo da gestão, mais convidar pessoas e definir o acesso.' },
 ]
 
 const ROTULO_PAPEL = Object.fromEntries(PAPEIS.map((p) => [p.valor, p.rotulo]))
@@ -44,7 +40,6 @@ export default function Usuarios({ voltar, perfil }) {
   const [ocupado, setOcupado] = useState(false)
   const [senhaNova, setSenhaNova] = useState(null) // { nome, senha } — mostrado uma vez só
 
-  const aguardando = dados.perfis.filter((u) => !u.role || !u.organization_id)
   const ativos = dados.perfis.filter((u) => u.role && u.organization_id)
   const contatosWhatsapp = dados.contatosWhatsapp || []
 
@@ -134,46 +129,7 @@ export default function Usuarios({ voltar, perfil }) {
         <PageHeader titulo="Usuários" sub="Quem tem acesso e com qual perfil" />
 
         <div className="stack-3">
-          {/* ── Fila de liberação ── */}
-          <div>
-            <div className="row-between" style={{ marginBottom: 10 }}>
-              <div className="t-micro">Aguardando liberação</div>
-              {aguardando.length > 0 && <Chip tom="info">{aguardando.length}</Chip>}
-            </div>
-
-            {aguardando.length === 0 ? (
-              <div className="card-flat">
-                <Vazio
-                  titulo="Ninguém esperando"
-                  texto="Quando alguém criar uma conta na tela de entrada, ela aparece aqui para você liberar."
-                />
-              </div>
-            ) : (
-              <div className="stack-1">
-                {aguardando.map((u) => (
-                  <div key={u.id} className="card-flat" style={{ borderLeft: '4px solid var(--info)' }}>
-                    <div style={{ marginBottom: 12 }}>
-                      <div className="t-strong" style={{ fontSize: 15 }}>{u.nome || 'Sem nome'}</div>
-                      <div className="t-caption" style={{ marginTop: 2 }}>{u.email}</div>
-                      <div className="t-caption" style={{ marginTop: 6, color: 'var(--text-3)' }}>
-                        Criou a conta mas ainda não vê nenhum dado da obra.
-                      </div>
-                    </div>
-                    <div className="row-wrap">
-                      {PAPEIS.map((p) => (
-                        <button
-                          key={p.valor} className="btn btn-primary btn-sm"
-                          onClick={() => trocarPapel(u, p.valor)} disabled={ocupado}
-                        >
-                          Liberar como {p.rotulo}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <Convites organizationId={perfil.organization_id} obras={dados.obras} obraPadrao={perfil.worksite_id} papeis={PAPEIS} />
 
           {/* ── Quem já tem acesso ── */}
           <div>
@@ -337,14 +293,10 @@ export default function Usuarios({ voltar, perfil }) {
           <div className="card-flat">
             <div className="t-micro" style={{ marginBottom: 8 }}>Como dar acesso a alguém</div>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--text-2)' }}>
-              <li>A pessoa abre o app e clica em <strong>Criar uma conta</strong>.</li>
-              <li>Ela aparece aqui, na fila acima.</li>
-              <li>Você escolhe o perfil dela. A partir daí ela enxerga a obra.</li>
+              <li>Em <strong>Convidar pessoa</strong>, informe o e-mail, o perfil e a obra, e avise a pessoa.</li>
+              <li>Ela cria a conta no app com <strong>esse mesmo e-mail</strong> e confirma pelo link recebido.</li>
+              <li>Ao entrar, ela toca em <strong>Aceitar e entrar</strong>.</li>
             </ol>
-            <div className="alert info" style={{ marginTop: 12 }}>
-              Não existe convite por e-mail de propósito: mandar convite exigiria guardar a senha
-              mestra do banco dentro da página, onde qualquer um leria.
-            </div>
           </div>
 
           <div className="card-flat">
